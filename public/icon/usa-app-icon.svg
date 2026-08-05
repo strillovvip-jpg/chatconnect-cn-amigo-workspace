@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <clipPath id="rounded"><rect width="512" height="512" rx="92"/></clipPath>
+    <pattern id="stripes" width="512" height="78.77" patternUnits="userSpaceOnUse">
+      <rect width="512" height="39.385" fill="#b22234"/>
+      <rect y="39.385" width="512" height="39.385" fill="#fff"/>
+    </pattern>
+    <pattern id="stars" width="43" height="43" patternUnits="userSpaceOnUse">
+      <text x="4" y="27" fill="#fff" font-family="Arial, sans-serif" font-size="22">★</text>
+    </pattern>
+  </defs>
+  <g clip-path="url(#rounded)">
+    <rect width="512" height="512" fill="url(#stripes)"/>
+    <rect width="292" height="276" fill="#3c3b6e"/>
+    <rect x="9" y="8" width="274" height="260" fill="url(#stars)"/>
+  </g>
+</svg>

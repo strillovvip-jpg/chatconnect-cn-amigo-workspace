@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width,initial-scale=1,viewport-fit=cover"
+    />
+    <title>视频回传移动端测试</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        padding: max(18px, env(safe-area-inset-top)) 16px
+          max(18px, env(safe-area-inset-bottom));
+        background: #080b10;
+        color: #fff;
+        font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      }
+      main {
+        width: min(100%, 720px);
+        margin: auto;
+      }
+      h1 {
+        font-size: 22px;
+      }
+      video {
+        width: 100%;
+        min-height: 240px;
+        max-height: 65dvh;
+        object-fit: contain;
+        background: #000;
+        border-radius: 14px;
+      }
+      button {
+        width: 100%;
+        min-height: 50px;
+        margin: 12px 0;
+        border: 0;
+        border-radius: 12px;
+        background: #c99436;
+        color: #080b10;
+        font-size: 17px;
+        font-weight: 700;
+      }
+      dl {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        padding: 14px;
+        border-radius: 12px;
+        background: #151a22;
+      }
+      dt {
+        color: #9da7b5;
+      }
+      dd {
+        margin: 0;
+        text-align: right;
+      }
+      #status {
+        color: #e4bf73;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>视频回传移动端测试</h1>
+      <p id="role"></p>
+      <video id="video" autoplay playsinline muted></video>
+      <button id="start">开始测试</button>
+      <p id="status">等待中</p>
+      <dl>
+        <dt>接收轨道</dt>
+        <dd id="track">—</dd>
+        <dt>接收帧率（FPS）</dt>
+        <dd id="fps">—</dd>
+        <dt>连接至首帧</dt>
+        <dd id="latency">—</dd>
+        <dt>分辨率</dt>
+        <dd id="resolution">—</dd>
+      </dl>
+    </main>
+    <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.20.1/dist/livekit-client.umd.js"></script>
+    <script>
+      const params = new URLSearchParams(location.search);
+      const role = params.get("role");
+      const token = params.get("token");
+      const url = params.get("url");
+      const video = document.querySelector("#video");
+      const status = document.querySelector("#status");
+      const isSource = role === "source";
+      document.querySelector("#role").textContent = isSource
+        ? "设备 1：发送摄像头画面"
+        : "设备 2：接收回传轨道";
+
+      function fail(message) {
+        status.textContent = `错误：${message}`;
+      }
+      function measureVideo(connectedAt) {
+        let frames = 0;
+        let windowStart = performance.now();
+        let firstFrame = true;
+        const sample = (now) => {
+          if (firstFrame) {
+            firstFrame = false;
+            document.querySelector("#latency").textContent =
+              `${Math.round(now - connectedAt)} ms`;
+          }
+          frames++;
+          const elapsed = now - windowStart;
+          if (elapsed >= 2000) {
+            document.querySelector("#fps").textContent = (
+              (frames * 1000) /
+              elapsed
+            ).toFixed(1);
+            document.querySelector("#resolution").textContent =
+              `${video.videoWidth}×${video.videoHeight}`;
+            frames = 0;
+            windowStart = now;
+          }
+          video.requestVideoFrameCallback(sample);
+        };
+        if ("requestVideoFrameCallback" in video)
+          video.requestVideoFrameCallback(sample);
+        else fail("此浏览器无法测量视频帧率。");
+      }
+
+      document.querySelector("#start").addEventListener("click", async () => {
+        if (!url || !token || !["source", "receiver"].includes(role))
+          return fail("测试 URL 无效。");
+        document.querySelector("#start").disabled = true;
+        try {
+          const room = new LivekitClient.Room({
+            adaptiveStream: true,
+            dynacast: true,
+          });
+          const connectedAt = performance.now();
+          room.on(
+            LivekitClient.RoomEvent.TrackSubscribed,
+            (track, publication) => {
+              if (
+                isSource ||
+                track.kind !== "video" ||
+                !publication.trackName.startsWith("echo-")
+              )
+                return;
+              track.attach(video);
+              video.muted = false;
+              document.querySelector("#track").textContent =
+                publication.trackName;
+              status.textContent = "正在接收回传视频";
+              measureVideo(connectedAt);
+            },
+          );
+          room.on(LivekitClient.RoomEvent.Disconnected, () => {
+            status.textContent = "连接已断开";
+          });
+          await room.connect(url, token);
+          if (isSource) {
+            await room.localParticipant.setCameraEnabled(true);
+            const publication = [
+              ...room.localParticipant.videoTrackPublications.values(),
+            ][0];
+            if (!publication?.track) throw new Error("无法启动摄像头轨道。");
+            publication.track.attach(video);
+            document.querySelector("#track").textContent =
+              publication.trackName || "camera";
+            status.textContent = "正在发送摄像头画面";
+            measureVideo(connectedAt);
+          } else {
+            status.textContent = "正在等待回传轨道…";
+          }
+          window.addEventListener("pagehide", () => room.disconnect(), {
+            once: true,
+          });
+        } catch (error) {
+          fail(error instanceof Error ? error.message : String(error));
+          document.querySelector("#start").disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>

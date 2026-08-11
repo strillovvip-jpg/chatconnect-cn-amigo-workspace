@@ -2,7 +2,7 @@ import type { CapacitorConfig } from "@capacitor/cli";
 import { appBrand } from "./src/app-brand";
 
 const config: CapacitorConfig = {
-  appId: "com.chatconnect.cn",
+  appId: "com.tokoyochet.amigoswaptest",
   appName: appBrand.downloadName,
   webDir: "dist",
   ios: {

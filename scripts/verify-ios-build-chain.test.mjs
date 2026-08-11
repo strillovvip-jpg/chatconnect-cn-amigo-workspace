@@ -46,10 +46,10 @@ test("TestFlight export compliance is declared in the iOS bundle", () => {
   );
 });
 
-test("Capacitor and every Xcode configuration use the production bundle identifier", () => {
+test("Capacitor and every Xcode configuration use the established TestFlight bundle identifier", () => {
   const capacitorConfig = read("capacitor.config.ts");
   const xcodeProject = read("ios/App/App.xcodeproj/project.pbxproj");
-  const productionBundleIdentifier = "com.chatconnect.cn";
+  const productionBundleIdentifier = "com.tokoyochet.amigoswaptest";
   const xcodeBundleIdentifiers = [
     ...xcodeProject.matchAll(/PRODUCT_BUNDLE_IDENTIFIER = ([^;]+);/g),
   ].map((match) => match[1]);
@@ -62,7 +62,7 @@ test("Capacitor and every Xcode configuration use the production bundle identifi
     productionBundleIdentifier,
     productionBundleIdentifier,
   ]);
-  assert.doesNotMatch(xcodeProject, /com\.tokoyochet\.amigoswaptest/);
+  assert.doesNotMatch(xcodeProject, /com\.chatconnect\.cn/);
 });
 
 test("iOS sync preserves native local notifications and hides bundle diagnostics", () => {

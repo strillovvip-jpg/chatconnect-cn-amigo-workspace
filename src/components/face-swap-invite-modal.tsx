@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { useAction, useMutation } from "convex/react";
+import { useAction, useConvex, useMutation } from "convex/react";
 import { Copy, Share2, Video, X } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api.js";
@@ -9,6 +9,10 @@ import { nativeAmigoRoom } from "@/lib/amigo/native-room";
 import { uiErrorMessage } from "@/lib/utils";
 import type { Id } from "@/convex/_generated/dataModel";
 import { OVERLAY_LAYERS } from "@/lib/ui/overlay-layers";
+import {
+  prepareLatestSavedFace,
+  SavedFaceValidationError,
+} from "@/lib/amigo/saved-face";
 
 type CreatedInvite = {
   inviteId: string;
@@ -38,6 +42,7 @@ export function FaceSwapInviteModal({
   const endInvite = useAction(api.calls.endFaceSwapInvite);
   const generateFaceUploadUrl = useMutation(api.faceLibrary.generateUploadUrl);
   const addFace = useMutation(api.faceLibrary.addFace);
+  const convex = useConvex();
   const [creating, setCreating] = useState(false);
   const [ending, setEnding] = useState(false);
   const [savingFace, setSavingFace] = useState(false);
@@ -47,6 +52,14 @@ export function FaceSwapInviteModal({
   const faceInputRef = useRef<HTMLInputElement | null>(null);
 
   if (!open) return null;
+
+  const preparePersistedFace = async (stage: "save" | "create") => {
+    const faces = await convex.query(api.faceLibrary.listMine, {
+      code: userCode,
+      deviceId,
+    });
+    return await prepareLatestSavedFace(faces, stage);
+  };
 
   const handleSaveFace = async () => {
     if (!faceFile) {
@@ -104,14 +117,18 @@ export function FaceSwapInviteModal({
         hasConsent: true,
         subjectIsAdult: true,
       });
-      const enrolled = await amigoFaceSwap.enrollFaceFile(faceFile);
-      if (!enrolled) throw new Error(copy.photoEnrollFailed);
+      const savedFace = await preparePersistedFace("save");
+      if (!savedFace) throw new SavedFaceValidationError(copy.photoEnrollFailed);
       setFaceName("");
       setFaceFile(null);
       if (faceInputRef.current) faceInputRef.current.value = "";
       toast.success(copy.photoReady);
     } catch (error) {
-      toast.error(uiErrorMessage(error, chatCopy.faceAddFailed));
+      toast.error(
+        error instanceof SavedFaceValidationError
+          ? copy.photoEnrollFailed
+          : uiErrorMessage(error, chatCopy.faceAddFailed),
+      );
     } finally {
       setSavingFace(false);
     }
@@ -124,8 +141,8 @@ export function FaceSwapInviteModal({
     }
     setCreating(true);
     try {
-      const status = await nativeAmigoRoom.getStatus();
-      if (!status.hasTargetFace) throw new Error(copy.uploadFaceFirst);
+      const savedFace = await preparePersistedFace("create");
+      if (!savedFace) throw new Error(copy.uploadFaceFirst);
       const created = await createInvite({
         code: userCode,
         deviceId,
@@ -152,7 +169,11 @@ export function FaceSwapInviteModal({
       setInvite(created);
       toast.success(copy.created);
     } catch (error) {
-      toast.error(uiErrorMessage(error, copy.createFailed));
+      toast.error(
+        error instanceof SavedFaceValidationError
+          ? copy.createFailed
+          : uiErrorMessage(error, copy.createFailed),
+      );
     } finally {
       setCreating(false);
     }

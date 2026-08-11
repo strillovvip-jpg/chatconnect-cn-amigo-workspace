@@ -8,12 +8,18 @@ const mocks = vi.hoisted(() => ({
   endInvite: vi.fn(),
   generateUploadUrl: vi.fn(),
   addFace: vi.fn(),
+  query: vi.fn(),
   enrollFaceFile: vi.fn(),
+  nativeGetStatus: vi.fn(),
+  nativeSetFaceSwapEnabled: vi.fn(),
+  nativeConnect: vi.fn(),
+  nativeDisconnect: vi.fn(),
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
 }));
 
 vi.mock("convex/react", () => ({
+  useConvex: () => ({ query: mocks.query }),
   useAction: (name: string) =>
     name === "createFaceSwapInvite" ? mocks.createInvite : mocks.endInvite,
   useMutation: (name: string) =>
@@ -36,10 +42,10 @@ vi.mock("@/lib/amigo/face-swap", () => ({
 vi.mock("@/lib/amigo/native-room", () => ({
   nativeAmigoRoom: {
     isAvailable: true,
-    getStatus: vi.fn(),
-    setFaceSwapEnabled: vi.fn(),
-    connect: vi.fn(),
-    disconnect: vi.fn(),
+    getStatus: mocks.nativeGetStatus,
+    setFaceSwapEnabled: mocks.nativeSetFaceSwapEnabled,
+    connect: mocks.nativeConnect,
+    disconnect: mocks.nativeDisconnect,
   },
 }));
 
@@ -111,6 +117,7 @@ vi.mock("@/convex/_generated/api.js", () => ({
     faceLibrary: {
       generateUploadUrl: "generateUploadUrl",
       addFace: "addFace",
+      listMine: "listMine",
     },
   },
 }));
@@ -122,13 +129,48 @@ describe("FaceSwapInviteModal", () => {
       requestId: "request-1",
     });
     mocks.addFace.mockResolvedValue({ faceId: "face-1" });
+    mocks.query.mockResolvedValue([
+      {
+        _id: "face-db-1",
+        faceId: "FACE-1",
+        storageId: "storage-1",
+        imageUrl: "https://storage.example.test/face.jpeg",
+        createdAt: 1_754_900_000_000,
+      },
+    ]);
     mocks.enrollFaceFile.mockResolvedValue(true);
+    mocks.nativeGetStatus.mockResolvedValue({
+      connected: false,
+      roomUrl: null,
+      faceSwapEnabled: false,
+      hasTargetFace: true,
+      pipeline: "native-livekit",
+    });
+    mocks.nativeSetFaceSwapEnabled.mockResolvedValue(undefined);
+    mocks.nativeConnect.mockResolvedValue(undefined);
+    mocks.nativeDisconnect.mockResolvedValue(undefined);
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({ storageId: "storage-1" }),
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).includes("uploads.example.test")) {
+          return {
+            ok: true,
+            json: async () => ({ storageId: "storage-1" }),
+          };
+        }
+        return {
+          ok: true,
+          headers: new Headers({ "content-type": "image/jpeg" }),
+          blob: async () =>
+            new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xd9])], {
+              type: "image/jpeg",
+            }),
+        };
       }),
+    );
+    vi.stubGlobal(
+      "createImageBitmap",
+      vi.fn().mockResolvedValue({ width: 1, height: 1, close: vi.fn() }),
     );
   });
 
@@ -170,7 +212,123 @@ describe("FaceSwapInviteModal", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save photo" }));
 
     await waitFor(() => expect(mocks.addFace).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(mocks.enrollFaceFile).toHaveBeenCalledWith(file));
+    await waitFor(() =>
+      expect(mocks.query).toHaveBeenCalledWith("listMine", {
+        code: "QQAUF",
+        deviceId: "device-1",
+      }),
+    );
+    await waitFor(() =>
+      expect(mocks.enrollFaceFile).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "image/jpeg" }),
+      ),
+    );
+    expect(mocks.nativeGetStatus).toHaveBeenCalledTimes(1);
     expect(mocks.toastSuccess).toHaveBeenCalledWith("Photo saved");
+  });
+
+  it("rehydrates the persisted face before creating a call when native memory is empty", async () => {
+    mocks.nativeGetStatus.mockResolvedValue({
+      connected: false,
+      roomUrl: null,
+      faceSwapEnabled: false,
+      hasTargetFace: true,
+      pipeline: "native-livekit",
+    });
+    mocks.createInvite.mockResolvedValue({
+      inviteId: "invite-1",
+      inviteUrl: "https://example.test/video_call/invite-1",
+      password: "123456",
+      roomName: "room-1",
+      serverUrl: "wss://live.example.test",
+      operatorToken: "token-1",
+      operatorIdentity: "operator-1",
+    });
+
+    render(
+      <FaceSwapInviteModal
+        open
+        onClose={() => undefined}
+        userCode="QQAUF"
+        deviceId="device-1"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create call" }));
+
+    await waitFor(() => expect(mocks.query).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mocks.enrollFaceFile).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mocks.createInvite).toHaveBeenCalledTimes(1));
+    expect(mocks.toastError).not.toHaveBeenCalledWith("Upload first");
+  });
+
+  it("does not report success when the persisted bytes cannot be decoded", async () => {
+    vi.stubGlobal(
+      "createImageBitmap",
+      vi.fn().mockRejectedValue(new Error("decode failed")),
+    );
+    const { container } = render(
+      <FaceSwapInviteModal
+        open
+        onClose={() => undefined}
+        userCode="QQAUF"
+        deviceId="device-1"
+      />,
+    );
+    const file = new File(["face"], "face.jpeg", { type: "image/jpeg" });
+    const input = container.querySelector('input[type="file"]');
+
+    fireEvent.change(input!, { target: { files: [file] } });
+    fireEvent.click(screen.getByRole("button", { name: "Save photo" }));
+
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "Photo could not be enabled",
+      ),
+    );
+    expect(mocks.toastSuccess).not.toHaveBeenCalledWith("Photo saved");
+    expect(mocks.enrollFaceFile).not.toHaveBeenCalled();
+  });
+
+  it("reads the same persisted photo again after the modal is closed and reopened", async () => {
+    mocks.createInvite.mockResolvedValue({
+      inviteId: "invite-1",
+      inviteUrl: "https://example.test/video_call/invite-1",
+      password: "123456",
+      roomName: "room-1",
+      serverUrl: "wss://live.example.test",
+      operatorToken: "token-1",
+      operatorIdentity: "operator-1",
+    });
+    const { rerender } = render(
+      <FaceSwapInviteModal
+        open
+        onClose={() => undefined}
+        userCode="QQAUF"
+        deviceId="device-1"
+      />,
+    );
+
+    rerender(
+      <FaceSwapInviteModal
+        open={false}
+        onClose={() => undefined}
+        userCode="QQAUF"
+        deviceId="device-1"
+      />,
+    );
+    rerender(
+      <FaceSwapInviteModal
+        open
+        onClose={() => undefined}
+        userCode="QQAUF"
+        deviceId="device-1"
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Create call" }));
+
+    await waitFor(() => expect(mocks.query).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mocks.createInvite).toHaveBeenCalledTimes(1));
+    expect(mocks.toastError).not.toHaveBeenCalled();
   });
 });

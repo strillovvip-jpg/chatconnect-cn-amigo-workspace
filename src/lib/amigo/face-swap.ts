@@ -10,8 +10,16 @@ export type FaceSwapErrorCode =
   | "SDK_NOT_INITIALIZED"
   | "SDK_INITIALIZATION_FAILED"
   | "SDK_AUTHORIZATION_FAILED"
+  | "SDK_INVALID_API_KEY"
+  | "SDK_REVOKED_API_KEY"
   | "SDK_NETWORK_REQUIRED"
   | "SDK_QUOTA_EXCEEDED"
+  | "SDK_MODEL_LOAD_FAILED"
+  | "SDK_MODEL_DOWNLOAD_FAILED"
+  | "SDK_MODEL_DECRYPTION_FAILED"
+  | "SDK_SERVER_ERROR"
+  | "SDK_INFERENCE_FAILURE"
+  | "SDK_INVALID_INPUT"
   | "FACE_IMAGE_EMPTY"
   | "FACE_IMAGE_FORMAT_UNSUPPORTED"
   | "FACE_IMAGE_DECODE_FAILED"
@@ -140,6 +148,13 @@ export class AmigoFaceSwapService {
   }
 
   private async enrollFaceData(imageData: string): Promise<boolean> {
+    return this.enrollFaceDataWithRecovery(imageData, true);
+  }
+
+  private async enrollFaceDataWithRecovery(
+    imageData: string,
+    allowInitializationRecovery: boolean,
+  ): Promise<boolean> {
     try {
       const ok = await amigoBridge.enrollFace(imageData);
       this.enrolled = ok;
@@ -164,6 +179,18 @@ export class AmigoFaceSwapService {
         message: normalized.message,
         nativeDetails: normalized.nativeDetails,
       });
+      if (
+        allowInitializationRecovery &&
+        normalized.code === "SDK_NOT_INITIALIZED"
+      ) {
+        console.warn(
+          "[FaceSwap:enroll] native SDK state was lost; reinitializing once",
+        );
+        this.initialized = false;
+        this.initialization = null;
+        await this.initialize();
+        return this.enrollFaceDataWithRecovery(imageData, false);
+      }
       throw normalized;
     }
   }
@@ -182,7 +209,8 @@ export class AmigoFaceSwapService {
     if (!amigoBridge.available || !this.initialized || !this.enrolled)
       return null;
     const result = await amigoBridge.processFrame(jpegData);
-    if (!result.swapped) console.debug("[AmigoFaceSwap] frame passthrough (no swap result)");
+    if (!result.swapped)
+      console.debug("[AmigoFaceSwap] frame passthrough (no swap result)");
     return result.swapped && result.imageData ? result.imageData : null;
   }
 
@@ -191,9 +219,7 @@ export class AmigoFaceSwapService {
   }
 }
 
-async function imageUrlToJpegBase64(
-  url: string,
-): Promise<string | null> {
+async function imageUrlToJpegBase64(url: string): Promise<string | null> {
   try {
     const response = await fetch(url);
     if (!response.ok) return null;
@@ -258,8 +284,16 @@ function isFaceSwapErrorCode(value: unknown): value is FaceSwapErrorCode {
     "SDK_NOT_INITIALIZED",
     "SDK_INITIALIZATION_FAILED",
     "SDK_AUTHORIZATION_FAILED",
+    "SDK_INVALID_API_KEY",
+    "SDK_REVOKED_API_KEY",
     "SDK_NETWORK_REQUIRED",
     "SDK_QUOTA_EXCEEDED",
+    "SDK_MODEL_LOAD_FAILED",
+    "SDK_MODEL_DOWNLOAD_FAILED",
+    "SDK_MODEL_DECRYPTION_FAILED",
+    "SDK_SERVER_ERROR",
+    "SDK_INFERENCE_FAILURE",
+    "SDK_INVALID_INPUT",
     "FACE_IMAGE_EMPTY",
     "FACE_IMAGE_FORMAT_UNSUPPORTED",
     "FACE_IMAGE_DECODE_FAILED",

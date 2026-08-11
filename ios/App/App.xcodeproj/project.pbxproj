@@ -321,7 +321,7 @@
 				buildSettings = {
 					ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 					CODE_SIGN_STYLE = Automatic;
-					CURRENT_PROJECT_VERSION = 11;
+					CURRENT_PROJECT_VERSION = 13;
 				DEVELOPMENT_TEAM = 7X76A3SM5F;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
@@ -331,7 +331,7 @@
 				);
 				MARKETING_VERSION = 1.0;
 				OTHER_SWIFT_FLAGS = "$(inherited) \"-DDEBUG\"";
-				PRODUCT_BUNDLE_IDENTIFIER = com.tokoyochet.amigoswaptest;
+				PRODUCT_BUNDLE_IDENTIFIER = com.chatconnect.cn;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_VERSION = 5.0;
@@ -344,7 +344,7 @@
 				buildSettings = {
 					ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 					CODE_SIGN_STYLE = Automatic;
-					CURRENT_PROJECT_VERSION = 11;
+					CURRENT_PROJECT_VERSION = 13;
 				DEVELOPMENT_TEAM = 7X76A3SM5F;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
@@ -353,7 +353,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.tokoyochet.amigoswaptest;
+				PRODUCT_BUNDLE_IDENTIFIER = com.chatconnect.cn;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
 				SWIFT_VERSION = 5.0;

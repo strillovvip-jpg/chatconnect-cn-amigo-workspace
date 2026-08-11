@@ -10,6 +10,12 @@ import { LiveKitStage } from "@/components/livekit-stage";
 import { uiErrorMessage } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 import { LanguageSelector } from "@/components/language-selector";
+import {
+  createDeadline,
+  OperationTimeoutError,
+} from "@/lib/async/with-timeout";
+
+const GUEST_JOIN_TIMEOUT_MS = 60_000;
 
 const getPublicInviteSession = makeFunctionReference<
   "query",
@@ -45,9 +51,14 @@ export default function GuestVideoCallPage() {
   const handleJoin = async () => {
     if (!id || !password.trim()) return;
     setJoining(true);
+    const deadline = createDeadline(GUEST_JOIN_TIMEOUT_MS, "guest-join");
+    let nextRoom: Room | null = null;
     try {
-      const join = await joinInvite({ inviteId: id, password: password.trim() });
-      const nextRoom = new Room({
+      const join = await deadline.run(joinInvite({
+        inviteId: id,
+        password: password.trim(),
+      }));
+      nextRoom = new Room({
         adaptiveStream: false,
         dynacast: true,
         videoCaptureDefaults: {
@@ -59,18 +70,27 @@ export default function GuestVideoCallPage() {
         setConnected(false);
         setCallEnded(true);
       });
-      await nextRoom.connect(join.serverUrl, join.token, { autoSubscribe: true });
-      await nextRoom.startAudio().catch(() => undefined);
-      await nextRoom.localParticipant.setMicrophoneEnabled(true);
-      await nextRoom.localParticipant.setCameraEnabled(true, {
-        resolution: { width: 1280, height: 720, frameRate: 24 },
-        facingMode: "user",
-      });
+      await deadline.run(nextRoom.connect(join.serverUrl, join.token, {
+        autoSubscribe: true,
+      }));
+      await deadline.run(nextRoom.startAudio());
+      await deadline.run(nextRoom.localParticipant.setMicrophoneEnabled(true));
+      await deadline.run(
+        nextRoom.localParticipant.setCameraEnabled(true, {
+          resolution: { width: 1280, height: 720, frameRate: 24 },
+          facingMode: "user",
+        }),
+      );
       setRoom(nextRoom);
       setConnected(true);
       setCallEnded(false);
     } catch (error) {
-      toast.error(uiErrorMessage(error, copy.joinError));
+      await nextRoom?.disconnect().catch(() => undefined);
+      toast.error(
+        error instanceof OperationTimeoutError
+          ? copy.joinTimeout
+          : uiErrorMessage(error, copy.joinError),
+      );
     } finally {
       setJoining(false);
     }

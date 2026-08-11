@@ -1,10 +1,58 @@
 import Foundation
 import Capacitor
 import UIKit
+import AVFoundation
 import CoreImage
 import CoreVideo
 import AmigoFaceSwapSDK
 import LiveKit
+
+private enum AmigoSDKDiagnostics {
+    private static let lock = NSLock()
+    private static let formatter = ISO8601DateFormatter()
+    private static let fileName = "amigo-sdk-diagnostics.log"
+
+    static func record(_ message: String) {
+        let line = "\(formatter.string(from: Date())) \(message)\n"
+        CAPLog.print(line.trimmingCharacters(in: .newlines))
+        fputs(line, stderr)
+
+        lock.lock()
+        defer { lock.unlock() }
+        do {
+            let fileManager = FileManager.default
+            let documents = try fileManager.url(
+                for: .documentDirectory,
+                in: .userDomainMask,
+                appropriateFor: nil,
+                create: true
+            )
+            let url = documents.appendingPathComponent(fileName)
+            let data = Data(line.utf8)
+            if !fileManager.fileExists(atPath: url.path) {
+                try data.write(to: url, options: .atomic)
+                return
+            }
+            let handle = try FileHandle(forWritingTo: url)
+            defer { try? handle.close() }
+            try handle.seekToEnd()
+            try handle.write(contentsOf: data)
+        } catch {
+            CAPLog.print("[AmigoSDKDiagnostics] file write failed: \(error)")
+        }
+    }
+
+    static func recordError(stage: String, error: Error, mappedCode: String? = nil) {
+        let nativeError = error as NSError
+        let resolvedCode = mappedCode ?? "UNMAPPED"
+        record(
+            "[AmigoSDK] stage=\(stage) result=error mappedCode=\(resolvedCode) " +
+            "sdkCase=\(AmigoFaceSwapPlugin.officialSDKCase(error)) " +
+            "domain=\(nativeError.domain) nativeCode=\(nativeError.code) " +
+            "message=\(nativeError.localizedDescription) debug=\(String(reflecting: error))"
+        )
+    }
+}
 
 /**
  * Native bridge for the Amigo Face Swap iOS SDK.
@@ -31,22 +79,27 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "connectNativeRoom", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "disconnectNativeRoom", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setNativeFaceSwapEnabled", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "getNativeRoomStatus", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "getNativeRoomStatus", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "requestMediaPermissions", returnType: CAPPluginReturnPromise)
     ]
 
     private var targetLatent: FaceLatent?
     private var didInitialize = false
+    private var didLogFirstProcessedFrame = false
+    #if DEBUG
+    private var liveFrameVerifier: AmigoLiveFrameVerifier?
+    #endif
     private let processingQueue = DispatchQueue(label: "amigo.faceswap.processing", qos: .userInitiated)
     private let nativeSession = NativeLiveKitSession()
 
     @objc override public func load() {
-        CAPLog.print("[AmigoFaceSwapPlugin] loaded into Capacitor bridge")
+        AmigoSDKDiagnostics.record("[AmigoSDK] stage=pluginLoad result=success")
         let apiKey = getConfig().getString("apiKey")
         if let apiKey, !apiKey.isEmpty {
-            CAPLog.print("[AmigoFaceSwapPlugin] bootstrapping SDK from capacitor config")
+            AmigoSDKDiagnostics.record("[AmigoSDK] stage=initialize source=capacitorConfig result=started")
             initializeSDK(apiKey: apiKey)
         } else {
-            CAPLog.print("[AmigoFaceSwapPlugin] no apiKey in capacitor config, waiting for JS initialize() call")
+            AmigoSDKDiagnostics.record("[AmigoSDK] stage=initialize source=javascript result=waiting")
         }
     }
 
@@ -58,7 +111,7 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
                 do {
                     try await AmigoFaceSwap.initialize(apiKey: apiKey, onProgress: nil)
                     self.didInitialize = true
-                    CAPLog.print("[AmigoFaceSwapPlugin] SDK initialize success")
+                    AmigoSDKDiagnostics.record("[AmigoSDK] stage=initialize source=capacitorConfig result=success initialized=true")
                 } catch {
                     self.didInitialize = false
                     failure = error
@@ -68,17 +121,23 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
             let waitResult = semaphore.wait(timeout: .now() + 120)
             if waitResult == DispatchTimeoutResult.timedOut {
                 self.didInitialize = false
-                CAPLog.print("[AmigoFaceSwapPlugin] SDK initialize timed out")
+                AmigoSDKDiagnostics.record("[AmigoSDK] stage=initialize source=capacitorConfig result=error mappedCode=SDK_INITIALIZATION_FAILED message=timeout")
             } else if let failure {
-                self.logNativeError(stage: "initialize", error: failure)
+                let mapped = Self.mappedSDKError(failure, stage: "initialize")
+                self.logNativeError(stage: "initialize", error: failure, mappedCode: mapped.code)
             }
         }
     }
 
     @objc func initialize(_ call: CAPPluginCall) {
+        if didInitialize {
+            AmigoSDKDiagnostics.record("[AmigoSDK] stage=initialize source=javascript result=success initialized=true reused=true")
+            call.resolve(["initialized": true, "reused": true])
+            return
+        }
         let apiKey = call.getString("apiKey") ?? getConfig().getString("apiKey") ?? ""
         guard !apiKey.isEmpty else {
-            CAPLog.print("[AmigoFaceSwapPlugin] initialize rejected: missing apiKey")
+            AmigoSDKDiagnostics.record("[AmigoSDK] stage=initialize source=javascript result=error mappedCode=SDK_API_KEY_MISSING")
             reject(
                 call,
                 stage: "initialize",
@@ -88,13 +147,14 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         processingQueue.async {
+            AmigoSDKDiagnostics.record("[AmigoSDK] stage=initialize source=javascript result=started")
             let semaphore = DispatchSemaphore(value: 0)
             var failure: Error?
             Task {
                 do {
                     try await AmigoFaceSwap.initialize(apiKey: apiKey, onProgress: nil)
                     self.didInitialize = true
-                    CAPLog.print("[AmigoFaceSwapPlugin] initialize() resolved successfully")
+                    AmigoSDKDiagnostics.record("[AmigoSDK] stage=initialize source=javascript result=success initialized=true")
                 } catch {
                     self.didInitialize = false
                     failure = error
@@ -122,7 +182,7 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func enrollFace(_ call: CAPPluginCall) {
         guard didInitialize else {
-            CAPLog.print("[AmigoFaceSwapPlugin] enrollFace rejected: SDK not initialized")
+            AmigoSDKDiagnostics.record("[AmigoSDK] stage=enrollFace result=error mappedCode=SDK_NOT_INITIALIZED")
             reject(
                 call,
                 stage: "enroll",
@@ -168,10 +228,11 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
             "imageHeight": imageHeight,
             "imageOrientation": decodedImage.imageOrientation.rawValue
         ]
-        CAPLog.print(
-            "[AmigoFaceSwapPlugin] enrollFace decoded image bytes=\(data.count) size=\(imageWidth)x\(imageHeight) orientation=\(decodedImage.imageOrientation.rawValue)"
+        AmigoSDKDiagnostics.record(
+            "[AmigoSDK] stage=imageDecode result=success bytes=\(data.count) size=\(imageWidth)x\(imageHeight) orientation=\(decodedImage.imageOrientation.rawValue)"
         )
         processingQueue.async {
+            AmigoSDKDiagnostics.record("[AmigoSDK] stage=enrollFace result=started")
             let semaphore = DispatchSemaphore(value: 0)
             var latent: FaceLatent?
             var failure: Error?
@@ -218,21 +279,62 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             self.targetLatent = latent
             self.nativeSession.setTargetLatent(latent)
-            CAPLog.print("[AmigoFaceSwapPlugin] enrollFace success: latent cached")
+            AmigoSDKDiagnostics.record(
+                "[AmigoSDK] stage=enrollFace result=success faceLatentReceived=true " +
+                "latentType=\(String(reflecting: type(of: latent))) latentHash=\(latent.hashValue) " +
+                "targetLatentStored=true nativeSessionUpdated=true"
+            )
             var success = imageDetails
             success["enrolled"] = true
+            success["latentHash"] = latent.hashValue
             call.resolve(success)
+
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("--amigo-verify-live-frame") {
+                do {
+                    guard let verificationBuffer = Self.pixelBuffer(from: decodedImage) else {
+                        AmigoSDKDiagnostics.record(
+                            "[AmigoSDK] stage=processFrameVerification result=error mappedCode=SDK_INVALID_INPUT"
+                        )
+                        return
+                    }
+                    let verificationResult = try AmigoFaceSwap.processFrame(
+                        verificationBuffer,
+                        using: latent,
+                        lipMode: .innerLips
+                    )
+                    let verificationResultName = verificationResult == nil ? "nil" : "success"
+                    AmigoSDKDiagnostics.record(
+                        "[AmigoSDK] stage=processFrameVerification result=\(verificationResultName) " +
+                        "source=enrolledImage usingCachedLatent=true latentHash=\(latent.hashValue)"
+                    )
+                } catch {
+                    let mapped = Self.mappedSDKError(error, stage: "processFrameVerification")
+                    AmigoSDKDiagnostics.recordError(
+                        stage: "processFrameVerification",
+                        error: error,
+                        mappedCode: mapped.code
+                    )
+                }
+                AmigoSDKDiagnostics.record(
+                    "[AmigoSDK] stage=liveFrameVerification result=started latentHash=\(latent.hashValue)"
+                )
+                let verifier = AmigoLiveFrameVerifier(latent: latent)
+                self.liveFrameVerifier = verifier
+                verifier.start()
+            }
+            #endif
         }
     }
 
     @objc func processFrame(_ call: CAPPluginCall) {
         guard didInitialize else {
-            CAPLog.print("[AmigoFaceSwapPlugin] processFrame skipped: SDK not initialized")
+            AmigoSDKDiagnostics.record("[AmigoSDK] stage=processFrame result=error mappedCode=SDK_NOT_INITIALIZED")
             call.resolve(["swapped": false, "imageData": NSNull()])
             return
         }
         guard let latent = targetLatent else {
-            CAPLog.print("[AmigoFaceSwapPlugin] processFrame skipped: no enrolled face")
+            AmigoSDKDiagnostics.record("[AmigoSDK] stage=processFrame result=error mappedCode=NATIVE_FACE_STATE_MISSING")
             call.resolve(["swapped": false, "imageData": NSNull()])
             return
         }
@@ -240,7 +342,7 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
               let data = Data(base64Encoded: base64),
               let image = UIImage(data: data),
               let pixelBuffer = Self.pixelBuffer(from: image) else {
-            CAPLog.print("[AmigoFaceSwapPlugin] processFrame skipped: invalid input frame")
+            AmigoSDKDiagnostics.record("[AmigoSDK] stage=processFrame result=error mappedCode=SDK_INVALID_INPUT")
             call.resolve(["swapped": false, "imageData": NSNull()])
             return
         }
@@ -249,13 +351,23 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
                 guard let output = try AmigoFaceSwap.processFrame(pixelBuffer, using: latent, lipMode: .innerLips),
                       let outputImage = Self.rasterized(output),
                       let jpeg = outputImage.jpegData(compressionQuality: 0.85) else {
-                    CAPLog.print("[AmigoFaceSwapPlugin] processFrame returned no swapped frame")
+                    AmigoSDKDiagnostics.record(
+                        "[AmigoSDK] stage=processFrame result=nil latentHash=\(latent.hashValue)"
+                    )
                     call.resolve(["swapped": false, "imageData": NSNull()])
                     return
                 }
+                if !self.didLogFirstProcessedFrame {
+                    self.didLogFirstProcessedFrame = true
+                    AmigoSDKDiagnostics.record(
+                        "[AmigoSDK] stage=processFrame result=success usingCachedLatent=true " +
+                        "latentHash=\(latent.hashValue) extent=\(output.extent.width)x\(output.extent.height)"
+                    )
+                }
                 call.resolve(["swapped": true, "imageData": jpeg.base64EncodedString()])
             } catch {
-                CAPLog.print("[AmigoFaceSwapPlugin] processFrame failed: \(error.localizedDescription)")
+                let mapped = Self.mappedSDKError(error, stage: "processFrame")
+                self.logNativeError(stage: "processFrame", error: error, mappedCode: mapped.code)
                 call.resolve(["swapped": false, "imageData": NSNull()])
             }
         }
@@ -328,6 +440,81 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    @objc func requestMediaPermissions(_ call: CAPPluginCall) {
+        let openSettingsIfDenied = call.getBool("openSettingsIfDenied") ?? false
+        DispatchQueue.main.async {
+            self.resolveCameraPermission { camera in
+                self.resolveMicrophonePermission { microphone in
+                    DispatchQueue.main.async {
+                        AmigoSDKDiagnostics.record(
+                            "[MediaPermissions] camera=\(camera) microphone=\(microphone)"
+                        )
+                        if openSettingsIfDenied &&
+                            (camera == "denied" || camera == "restricted" ||
+                             microphone == "denied" || microphone == "restricted"),
+                           let settingsURL = URL(string: UIApplication.openSettingsURLString),
+                           UIApplication.shared.canOpenURL(settingsURL) {
+                            UIApplication.shared.open(settingsURL)
+                        }
+                        call.resolve([
+                            "camera": camera,
+                            "microphone": microphone
+                        ])
+                    }
+                }
+            }
+        }
+    }
+
+    private func resolveCameraPermission(completion: @escaping (String) -> Void) {
+        let status = AVCaptureDevice.authorizationStatus(for: .video)
+        guard status == .notDetermined else {
+            completion(Self.cameraPermissionName(status))
+            return
+        }
+        AVCaptureDevice.requestAccess(for: .video) { granted in
+            completion(granted ? "authorized" : Self.cameraPermissionName(
+                AVCaptureDevice.authorizationStatus(for: .video)
+            ))
+        }
+    }
+
+    private func resolveMicrophonePermission(completion: @escaping (String) -> Void) {
+        let session = AVAudioSession.sharedInstance()
+        guard session.recordPermission == .undetermined else {
+            completion(Self.microphonePermissionName(session.recordPermission))
+            return
+        }
+        session.requestRecordPermission { granted in
+            completion(granted ? "authorized" : Self.microphonePermissionName(
+                AVAudioSession.sharedInstance().recordPermission
+            ))
+        }
+    }
+
+    private static func cameraPermissionName(
+        _ status: AVAuthorizationStatus
+    ) -> String {
+        switch status {
+        case .notDetermined: return "notDetermined"
+        case .restricted: return "restricted"
+        case .denied: return "denied"
+        case .authorized: return "authorized"
+        @unknown default: return "unknown"
+        }
+    }
+
+    private static func microphonePermissionName(
+        _ status: AVAudioSession.RecordPermission
+    ) -> String {
+        switch status {
+        case .undetermined: return "notDetermined"
+        case .denied: return "denied"
+        case .granted: return "authorized"
+        @unknown default: return "unknown"
+        }
+    }
+
     private func rejectSDKError(
         _ call: CAPPluginCall,
         stage: String,
@@ -361,6 +548,7 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
             diagnostic["sdkDomain"] = nativeError.domain
             diagnostic["sdkCode"] = nativeError.code
             diagnostic["sdkMessage"] = nativeError.localizedDescription
+            diagnostic["sdkCase"] = Self.officialSDKCase(error)
             diagnostic["sdkDebugDescription"] = String(reflecting: error)
             logNativeError(stage: stage, error: error, mappedCode: code)
         } else {
@@ -370,15 +558,29 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     private func logNativeError(stage: String, error: Error, mappedCode: String? = nil) {
-        let nativeError = error as NSError
-        CAPLog.print(
-            "[AmigoFaceSwapPlugin] stage=\(stage) code=\(mappedCode ?? "UNMAPPED") " +
-            "domain=\(nativeError.domain) nativeCode=\(nativeError.code) " +
-            "message=\(nativeError.localizedDescription) debug=\(String(reflecting: error))"
-        )
+        AmigoSDKDiagnostics.recordError(stage: stage, error: error, mappedCode: mappedCode)
     }
 
-    private static func mappedSDKError(_ error: Error, stage: String) -> (code: String, message: String) {
+    fileprivate static func officialSDKCase(_ error: Error) -> String {
+        guard let sdkError = error as? AmigoError else { return "nonAmigoError" }
+        switch sdkError {
+        case .notInitialized: return "notInitialized"
+        case .invalidAPIKey: return "invalidAPIKey"
+        case .revokedAPIKey: return "revokedAPIKey"
+        case .quotaExceeded: return "quotaExceeded"
+        case .noFaceDetected: return "noFaceDetected"
+        case .modelLoadFailed: return "modelLoadFailed"
+        case .modelDownloadFailed: return "modelDownloadFailed"
+        case .modelDecryptionFailed: return "modelDecryptionFailed"
+        case .networkRequired: return "networkRequired"
+        case .serverError: return "serverError"
+        case .inferenceFailure: return "inferenceFailure"
+        case .invalidInput: return "invalidInput"
+        @unknown default: return "unknown"
+        }
+    }
+
+    fileprivate static func mappedSDKError(_ error: Error, stage: String) -> (code: String, message: String) {
         guard let sdkError = error as? AmigoError else {
             return (
                 stage == "initialize" ? "SDK_INITIALIZATION_FAILED" : "FACE_ENROLL_FAILED",
@@ -388,22 +590,28 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
         switch sdkError {
         case .notInitialized:
             return ("SDK_NOT_INITIALIZED", "The native image processor has not been initialized.")
-        case .invalidAPIKey(_), .revokedAPIKey:
-            return ("SDK_AUTHORIZATION_FAILED", "Native image processor authorization failed.")
+        case .invalidAPIKey(let reason):
+            return ("SDK_INVALID_API_KEY", reason)
+        case .revokedAPIKey:
+            return ("SDK_REVOKED_API_KEY", sdkError.localizedDescription)
         case .noFaceDetected:
             return ("FACE_NOT_DETECTED", "No usable face was detected in the selected image.")
         case .invalidInput(let reason):
-            return ("FACE_IMAGE_FORMAT_UNSUPPORTED", reason)
+            return ("SDK_INVALID_INPUT", reason)
         case .networkRequired:
             return ("SDK_NETWORK_REQUIRED", "A network connection is required to prepare native image processing.")
         case .quotaExceeded(let limit, let used):
             return ("SDK_QUOTA_EXCEEDED", "Native image processing quota exceeded (\(used)/\(limit)).")
-        case .modelDownloadFailed(let reason), .serverError(let reason):
-            return ("SDK_NETWORK_REQUIRED", reason)
-        case .modelLoadFailed, .modelDecryptionFailed:
-            return ("SDK_INITIALIZATION_FAILED", sdkError.localizedDescription)
+        case .modelDownloadFailed(let reason):
+            return ("SDK_MODEL_DOWNLOAD_FAILED", reason)
+        case .serverError(let reason):
+            return ("SDK_SERVER_ERROR", reason)
+        case .modelLoadFailed:
+            return ("SDK_MODEL_LOAD_FAILED", sdkError.localizedDescription)
+        case .modelDecryptionFailed:
+            return ("SDK_MODEL_DECRYPTION_FAILED", sdkError.localizedDescription)
         case .inferenceFailure(let reason):
-            return ("FACE_ENROLL_FAILED", reason)
+            return ("SDK_INFERENCE_FAILURE", reason)
         @unknown default:
             return (
                 stage == "initialize" ? "SDK_INITIALIZATION_FAILED" : "FACE_ENROLL_FAILED",
@@ -482,6 +690,16 @@ private final class NativeLiveKitSession {
         enableCamera: Bool,
         completion: @escaping (String?) -> Void
     ) {
+        if enableCamera {
+            guard faceSwapEnabled, targetLatent != nil else {
+                AmigoSDKDiagnostics.record(
+                    "[AmigoSDK] stage=nativeRoomConnect result=error " +
+                    "mappedCode=FACE_SWAP_NOT_READY rawCameraPublished=false"
+                )
+                completion("FACE_SWAP_NOT_READY")
+                return
+            }
+        }
         if room != nil {
             disconnect()
         }
@@ -549,6 +767,149 @@ private final class NativeLiveKitSession {
     }
 }
 
+#if DEBUG
+private final class AmigoLiveFrameVerifier: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
+    private let latent: FaceLatent
+    private let session = AVCaptureSession()
+    private let captureQueue = DispatchQueue(label: "amigo.faceswap.live-frame-verifier")
+    private var didProcessFrame = false
+
+    init(latent: FaceLatent) {
+        self.latent = latent
+        super.init()
+    }
+
+    func start() {
+        let authorization = AVCaptureDevice.authorizationStatus(for: .video)
+        AmigoSDKDiagnostics.record(
+            "[AmigoSDK] stage=liveFrameVerification cameraAuthorization=\(authorization.rawValue)"
+        )
+        switch authorization {
+        case .authorized:
+            configureAndStart()
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .video) { granted in
+                let permissionResult = granted ? "granted" : "denied"
+                AmigoSDKDiagnostics.record(
+                    "[AmigoSDK] stage=liveFrameVerification cameraPermissionRequest=\(permissionResult)"
+                )
+                if granted {
+                    self.configureAndStart()
+                }
+            }
+        case .denied:
+            AmigoSDKDiagnostics.record(
+                "[AmigoSDK] stage=liveFrameVerification result=error mappedCode=CAMERA_PERMISSION_DENIED"
+            )
+        case .restricted:
+            AmigoSDKDiagnostics.record(
+                "[AmigoSDK] stage=liveFrameVerification result=error mappedCode=CAMERA_PERMISSION_RESTRICTED"
+            )
+        @unknown default:
+            AmigoSDKDiagnostics.record(
+                "[AmigoSDK] stage=liveFrameVerification result=error mappedCode=CAMERA_PERMISSION_UNKNOWN"
+            )
+        }
+    }
+
+    private func configureAndStart() {
+        captureQueue.async {
+            do {
+                self.session.beginConfiguration()
+                self.session.sessionPreset = .vga640x480
+                guard let camera = AVCaptureDevice.default(
+                    .builtInWideAngleCamera,
+                    for: .video,
+                    position: .front
+                ) else {
+                    self.session.commitConfiguration()
+                    AmigoSDKDiagnostics.record(
+                        "[AmigoSDK] stage=liveFrameVerification result=error mappedCode=FRONT_CAMERA_UNAVAILABLE"
+                    )
+                    return
+                }
+                let input = try AVCaptureDeviceInput(device: camera)
+                guard self.session.canAddInput(input) else {
+                    self.session.commitConfiguration()
+                    AmigoSDKDiagnostics.record(
+                        "[AmigoSDK] stage=liveFrameVerification result=error mappedCode=CAMERA_INPUT_REJECTED"
+                    )
+                    return
+                }
+                self.session.addInput(input)
+
+                let output = AVCaptureVideoDataOutput()
+                output.alwaysDiscardsLateVideoFrames = true
+                output.videoSettings = [
+                    kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+                ]
+                output.setSampleBufferDelegate(self, queue: self.captureQueue)
+                guard self.session.canAddOutput(output) else {
+                    self.session.commitConfiguration()
+                    AmigoSDKDiagnostics.record(
+                        "[AmigoSDK] stage=liveFrameVerification result=error mappedCode=CAMERA_OUTPUT_REJECTED"
+                    )
+                    return
+                }
+                self.session.addOutput(output)
+                self.session.commitConfiguration()
+                self.session.startRunning()
+            } catch {
+                AmigoSDKDiagnostics.recordError(
+                    stage: "liveFrameVerification",
+                    error: error,
+                    mappedCode: "CAMERA_START_FAILED"
+                )
+            }
+        }
+    }
+
+    func captureOutput(
+        _ output: AVCaptureOutput,
+        didOutput sampleBuffer: CMSampleBuffer,
+        from connection: AVCaptureConnection
+    ) {
+        guard !didProcessFrame, let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+            return
+        }
+        didProcessFrame = true
+        do {
+            let result = try AmigoFaceSwap.processFrame(
+                pixelBuffer,
+                using: latent,
+                lipMode: .innerLips
+            )
+            if let result {
+                AmigoSDKDiagnostics.record(
+                    "[AmigoSDK] stage=liveFrameVerification result=success " +
+                    "source=frontCamera usingCachedLatent=true latentHash=\(latent.hashValue) " +
+                    "extent=\(result.extent.width)x\(result.extent.height)"
+                )
+            } else {
+                AmigoSDKDiagnostics.record(
+                    "[AmigoSDK] stage=liveFrameVerification result=nil " +
+                    "source=frontCamera usingCachedLatent=true latentHash=\(latent.hashValue)"
+                )
+            }
+        } catch {
+            let mapped = AmigoFaceSwapPlugin.mappedSDKError(
+                error,
+                stage: "liveFrameVerification"
+            )
+            AmigoSDKDiagnostics.recordError(
+                stage: "liveFrameVerification",
+                error: error,
+                mappedCode: mapped.code
+            )
+        }
+        (output as? AVCaptureVideoDataOutput)?.setSampleBufferDelegate(nil, queue: nil)
+        DispatchQueue.global(qos: .utility).async {
+            self.session.stopRunning()
+        }
+    }
+}
+#endif
+
 private final class AmigoRealtimeVideoProcessor: NSObject, VideoProcessor {
     private let stateLock = NSLock()
     private let ciContext = CIContext(options: nil)
@@ -556,6 +917,9 @@ private final class AmigoRealtimeVideoProcessor: NSObject, VideoProcessor {
     private var faceSwapEnabled = false
     private var cachedPixelBuffer: CVPixelBuffer?
     private var cachedBufferSize: CGSize?
+    private var didLogFirstProcessedFrame = false
+    private var didLogFirstNilFrame = false
+    private var didLogFirstNotReadyFrame = false
 
     func setTargetLatent(_ latent: FaceLatent?) {
         stateLock.lock()
@@ -576,7 +940,14 @@ private final class AmigoRealtimeVideoProcessor: NSObject, VideoProcessor {
         stateLock.unlock()
 
         guard enabled, let latent, let inputBuffer = frame.toCVPixelBuffer() else {
-            return frame
+            if !didLogFirstNotReadyFrame {
+                didLogFirstNotReadyFrame = true
+                AmigoSDKDiagnostics.record(
+                    "[AmigoSDK] stage=realtimeProcessFrame result=dropped " +
+                    "reason=processorNotReady rawCameraPublished=false"
+                )
+            }
+            return nil
         }
 
         do {
@@ -585,16 +956,34 @@ private final class AmigoRealtimeVideoProcessor: NSObject, VideoProcessor {
                 using: latent,
                 lipMode: .innerLips
             ) else {
-                return frame
+                if !didLogFirstNilFrame {
+                    didLogFirstNilFrame = true
+                    AmigoSDKDiagnostics.record(
+                        "[AmigoSDK] stage=realtimeProcessFrame result=nil " +
+                        "usingCachedLatent=true latentHash=\(latent.hashValue) reason=noFaceDetectedInFrame"
+                    )
+                }
+                return nil
             }
             let size = CGSize(
                 width: Int(frame.dimensions.width),
                 height: Int(frame.dimensions.height)
             )
             guard let outputBuffer = getOutputBuffer(for: size) else {
-                return frame
+                AmigoSDKDiagnostics.record(
+                    "[AmigoSDK] stage=realtimeProcessFrame result=dropped " +
+                    "reason=outputBufferAllocationFailed rawCameraPublished=false"
+                )
+                return nil
             }
             ciContext.render(outputImage, to: outputBuffer)
+            if !didLogFirstProcessedFrame {
+                didLogFirstProcessedFrame = true
+                AmigoSDKDiagnostics.record(
+                    "[AmigoSDK] stage=realtimeProcessFrame result=success " +
+                    "usingCachedLatent=true latentHash=\(latent.hashValue) output=publishedTrack"
+                )
+            }
             return VideoFrame(
                 dimensions: frame.dimensions,
                 rotation: frame.rotation,
@@ -602,8 +991,13 @@ private final class AmigoRealtimeVideoProcessor: NSObject, VideoProcessor {
                 buffer: CVPixelVideoBuffer(pixelBuffer: outputBuffer)
             )
         } catch {
-            CAPLog.print("[AmigoRealtimeVideoProcessor] process failed: \(error.localizedDescription)")
-            return frame
+            let mapped = AmigoFaceSwapPlugin.mappedSDKError(error, stage: "processFrame")
+            AmigoSDKDiagnostics.recordError(
+                stage: "realtimeProcessFrame",
+                error: error,
+                mappedCode: mapped.code
+            )
+            return nil
         }
     }
 

@@ -2,6 +2,7 @@ import {
   amigoBridge,
   type AmigoPipelineCapabilities,
   type NativeRoomStatus,
+  type NativeMediaPermissionStatus,
 } from "./bridge.ts";
 
 export type NativeRoomConnectOptions = {
@@ -34,6 +35,12 @@ class NativeAmigoRoomService {
 
   getStatus(): Promise<NativeRoomStatus> {
     return amigoBridge.getNativeRoomStatus();
+  }
+
+  requestMediaPermissions(options: {
+    openSettingsIfDenied?: boolean;
+  } = {}): Promise<NativeMediaPermissionStatus> {
+    return amigoBridge.requestMediaPermissions(options);
   }
 }
 

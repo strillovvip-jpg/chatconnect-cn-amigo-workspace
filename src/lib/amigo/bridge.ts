@@ -19,6 +19,18 @@ export type NativeRoomStatus = {
   pipeline: string;
 };
 
+export type NativeMediaPermission =
+  | "notDetermined"
+  | "restricted"
+  | "denied"
+  | "authorized"
+  | "unknown";
+
+export type NativeMediaPermissionStatus = {
+  camera: NativeMediaPermission;
+  microphone: NativeMediaPermission;
+};
+
 export type AmigoFaceSwapPlugin = {
   initialize(options: { apiKey: string }): Promise<void>;
   enrollFace(options: { imageData: string }): Promise<{ enrolled: boolean }>;
@@ -38,6 +50,9 @@ export type AmigoFaceSwapPlugin = {
     enabled: boolean;
   }): Promise<NativeRoomStatus>;
   getNativeRoomStatus(): Promise<NativeRoomStatus>;
+  requestMediaPermissions(options: {
+    openSettingsIfDenied?: boolean;
+  }): Promise<NativeMediaPermissionStatus>;
 };
 
 export interface AmigoBridge {
@@ -56,6 +71,9 @@ export interface AmigoBridge {
   disconnectNativeRoom(): Promise<NativeRoomStatus>;
   setNativeFaceSwapEnabled(enabled: boolean): Promise<NativeRoomStatus>;
   getNativeRoomStatus(): Promise<NativeRoomStatus>;
+  requestMediaPermissions(options?: {
+    openSettingsIfDenied?: boolean;
+  }): Promise<NativeMediaPermissionStatus>;
 }
 
 const plugin = registerPlugin<AmigoFaceSwapPlugin>("AmigoFaceSwap");
@@ -167,6 +185,14 @@ class CapacitorAmigoBridge implements AmigoBridge {
         pipeline: "unavailable",
       };
     return plugin.getNativeRoomStatus();
+  }
+
+  async requestMediaPermissions(options: {
+    openSettingsIfDenied?: boolean;
+  } = {}): Promise<NativeMediaPermissionStatus> {
+    if (!this.available)
+      return { camera: "unknown", microphone: "unknown" };
+    return plugin.requestMediaPermissions(options);
   }
 }
 

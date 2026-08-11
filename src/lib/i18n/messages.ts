@@ -69,6 +69,7 @@ export type Messages = {
     joinBusy: string;
     joinIdle: string;
     joinError: string;
+    joinTimeout: string;
     unavailableEnded: string;
     unavailableUsed: string;
     unavailableGeneric: string;
@@ -139,6 +140,8 @@ export type Messages = {
     photoErrorNetwork: string;
     photoErrorQuota: string;
     photoErrorEnroll: string;
+    operationTimedOut: string;
+    mediaPermissionRequired: string;
   };
   preCall: {
     dialogLabel: string;
@@ -2160,6 +2163,7 @@ export const messages: Record<AppLocale, Messages> = {
       joinBusy: "参加中...",
       joinIdle: "通話に参加",
       joinError: "ビデオ通話に参加できません。",
+      joinTimeout: "接続に時間がかかっています。通信環境を確認して、もう一度お試しください。",
       unavailableEnded: "この通話リンクは失効しています。",
       unavailableUsed: "この通話リンクはすでに使用されています。",
       unavailableGeneric: "現在この通話には参加できません。",
@@ -2221,6 +2225,8 @@ export const messages: Record<AppLocale, Messages> = {
       photoErrorNetwork: "画像処理機能の準備にはネットワーク接続が必要です。接続後に再試行してください。",
       photoErrorQuota: "画像処理の利用上限に達しました。管理者に連絡してください。",
       photoErrorEnroll: "写真の顔情報を有効化できませんでした。もう一度お試しください。",
+      operationTimedOut: "処理が時間内に完了しませんでした。通信を確認して、もう一度お試しください。",
+      mediaPermissionRequired: "カメラとマイクの使用を許可してから、もう一度お試しください。",
       createBusy: "作成中...",
       createIdle: "通話を作成",
       inviteLink: "招待リンク",
@@ -2386,6 +2392,7 @@ export const messages: Record<AppLocale, Messages> = {
       joinBusy: "加入中...",
       joinIdle: "加入通话",
       joinError: "无法加入视频通话。",
+      joinTimeout: "加入通话超时，请检查网络后重试。",
       unavailableEnded: "此视频链接已失效。",
       unavailableUsed: "此视频链接已被使用。",
       unavailableGeneric: "当前无法加入这场通话。",
@@ -2446,6 +2453,8 @@ export const messages: Record<AppLocale, Messages> = {
       photoErrorNetwork: "准备图像处理功能需要网络连接，请联网后重试。",
       photoErrorQuota: "图像处理使用额度已用完，请联系管理员。",
       photoErrorEnroll: "无法启用照片中的人脸数据，请重试。",
+      operationTimedOut: "处理未能在限定时间内完成，请检查网络后重试。",
+      mediaPermissionRequired: "请先允许使用相机和麦克风，然后重试。",
       createBusy: "建立中...",
       createIdle: "建立视讯",
       inviteLink: "邀请链接",
@@ -2610,6 +2619,7 @@ export const messages: Record<AppLocale, Messages> = {
       joinBusy: "加入中...",
       joinIdle: "加入通話",
       joinError: "無法加入視訊通話。",
+      joinTimeout: "加入通話逾時，請檢查網路後重試。",
       unavailableEnded: "此視訊連結已失效。",
       unavailableUsed: "此視訊連結已被使用。",
       unavailableGeneric: "目前無法加入這場通話。",
@@ -2670,6 +2680,8 @@ export const messages: Record<AppLocale, Messages> = {
       photoErrorNetwork: "準備影像處理功能需要網路連線，請連線後重試。",
       photoErrorQuota: "影像處理使用額度已用完，請聯絡管理員。",
       photoErrorEnroll: "無法啟用照片中的人臉資料，請重試。",
+      operationTimedOut: "處理未能在限定時間內完成，請檢查網路後重試。",
+      mediaPermissionRequired: "請先允許使用相機和麥克風，然後重試。",
       createBusy: "建立中...",
       createIdle: "建立視訊",
       inviteLink: "邀請連結",
@@ -2834,6 +2846,7 @@ export const messages: Record<AppLocale, Messages> = {
       joinBusy: "Joining...",
       joinIdle: "Join call",
       joinError: "Unable to join the video call.",
+      joinTimeout: "Joining timed out. Check the connection and try again.",
       unavailableEnded: "This call link has expired.",
       unavailableUsed: "This call link has already been used.",
       unavailableGeneric: "You cannot join this call right now.",
@@ -2896,6 +2909,8 @@ export const messages: Record<AppLocale, Messages> = {
       photoErrorNetwork: "A network connection is required to prepare image processing. Connect and retry.",
       photoErrorQuota: "The image processing usage limit has been reached. Contact an administrator.",
       photoErrorEnroll: "The face data in this photo could not be enabled. Try again.",
+      operationTimedOut: "The operation timed out. Check the connection and try again.",
+      mediaPermissionRequired: "Allow camera and microphone access, then try again.",
       createBusy: "Creating...",
       createIdle: "Create call",
       inviteLink: "Invite link",

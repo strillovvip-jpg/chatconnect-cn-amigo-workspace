@@ -46,6 +46,25 @@ test("TestFlight export compliance is declared in the iOS bundle", () => {
   );
 });
 
+test("Capacitor and every Xcode configuration use the production bundle identifier", () => {
+  const capacitorConfig = read("capacitor.config.ts");
+  const xcodeProject = read("ios/App/App.xcodeproj/project.pbxproj");
+  const productionBundleIdentifier = "com.chatconnect.cn";
+  const xcodeBundleIdentifiers = [
+    ...xcodeProject.matchAll(/PRODUCT_BUNDLE_IDENTIFIER = ([^;]+);/g),
+  ].map((match) => match[1]);
+
+  assert.match(
+    capacitorConfig,
+    new RegExp(`appId:\\s*[\"']${productionBundleIdentifier}[\"']`),
+  );
+  assert.deepEqual(xcodeBundleIdentifiers, [
+    productionBundleIdentifier,
+    productionBundleIdentifier,
+  ]);
+  assert.doesNotMatch(xcodeProject, /com\.tokoyochet\.amigoswaptest/);
+});
+
 test("iOS sync preserves native local notifications and hides bundle diagnostics", () => {
   const patchScript = read("scripts/patch-ios-spm.mjs");
   const packageSwift = read("ios/App/CapApp-SPM/Package.swift");
@@ -85,7 +104,14 @@ test("native face enrollment reports typed SDK and image failures", () => {
 
   assert.match(plugin, /case \.noFaceDetected/);
   assert.match(plugin, /FACE_NOT_DETECTED/);
-  assert.match(plugin, /SDK_AUTHORIZATION_FAILED/);
+  assert.match(plugin, /case \.invalidAPIKey/);
+  assert.match(plugin, /SDK_INVALID_API_KEY/);
+  assert.match(plugin, /case \.revokedAPIKey/);
+  assert.match(plugin, /SDK_REVOKED_API_KEY/);
+  assert.match(plugin, /case \.quotaExceeded/);
+  assert.match(plugin, /SDK_QUOTA_EXCEEDED/);
+  assert.match(plugin, /case \.networkRequired/);
+  assert.match(plugin, /SDK_NETWORK_REQUIRED/);
   assert.match(plugin, /FACE_ENROLL_TIMEOUT/);
   assert.match(plugin, /FACE_IMAGE_DECODE_FAILED/);
   assert.match(plugin, /DispatchTimeoutResult\.timedOut/);
@@ -97,4 +123,27 @@ test("native face enrollment reports typed SDK and image failures", () => {
     /AmigoFaceSwap\.enrollFace\(from:\s*decodedImage\)/,
   );
   assert.doesNotMatch(plugin, /normalizedEnrollmentImage/);
+});
+
+test("native external face-swap track fails closed instead of publishing raw camera frames", () => {
+  const plugin = read(
+    "ios/App/CapApp-SPM/Sources/CapApp-SPM/AmigoFaceSwapPlugin.swift",
+  );
+  const processor = plugin.slice(
+    plugin.indexOf("private final class AmigoRealtimeVideoProcessor"),
+  );
+
+  assert.match(
+    plugin,
+    /guard faceSwapEnabled, targetLatent != nil else \{[\s\S]{0,400}completion\("FACE_SWAP_NOT_READY"\)[\s\S]{0,80}return\s*\}/,
+  );
+  assert.match(
+    processor,
+    /guard enabled, let latent, let inputBuffer = frame\.toCVPixelBuffer\(\) else \{[\s\S]{0,500}return nil\s*\}/,
+  );
+  assert.doesNotMatch(processor, /return frame/);
+  assert.match(
+    processor,
+    /stage=realtimeProcessFrame result=dropped[\s\S]*reason=processorNotReady/,
+  );
 });

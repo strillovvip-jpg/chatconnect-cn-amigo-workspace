@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   query: vi.fn(),
   enrollFaceFile: vi.fn(),
   nativeGetStatus: vi.fn(),
+  nativeRequestMediaPermissions: vi.fn(),
   nativeSetFaceSwapEnabled: vi.fn(),
   nativeConnect: vi.fn(),
   nativeDisconnect: vi.fn(),
@@ -43,6 +44,7 @@ vi.mock("@/lib/amigo/native-room", () => ({
   nativeAmigoRoom: {
     isAvailable: true,
     getStatus: mocks.nativeGetStatus,
+    requestMediaPermissions: mocks.nativeRequestMediaPermissions,
     setFaceSwapEnabled: mocks.nativeSetFaceSwapEnabled,
     connect: mocks.nativeConnect,
     disconnect: mocks.nativeDisconnect,
@@ -87,6 +89,8 @@ vi.mock("@/lib/i18n", () => ({
         photoErrorNetwork: "Connect to the internet and try again.",
         photoErrorQuota: "The image processing limit has been reached.",
         photoErrorEnroll: "The saved photo could not be enabled.",
+        operationTimedOut: "The operation timed out.",
+        mediaPermissionRequired: "Allow camera and microphone access.",
         createBusy: "Creating...",
         createIdle: "Create call",
         inviteLink: "Invite link",
@@ -155,6 +159,10 @@ describe("FaceSwapInviteModal", () => {
       hasTargetFace: true,
       pipeline: "native-livekit",
     });
+    mocks.nativeRequestMediaPermissions.mockResolvedValue({
+      camera: "authorized",
+      microphone: "authorized",
+    });
     mocks.nativeSetFaceSwapEnabled.mockResolvedValue(undefined);
     mocks.nativeConnect.mockResolvedValue(undefined);
     mocks.nativeDisconnect.mockResolvedValue(undefined);
@@ -201,7 +209,26 @@ describe("FaceSwapInviteModal", () => {
     expect(
       screen.getByRole("button", { name: "Upload face photo" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Save a photo before creating the call.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Save a photo before creating the call."),
+    ).toBeInTheDocument();
+  });
+
+  it("requests native camera and microphone access when the call entry opens", async () => {
+    render(
+      <FaceSwapInviteModal
+        open
+        onClose={() => undefined}
+        userCode="QQAUF"
+        deviceId="device-1"
+      />,
+    );
+
+    await waitFor(() =>
+      expect(mocks.nativeRequestMediaPermissions).toHaveBeenCalledWith({
+        openSettingsIfDenied: false,
+      }),
+    );
   });
 
   it("enrolls the saved photo in the native processor before reporting success", async () => {
@@ -234,6 +261,27 @@ describe("FaceSwapInviteModal", () => {
     );
     expect(mocks.nativeGetStatus).toHaveBeenCalledTimes(1);
     expect(mocks.toastSuccess).toHaveBeenCalledWith("Photo saved");
+  });
+
+  it("prevents create while the face photo is still being saved", async () => {
+    mocks.generateUploadUrl.mockReturnValue(new Promise(() => undefined));
+    const { container } = render(
+      <FaceSwapInviteModal
+        open
+        onClose={() => undefined}
+        userCode="QQAUF"
+        deviceId="device-1"
+      />,
+    );
+    const file = new File(["face"], "face.jpeg", { type: "image/jpeg" });
+    const input = container.querySelector('input[type="file"]');
+
+    fireEvent.change(input!, { target: { files: [file] } });
+    fireEvent.click(screen.getByRole("button", { name: "Save photo" }));
+
+    expect(screen.getByRole("button", { name: "Create call" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Create call" }));
+    expect(mocks.createInvite).not.toHaveBeenCalled();
   });
 
   it("rehydrates the persisted face before creating a call when native memory is empty", async () => {

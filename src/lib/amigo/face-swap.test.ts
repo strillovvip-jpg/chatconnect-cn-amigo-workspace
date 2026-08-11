@@ -75,6 +75,29 @@ describe("AmigoFaceSwapService", () => {
     expect(service.hasTargetFace).toBe(false);
   });
 
+  it("preserves each official Amigo SDK error code for diagnostics", async () => {
+    const nativeError = Object.assign(new Error("The API key was revoked."), {
+      code: "SDK_REVOKED_API_KEY",
+      data: {
+        stage: "enroll",
+        sdkCase: "revokedAPIKey",
+        sdkMessage: "The API key was revoked.",
+      },
+    });
+    mocks.enrollFace.mockRejectedValue(nativeError);
+    const service = new AmigoFaceSwapService("api-key");
+    const file = new File(["face"], "face.jpeg", { type: "image/jpeg" });
+
+    await expect(service.enrollFaceFile(file)).rejects.toMatchObject({
+      code: "SDK_REVOKED_API_KEY",
+      stage: "enroll",
+      message: "The API key was revoked.",
+      nativeDetails: expect.objectContaining({
+        sdkCase: "revokedAPIKey",
+      }),
+    });
+  });
+
   it("allows initialization to be retried after a native initialization failure", async () => {
     mocks.initialize
       .mockRejectedValueOnce(
@@ -92,5 +115,24 @@ describe("AmigoFaceSwapService", () => {
 
     expect(mocks.initialize).toHaveBeenCalledTimes(2);
     expect(service.isInitialized).toBe(true);
+  });
+
+  it("reinitializes once when native enrollment reports lost SDK state", async () => {
+    mocks.enrollFace
+      .mockRejectedValueOnce(
+        Object.assign(new Error("The native SDK has not been initialized."), {
+          code: "SDK_NOT_INITIALIZED",
+          data: { stage: "enroll" },
+        }),
+      )
+      .mockResolvedValueOnce(true);
+    const service = new AmigoFaceSwapService("api-key");
+    const file = new File(["face"], "face.jpeg", { type: "image/jpeg" });
+
+    await expect(service.enrollFaceFile(file)).resolves.toBe(true);
+
+    expect(mocks.initialize).toHaveBeenCalledTimes(2);
+    expect(mocks.enrollFace).toHaveBeenCalledTimes(2);
+    expect(service.hasTargetFace).toBe(true);
   });
 });

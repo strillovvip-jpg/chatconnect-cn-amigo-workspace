@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAction, useConvex, useMutation } from "convex/react";
 import { Copy, Share2, Video, X } from "lucide-react";
 import { toast } from "sonner";
@@ -13,6 +13,13 @@ import {
   prepareLatestSavedFace,
   SavedFaceValidationError,
 } from "@/lib/amigo/saved-face";
+import {
+  createDeadline,
+  OperationTimeoutError,
+} from "@/lib/async/with-timeout";
+
+const SAVE_FACE_TIMEOUT_MS = 90_000;
+const CREATE_CALL_TIMEOUT_MS = 90_000;
 
 type CreatedInvite = {
   inviteId: string;
@@ -36,6 +43,7 @@ type FaceErrorCopy = {
   photoErrorNetwork: string;
   photoErrorQuota: string;
   photoErrorEnroll: string;
+  operationTimedOut: string;
 };
 
 export function FaceSwapInviteModal({
@@ -65,6 +73,15 @@ export function FaceSwapInviteModal({
   const [invite, setInvite] = useState<CreatedInvite | null>(null);
   const faceInputRef = useRef<HTMLInputElement | null>(null);
 
+  useEffect(() => {
+    if (!open || !nativeAmigoRoom.isAvailable) return;
+    void nativeAmigoRoom
+      .requestMediaPermissions({ openSettingsIfDenied: false })
+      .catch((error) =>
+        console.error("[FaceSwap:permissions] request failed", error),
+      );
+  }, [open]);
+
   if (!open) return null;
 
   const preparePersistedFace = async (stage: "save" | "create") => {
@@ -76,6 +93,7 @@ export function FaceSwapInviteModal({
   };
 
   const handleSaveFace = async () => {
+    if (savingFace || creating) return;
     if (!faceFile) {
       toast.error(chatCopy.chooseImageFile);
       return;
@@ -89,22 +107,26 @@ export function FaceSwapInviteModal({
       return;
     }
     setSavingFace(true);
+    const deadline = createDeadline(SAVE_FACE_TIMEOUT_MS, "save-face");
     try {
-      const uploadResult = (await generateFaceUploadUrl({
-        code: userCode,
-        deviceId,
-      })) as string | { uploadUrl: string; requestId: string };
+      const uploadResult = (await deadline.run(
+        generateFaceUploadUrl({ code: userCode, deviceId }),
+      )) as string | { uploadUrl: string; requestId: string };
       const uploadUrl =
-        typeof uploadResult === "string" ? uploadResult : uploadResult.uploadUrl;
+        typeof uploadResult === "string"
+          ? uploadResult
+          : uploadResult.uploadUrl;
       const uploadRequestId =
         typeof uploadResult === "string" ? undefined : uploadResult.requestId;
-      const response = await fetch(uploadUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": faceFile.type || "application/octet-stream",
-        },
-        body: faceFile,
-      });
+      const response = await deadline.run(
+        fetch(uploadUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": faceFile.type || "application/octet-stream",
+          },
+          body: faceFile,
+        }),
+      );
       if (!response.ok)
         throw new Error(chatCopy.imageUploadFailed(response.status));
       const { storageId } = (await response.json()) as {
@@ -112,26 +134,28 @@ export function FaceSwapInviteModal({
       };
       if (!storageId) throw new Error(chatCopy.imageIdMissing);
       if (!uploadRequestId) throw new Error(chatCopy.uploadRequestMissing);
-      await (
-        addFace as unknown as (args: {
-          code: string;
-          deviceId: string;
-          name: string;
-          storageId: Id<"_storage">;
-          uploadRequestId: string;
-          hasConsent: boolean;
-          subjectIsAdult: boolean;
-        }) => Promise<unknown>
-      )({
-        code: userCode,
-        deviceId,
-        name: faceName.trim() || `Face ${new Date().toLocaleDateString()}`,
-        storageId,
-        uploadRequestId,
-        hasConsent: true,
-        subjectIsAdult: true,
-      });
-      const savedFace = await preparePersistedFace("save");
+      await deadline.run(
+        (
+          addFace as unknown as (args: {
+            code: string;
+            deviceId: string;
+            name: string;
+            storageId: Id<"_storage">;
+            uploadRequestId: string;
+            hasConsent: boolean;
+            subjectIsAdult: boolean;
+          }) => Promise<unknown>
+        )({
+          code: userCode,
+          deviceId,
+          name: faceName.trim() || `Face ${new Date().toLocaleDateString()}`,
+          storageId,
+          uploadRequestId,
+          hasConsent: true,
+          subjectIsAdult: true,
+        }),
+      );
+      const savedFace = await deadline.run(preparePersistedFace("save"));
       if (!savedFace)
         throw new SavedFaceValidationError(
           "FACE_IMAGE_NOT_FOUND",
@@ -143,9 +167,11 @@ export function FaceSwapInviteModal({
       toast.success(copy.photoReady);
     } catch (error) {
       toast.error(
-        isFacePipelineError(error)
-          ? facePipelineErrorMessage(error, copy)
-          : uiErrorMessage(error, chatCopy.faceAddFailed),
+        error instanceof OperationTimeoutError
+          ? copy.operationTimedOut
+          : isFacePipelineError(error)
+            ? facePipelineErrorMessage(error, copy)
+            : uiErrorMessage(error, chatCopy.faceAddFailed),
       );
     } finally {
       setSavingFace(false);
@@ -153,27 +179,44 @@ export function FaceSwapInviteModal({
   };
 
   const handleCreate = async () => {
+    if (creating || savingFace) return;
     if (!nativeAmigoRoom.isAvailable) {
       toast.error(copy.nativeOnly);
       return;
     }
     setCreating(true);
+    const deadline = createDeadline(CREATE_CALL_TIMEOUT_MS, "create-call");
     try {
-      const savedFace = await preparePersistedFace("create");
+      const permissions = await deadline.run(
+        nativeAmigoRoom.requestMediaPermissions({
+          openSettingsIfDenied: true,
+        }),
+      );
+      if (
+        permissions.camera !== "authorized" ||
+        permissions.microphone !== "authorized"
+      ) {
+        throw new Error(copy.mediaPermissionRequired);
+      }
+      const savedFace = await deadline.run(preparePersistedFace("create"));
       if (!savedFace) throw new Error(copy.uploadFaceFirst);
-      const created = await createInvite({
-        code: userCode,
-        deviceId,
-        origin: window.location.origin,
-      });
+      const created = await deadline.run(
+        createInvite({
+          code: userCode,
+          deviceId,
+          origin: window.location.origin,
+        }),
+      );
       try {
-        await nativeAmigoRoom.setFaceSwapEnabled(true);
-        await nativeAmigoRoom.connect({
-          url: created.serverUrl,
-          token: created.operatorToken,
-          enableMicrophone: true,
-          enableCamera: true,
-        });
+        await deadline.run(nativeAmigoRoom.setFaceSwapEnabled(true));
+        await deadline.run(
+          nativeAmigoRoom.connect({
+            url: created.serverUrl,
+            token: created.operatorToken,
+            enableMicrophone: true,
+            enableCamera: true,
+          }),
+        );
       } catch (error) {
         await nativeAmigoRoom.setFaceSwapEnabled(false).catch(() => undefined);
         await nativeAmigoRoom.disconnect().catch(() => undefined);
@@ -188,9 +231,11 @@ export function FaceSwapInviteModal({
       toast.success(copy.created);
     } catch (error) {
       toast.error(
-        isFacePipelineError(error)
-          ? facePipelineErrorMessage(error, copy)
-          : uiErrorMessage(error, copy.createFailed),
+        error instanceof OperationTimeoutError
+          ? copy.operationTimedOut
+          : isFacePipelineError(error)
+            ? facePipelineErrorMessage(error, copy)
+            : uiErrorMessage(error, copy.createFailed),
       );
     } finally {
       setCreating(false);
@@ -263,9 +308,7 @@ export function FaceSwapInviteModal({
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold">{copy.title}</h2>
-            <p className="mt-1 text-xs text-white/55">
-              {copy.subtitle}
-            </p>
+            <p className="mt-1 text-xs text-white/55">{copy.subtitle}</p>
           </div>
           <button
             type="button"
@@ -285,7 +328,9 @@ export function FaceSwapInviteModal({
             <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
               <div className="space-y-3">
                 <div>
-                  <p className="text-sm font-medium text-white">{copy.manageFaces}</p>
+                  <p className="text-sm font-medium text-white">
+                    {copy.manageFaces}
+                  </p>
                   <p className="mt-1 text-xs text-white/55">
                     {copy.manageFacesHint}
                   </p>
@@ -315,7 +360,7 @@ export function FaceSwapInviteModal({
                 </button>
                 <button
                   type="button"
-                  disabled={!faceFile || savingFace}
+                  disabled={!faceFile || savingFace || creating}
                   onClick={() => void handleSaveFace()}
                   className="w-full rounded-xl bg-white/10 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
                 >
@@ -325,7 +370,7 @@ export function FaceSwapInviteModal({
             </div>
             <button
               type="button"
-              disabled={creating}
+              disabled={creating || savingFace}
               onClick={() => void handleCreate()}
               className="flex w-full items-center justify-center gap-2 rounded-2xl bg-red-500 px-4 py-3 text-sm font-semibold disabled:opacity-50"
             >
@@ -339,11 +384,15 @@ export function FaceSwapInviteModal({
               <p className="text-[11px] uppercase tracking-[0.2em] text-white/40">
                 {copy.inviteLink}
               </p>
-              <div className="break-all text-sm text-white">{invite.inviteUrl}</div>
+              <div className="break-all text-sm text-white">
+                {invite.inviteUrl}
+              </div>
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => void handleCopy(invite.inviteUrl, copy.linkLabel)}
+                  onClick={() =>
+                    void handleCopy(invite.inviteUrl, copy.linkLabel)
+                  }
                   className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-sm font-medium"
                 >
                   <Copy size={14} />
@@ -369,7 +418,9 @@ export function FaceSwapInviteModal({
               </div>
               <button
                 type="button"
-                onClick={() => void handleCopy(invite.password, copy.passwordLabel)}
+                onClick={() =>
+                  void handleCopy(invite.password, copy.passwordLabel)
+                }
                 className="flex w-full items-center justify-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-sm font-medium"
               >
                 <Copy size={14} />
@@ -422,15 +473,23 @@ function facePipelineErrorMessage(
     case "SDK_API_KEY_MISSING":
     case "SDK_NOT_INITIALIZED":
     case "SDK_INITIALIZATION_FAILED":
+    case "SDK_MODEL_LOAD_FAILED":
+    case "SDK_MODEL_DECRYPTION_FAILED":
       return copy.photoErrorSdkNotReady;
     case "SDK_AUTHORIZATION_FAILED":
+    case "SDK_INVALID_API_KEY":
+    case "SDK_REVOKED_API_KEY":
       return copy.photoErrorAuthorization;
     case "SDK_NETWORK_REQUIRED":
+    case "SDK_MODEL_DOWNLOAD_FAILED":
+    case "SDK_SERVER_ERROR":
       return copy.photoErrorNetwork;
     case "SDK_QUOTA_EXCEEDED":
       return copy.photoErrorQuota;
     case "FACE_ENROLL_TIMEOUT":
     case "FACE_ENROLL_FAILED":
+    case "SDK_INFERENCE_FAILURE":
+    case "SDK_INVALID_INPUT":
     case "NATIVE_FACE_STATE_MISSING":
       return copy.photoErrorEnroll;
     default:

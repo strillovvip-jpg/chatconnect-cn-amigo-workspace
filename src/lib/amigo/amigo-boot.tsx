@@ -44,10 +44,11 @@ export function AmigoFaceSwapBoot() {
   );
 
   useEffect(() => {
-    if (!amigoFaceSwap.isInitialized) return;
     if (!faces || faces.length === 0) return;
     const latest = faces[0];
     if (!latest.imageUrl) return;
+    // enrollFace awaits initialization itself. The previous early return raced
+    // the async SDK startup and left an already-saved photo unenrolled forever.
     void amigoFaceSwap.enrollFace(latest.imageUrl);
   }, [faces]);
 

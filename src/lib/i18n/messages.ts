@@ -129,6 +129,7 @@ export type Messages = {
     photoSaveIdle: string;
     photoSaveBusy: string;
     photoReady: string;
+    photoEnrollFailed: string;
   };
   preCall: {
     dialogLabel: string;
@@ -2201,6 +2202,7 @@ export const messages: Record<AppLocale, Messages> = {
       photoSaveIdle: "写真を保存",
       photoSaveBusy: "保存中...",
       photoReady: "顔写真を保存しました。",
+      photoEnrollFailed: "写真は保存されましたが、有効化できませんでした。正面を向いた鮮明な写真でもう一度お試しください。",
       createBusy: "作成中...",
       createIdle: "通話を作成",
       inviteLink: "招待リンク",
@@ -2416,6 +2418,7 @@ export const messages: Record<AppLocale, Messages> = {
       photoSaveIdle: "保存照片",
       photoSaveBusy: "保存中...",
       photoReady: "人脸照片已保存。",
+      photoEnrollFailed: "照片已保存，但无法启用。请使用清晰的正面照片重试。",
       createBusy: "建立中...",
       createIdle: "建立视讯",
       inviteLink: "邀请链接",
@@ -2630,6 +2633,7 @@ export const messages: Record<AppLocale, Messages> = {
       photoSaveIdle: "保存照片",
       photoSaveBusy: "保存中...",
       photoReady: "人臉照片已保存。",
+      photoEnrollFailed: "照片已保存，但無法啟用。請使用清晰的正面照片重試。",
       createBusy: "建立中...",
       createIdle: "建立視訊",
       inviteLink: "邀請連結",
@@ -2846,6 +2850,7 @@ export const messages: Record<AppLocale, Messages> = {
       photoSaveIdle: "Save photo",
       photoSaveBusy: "Saving...",
       photoReady: "Face photo saved.",
+      photoEnrollFailed: "The photo was saved but could not be enabled. Try again with a clear, front-facing photo.",
       createBusy: "Creating...",
       createIdle: "Create call",
       inviteLink: "Invite link",

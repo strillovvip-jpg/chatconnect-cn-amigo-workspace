@@ -8,6 +8,8 @@ export class AmigoFaceSwapService {
   private initialized = false;
   private enrolled = false;
 
+  constructor(private readonly apiKey = API_KEY) {}
+
   get isAvailable() {
     return amigoBridge.available;
   }
@@ -27,12 +29,12 @@ export class AmigoFaceSwapService {
   }
 
   private async doInitialize(): Promise<void> {
-    if (!API_KEY) {
+    if (!this.apiKey) {
       console.warn("[AmigoFaceSwap] missing VITE_AMIGO_API_KEY, native SDK init skipped");
       return;
     }
     try {
-      await amigoBridge.initialize(API_KEY);
+      await amigoBridge.initialize(this.apiKey);
       this.initialized = true;
       console.info("[AmigoFaceSwap] native SDK initialized");
     } catch (error) {
@@ -42,9 +44,24 @@ export class AmigoFaceSwapService {
 
   /** Build a FaceLatent from the latest face-library photo after login. */
   async enrollFace(imageUrl: string): Promise<boolean> {
+    await this.initialize();
     if (!amigoBridge.available || !this.initialized) return false;
     const imageData = await imageUrlToJpegBase64(imageUrl);
     if (!imageData) return false;
+    return await this.enrollFaceData(imageData);
+  }
+
+  /** Enroll the exact photo selected in the app before reporting it as ready. */
+  async enrollFaceFile(file: Blob): Promise<boolean> {
+    await this.initialize();
+    if (!amigoBridge.available || !this.initialized) return false;
+    const dataUrl = await blobToDataUrl(file);
+    const imageData = dataUrl.split(",")[1];
+    if (!imageData) return false;
+    return await this.enrollFaceData(imageData);
+  }
+
+  private async enrollFaceData(imageData: string): Promise<boolean> {
     try {
       const ok = await amigoBridge.enrollFace(imageData);
       this.enrolled = ok;

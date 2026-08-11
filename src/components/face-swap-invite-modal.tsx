@@ -4,6 +4,7 @@ import { Copy, Share2, Video, X } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api.js";
 import { useI18n } from "@/lib/i18n";
+import { amigoFaceSwap } from "@/lib/amigo/face-swap";
 import { nativeAmigoRoom } from "@/lib/amigo/native-room";
 import { uiErrorMessage } from "@/lib/utils";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -102,6 +103,8 @@ export function FaceSwapInviteModal({
         hasConsent: true,
         subjectIsAdult: true,
       });
+      const enrolled = await amigoFaceSwap.enrollFaceFile(faceFile);
+      if (!enrolled) throw new Error(copy.photoEnrollFailed);
       setFaceName("");
       setFaceFile(null);
       if (faceInputRef.current) faceInputRef.current.value = "";

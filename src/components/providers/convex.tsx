@@ -3,7 +3,8 @@ import {
   ConvexReactClient,
 } from "convex/react";
 
-const convexUrl = import.meta.env.VITE_CONVEX_URL ?? "http://localhost:3000";
+const DEFAULT_CONVEX_URL = "https://adorable-parakeet-350.convex.cloud";
+const convexUrl = import.meta.env.VITE_CONVEX_URL?.trim() || DEFAULT_CONVEX_URL;
 const convex = new ConvexReactClient(convexUrl);
 
 export function ConvexProvider({ children }: { children: React.ReactNode }) {

@@ -1,11 +1,11 @@
 // 独立中文项目缓存，不与英文生产站共享。
-const CACHE_NAME = "chatconnect-cn-full-v1";
+const CACHE_NAME = "chatconnect-cn-full-v2";
 const urlsToCache = [
   "/",
   "/site.webmanifest",
-  "/icon/usa-180.png?v=8",
-  "/icon/usa-192.png?v=8",
-  "/icon/usa-512.png?v=8",
+  "/icon/shojin-180.png?v=1",
+  "/icon/shojin-192.png?v=1",
+  "/icon/shojin-512.png?v=1",
 ];
 
 // Install event - cache core assets

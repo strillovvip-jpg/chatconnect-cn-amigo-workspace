@@ -126,25 +126,25 @@ export function CallOverlay() {
               <p className="text-xl font-semibold text-white">
                 {callInfo?.chatName}
               </p>
-              {isGroup && <p className="text-xs text-white/40">群组通话</p>}
+              {isGroup && <p className="text-xs text-white/40">グループ通話</p>}
               <div className="flex items-center gap-2 text-sm text-white/50 justify-center">
                 <Loader2 size={14} className="animate-spin" />
                 {callState === "ringing"
-                  ? "正在等待对方接听..."
+                  ? "相手の応答を待っています..."
                   : callState === "reconnecting"
-                    ? "正在重新连接..."
-                    : "正在连接..."}
+                    ? "再接続中..."
+                    : "接続中..."}
               </div>
             </div>
             <button
-              aria-label={callState === "ringing" ? "取消呼叫" : "结束通话"}
+              aria-label={callState === "ringing" ? "呼び出しをキャンセル" : "通話を終了"}
               onClick={() => void hangUp()}
               className="mt-2 flex h-16 w-16 items-center justify-center rounded-full bg-red-600 text-white shadow-lg shadow-red-950/40 transition active:scale-95"
             >
               <PhoneOff size={26} />
             </button>
             <span className="-mt-4 text-xs text-white/70">
-              {callState === "ringing" ? "取消呼叫" : "结束通话"}
+              {callState === "ringing" ? "呼び出しをキャンセル" : "通話を終了"}
             </span>
           </motion.div>
         )}
@@ -153,7 +153,7 @@ export function CallOverlay() {
       {/* Top bar */}
       {!isLoading && (
         <div
-          className="absolute top-0 left-0 right-0 grid grid-cols-[auto_1fr_auto] items-center gap-3 px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-4 pointer-events-auto"
+          className="absolute top-0 left-0 right-0 grid grid-cols-[auto_1fr_auto] items-center gap-3 px-4 pt-[max(1rem,var(--app-safe-area-top))] pb-4 pointer-events-auto"
           style={{
             background:
               "linear-gradient(to bottom,rgba(13,21,37,0.85) 0%,transparent 100%)",
@@ -162,10 +162,10 @@ export function CallOverlay() {
           <button
             onClick={minimizeCall}
             className="flex h-11 items-center justify-center gap-1.5 rounded-full bg-white/10 px-3 text-sm font-semibold text-white"
-            aria-label="返回但不中断通话"
+            aria-label="通話を切らずに戻る"
           >
             <ArrowLeft size={18} />
-            <span>返回</span>
+            <span>戻る</span>
           </button>
           <div className="min-w-0 text-center">
             <p className="truncate text-base font-semibold text-white">
@@ -178,7 +178,7 @@ export function CallOverlay() {
               {isGroup && (
                 <span className="flex items-center gap-1 text-xs text-white/50">
                   <Users size={11} />
-                  {participantCount} 人正在通话
+                  {participantCount} 名が通話中
                 </span>
               )}
             </div>
@@ -195,7 +195,7 @@ export function CallOverlay() {
       {!isLoading && (
         <div
           data-call-controls
-          className="absolute bottom-0 left-0 right-0 flex items-center justify-center pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-8 pointer-events-auto"
+          className="absolute bottom-0 left-0 right-0 flex items-center justify-center pb-[max(1.5rem,var(--app-safe-area-bottom))] pt-8 pointer-events-auto"
           style={{
             background:
               "linear-gradient(to top,rgba(13,21,37,0.90) 0%,transparent 100%)",
@@ -206,13 +206,14 @@ export function CallOverlay() {
               <VideoSourceButton
                 source={videoSource.active}
                 switching={videoSource.switching}
+                aiAvailable={can("canAIFace") && aiVideoSourceAvailable}
                 onSwitch={switchVideoSource}
                 onFile={useVideoFile}
               />
             )}
             {callInfo?.callType === "video" && can("canVideoCall") && (
               <CallTool
-                label={camOn ? "摄像头" : "摄像头已关闭"}
+                label={camOn ? "カメラ" : "カメラOFF"}
                 active={camOn}
                 onClick={() => void toggleCam()}
               >
@@ -220,12 +221,12 @@ export function CallOverlay() {
               </CallTool>
             )}
             {callInfo?.callType === "video" && camOn && (
-              <CallTool label="切换摄像头" onClick={() => void flipCamera()}>
+              <CallTool label="カメラ切替" onClick={() => void flipCamera()}>
                 <SwitchCamera size={19} />
               </CallTool>
             )}
             <CallTool
-              label={micOn ? "麦克风" : "麦克风已关闭"}
+              label={micOn ? "マイク" : "マイクOFF"}
               active={micOn}
               onClick={() => void toggleMic()}
             >
@@ -233,12 +234,12 @@ export function CallOverlay() {
             </CallTool>
             {callInfo?.callType === "video" && can("canScreenShare") && (
               <CallTool
-                label={screenShareOn ? "停止共享" : "共享屏幕"}
+                label={screenShareOn ? "共有停止" : "画面共有"}
                 active={screenShareOn}
                 disabled={!screenShareOn && !screenShareSupported}
                 onClick={() =>
                   void toggleScreenShare().catch((error) =>
-                    toast.error(uiErrorMessage(error, "此设备无法共享屏幕。")),
+                    toast.error(uiErrorMessage(error, "この端末では画面共有できません。")),
                   )
                 }
               >
@@ -249,7 +250,7 @@ export function CallOverlay() {
                 )}
               </CallTool>
             )}
-            <CallTool label="结束通话" danger onClick={() => void hangUp()}>
+            <CallTool label="通話終了" danger onClick={() => void hangUp()}>
               <PhoneOff size={20} />
             </CallTool>
           </div>
@@ -276,11 +277,11 @@ function WaitingVideoPreview({ file, loop }: { file: File; loop: boolean }) {
           playsInline
           loop={loop}
           className="h-full w-full object-contain"
-          aria-label="呼叫中的视频预览"
+          aria-label="通話前の動画プレビュー"
         />
       )}
       <div className="absolute bottom-3 left-3 rounded-full bg-black/60 px-3 py-1 text-xs text-white/80 backdrop-blur">
-        正在播放将要发送的视频
+        送信予定の動画を再生中
       </div>
     </div>
   );
@@ -308,10 +309,10 @@ function VideoSourceButton({
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const labels = {
-    camera: "摄像头",
-    "video-file": "视频",
+    camera: "カメラ",
+    "video-file": "動画",
     ai: "AI 换脸",
-    "screen-share": "屏幕共享",
+    "screen-share": "画面共有",
   } as const;
   const run = async (task: () => Promise<void>, close = true) => {
     setBusy(true);
@@ -319,7 +320,7 @@ function VideoSourceButton({
       await task();
       if (close) setOpen(false);
     } catch (error) {
-      toast.error(uiErrorMessage(error, "无法切换视频来源。"));
+      toast.error(uiErrorMessage(error, "映像ソースを切り替えられません。"));
     } finally {
       setBusy(false);
     }
@@ -341,7 +342,7 @@ function VideoSourceButton({
       </CallTool>
       {open && (
         <div
-          className="fixed inset-0 z-[62000] flex items-end justify-center bg-black/55 p-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:items-center"
+          className="fixed inset-0 z-[62000] flex items-end justify-center bg-black/55 p-3 pb-[max(1rem,var(--app-safe-area-bottom))] sm:items-center"
           onClick={() => setOpen(false)}
         >
           <div
@@ -350,14 +351,14 @@ function VideoSourceButton({
           >
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-lg font-semibold">视频来源</h2>
+                <h2 className="text-lg font-semibold">映像ソース</h2>
                 <p className="mt-1 text-xs text-white/55">
-                  在不中断通话的情况下切换视频
+                  通話を切らずに映像ソースを切り替えます
                 </p>
               </div>
               <button
                 type="button"
-                aria-label="关闭"
+                aria-label="閉じる"
                 onClick={() => setOpen(false)}
                 className="rounded-full p-2 text-white/70"
               >
@@ -368,19 +369,19 @@ function VideoSourceButton({
               <SourceOption
                 active={source === "camera"}
                 disabled={busy}
-                label="摄像头"
+                label="カメラ"
                 onClick={() => void run(() => onSwitch("camera"))}
               />
               <SourceOption
                 active={source === "screen-share"}
                 disabled={busy}
-                label="屏幕共享"
+                label="画面共有"
                 onClick={() => void run(() => onSwitch("screen-share"))}
               />
               <SourceOption
                 active={source === "video-file"}
                 disabled={busy}
-                label="选择视频文件"
+                label="動画ファイルを選択"
                 onClick={() => fileRef.current?.click()}
               />
               {aiAvailable && (
@@ -404,14 +405,14 @@ function VideoSourceButton({
               }}
             />
             <p className="mt-4 rounded-xl bg-white/7 px-3 py-3 text-sm text-white/65">
-              所选视频将持续循环播放，直到您更换视频或切换回摄像头。
+              選択した動画は、別の動画に切り替えるかカメラに戻すまでループ再生されます。
             </p>
             <div className="mt-3 flex gap-2">
               <input
                 value={url}
                 onChange={(event) => setUrl(event.target.value)}
                 inputMode="url"
-                placeholder="已上传视频的网址"
+                placeholder="アップロード済み動画のURL"
                 className="min-w-0 flex-1 rounded-xl border border-white/15 bg-white/7 px-3 py-2 text-sm outline-none focus:border-blue-500"
               />
               <button
@@ -422,7 +423,7 @@ function VideoSourceButton({
                 }
                 className="rounded-xl bg-blue-600 px-4 text-sm font-semibold disabled:opacity-40"
               >
-                播放
+                再生
               </button>
             </div>
           </div>
@@ -534,7 +535,7 @@ export function CallPiP() {
     <motion.div
       role="button"
       tabIndex={0}
-      aria-label="返回全屏通话"
+      aria-label="全画面通話に戻る"
       initial={{ opacity: 0, scale: 0.8, y: 20 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.8, y: 20 }}
@@ -626,7 +627,7 @@ export function CallPiP() {
                 {formatDuration(duration)}
               </span>
               <button
-                aria-label="返回全屏"
+                aria-label="全画面に戻る"
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -642,7 +643,7 @@ export function CallPiP() {
           {isGroup && (
             <div className="flex items-center gap-1 text-[9px] text-white/50">
               <Users size={9} />
-              {participantCount} 人
+              {participantCount} 名
             </div>
           )}
           <div className="flex items-center gap-1.5">
@@ -650,7 +651,7 @@ export function CallPiP() {
               <TransferButton compact />
             )}
             <button
-              aria-label="开关麦克风"
+              aria-label="マイク切替"
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
@@ -671,7 +672,7 @@ export function CallPiP() {
             </button>
             {callInfo?.callType === "video" && can("canScreenShare") && (
               <button
-                aria-label="开关摄像头"
+                aria-label="カメラ切替"
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -693,13 +694,13 @@ export function CallPiP() {
             )}
             {callInfo?.callType === "video" && (
               <button
-                aria-label={screenShareOn ? "停止屏幕共享" : "共享屏幕"}
+                aria-label={screenShareOn ? "画面共有を停止" : "画面を共有"}
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
                   e.stopPropagation();
                   void toggleScreenShare().catch((error) =>
                     toast.error(
-                      uiErrorMessage(error, "此设备不支持屏幕共享。"),
+                      uiErrorMessage(error, "この端末は画面共有に対応していません。"),
                     ),
                   );
                 }}
@@ -718,7 +719,7 @@ export function CallPiP() {
               </button>
             )}
             <button
-              aria-label="结束通话"
+              aria-label="通話終了"
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
@@ -798,7 +799,7 @@ function TransferButton({ compact }: { compact: boolean }) {
         style={{ background: "rgba(255,255,255,.18)", color: "white" }}
       >
         <ArrowRightLeft size={compact ? 12 : 14} />
-        {!compact && (transferInProgress ? "正在转接" : "转接")}
+        {!compact && (transferInProgress ? "転送中" : "転送")}
       </button>
       {open && (
         <div

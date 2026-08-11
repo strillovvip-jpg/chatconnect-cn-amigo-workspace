@@ -12,7 +12,6 @@ import {
   Pencil,
   Trash2,
   ImagePlus,
-  FileText,
 } from "lucide-react";
 import {
   useMutation,
@@ -29,6 +28,7 @@ import {
   type OutgoingCallSelection,
 } from "@/components/pre-call-selector.tsx";
 import { uiErrorMessage } from "@/lib/utils.ts";
+import { ChatMessageContent } from "./chat-message-content";
 
 type LocationState = {
   chatName?: string;
@@ -41,9 +41,9 @@ export default function ChatPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const state = (location.state ?? {}) as LocationState;
-  const chatName = state.chatName ?? theirCode ?? "对方";
+  const chatName = state.chatName ?? theirCode ?? "相手";
   const myCode = state.myCode ?? localStorage.getItem("ksc_session_code") ?? "";
-  const myName = state.myName ?? "我";
+  const myName = state.myName ?? "自分";
   const deviceId = localStorage.getItem("ksc_device_id") ?? "";
 
   const [text, setText] = useState("");
@@ -100,7 +100,7 @@ export default function ChatPage() {
       });
       setCallSelectorMode(null);
     } catch {
-      toast.error("发起通话失败。");
+      toast.error("通話を開始できませんでした。");
     } finally {
       setCallLoading(false);
     }
@@ -109,16 +109,23 @@ export default function ChatPage() {
   const handleAddFace = async () => {
     if (!faceName.trim() || !faceFile) return;
     if (!faceFile.type.startsWith("image/")) {
-      toast.error("请选择图片文件。");
+      toast.error("画像ファイルを選択してください。");
       return;
     }
     if (faceFile.size > 10 * 1024 * 1024) {
-      toast.error("图片大小不能超过 10 MB。");
+      toast.error("画像サイズは 10 MB 以下にしてください。");
       return;
     }
     setFaceSaving(true);
     try {
-      const uploadUrl = await generateFaceUploadUrl({ code: myCode, deviceId });
+      const uploadResult = (await generateFaceUploadUrl({
+        code: myCode,
+        deviceId,
+      })) as string | { uploadUrl: string; requestId: string };
+      const uploadUrl =
+        typeof uploadResult === "string" ? uploadResult : uploadResult.uploadUrl;
+      const uploadRequestId =
+        typeof uploadResult === "string" ? undefined : uploadResult.requestId;
       const response = await fetch(uploadUrl, {
         method: "POST",
         headers: {
@@ -126,18 +133,39 @@ export default function ChatPage() {
         },
         body: faceFile,
       });
-      if (!response.ok) throw new Error(`图片上传失败（${response.status}）。`);
+      if (!response.ok)
+        throw new Error(`画像のアップロードに失敗しました（${response.status}）。`);
       const { storageId } = (await response.json()) as {
         storageId?: Id<"_storage">;
       };
-      if (!storageId) throw new Error("无法获取图片编号。");
-      await addFace({ code: myCode, deviceId, name: faceName, storageId });
+      if (!storageId) throw new Error("画像IDを取得できませんでした。");
+      if (!uploadRequestId)
+        throw new Error("アップロード要求IDを確認できませんでした。");
+      await (
+        addFace as unknown as (args: {
+          code: string;
+          deviceId: string;
+          name: string;
+          storageId: Id<"_storage">;
+          uploadRequestId: string;
+          hasConsent: boolean;
+          subjectIsAdult: boolean;
+        }) => Promise<unknown>
+      )({
+        code: myCode,
+        deviceId,
+        name: faceName,
+        storageId,
+        uploadRequestId,
+        hasConsent: true,
+        subjectIsAdult: true,
+      });
       setFaceName("");
       setFaceFile(null);
       setAddFaceOpen(false);
-      toast.success("已添加到人脸资料库");
+      toast.success("顔ライブラリに追加しました。");
     } catch (error) {
-      toast.error(uiErrorMessage(error, "无法添加人脸资料。"));
+      toast.error(uiErrorMessage(error, "顔ライブラリに追加できません。"));
     } finally {
       setFaceSaving(false);
     }
@@ -147,24 +175,24 @@ export default function ChatPage() {
     faceId: Id<"face_library">,
     currentName: string,
   ) => {
-    const name = window.prompt("请输入新名称", currentName);
+    const name = window.prompt("新しい名前を入力してください", currentName);
     if (name === null || name.trim() === currentName) return;
     try {
       await renameFace({ code: myCode, deviceId, faceId, name });
-      toast.success("名称已更改");
+      toast.success("名前を変更しました。");
     } catch (error) {
-      toast.error(uiErrorMessage(error, "无法更改名称。"));
+      toast.error(uiErrorMessage(error, "名前を変更できません。"));
     }
   };
 
   const handleDeleteFace = async (faceId: Id<"face_library">, name: string) => {
-    if (!window.confirm(`确定删除“${name}”吗？`)) return;
+    if (!window.confirm(`「${name}」を削除しますか？`)) return;
     try {
       await deleteFace({ code: myCode, deviceId, faceId });
       if (previewFace?.name === name) setPreviewFace(null);
-      toast.success("已删除");
+      toast.success("削除しました。");
     } catch (error) {
-      toast.error(uiErrorMessage(error, "无法删除。"));
+      toast.error(uiErrorMessage(error, "削除できません。"));
     }
   };
 
@@ -192,7 +220,7 @@ export default function ChatPage() {
       });
       setText("");
     } catch {
-      toast.error("发送失败。");
+      toast.error("送信に失敗しました。");
     } finally {
       setSending(false);
     }
@@ -205,6 +233,15 @@ export default function ChatPage() {
     }
   };
 
+  const handleCopyCode = async (value: string) => {
+    try {
+      await navigator.clipboard.writeText(value.trim());
+      toast.success("認証コードをコピーしました。");
+    } catch {
+      toast.error("認証コードをコピーできませんでした。");
+    }
+  };
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !myCode || !theirCode) return;
@@ -213,7 +250,7 @@ export default function ChatPage() {
     setSending(true);
     try {
       if (file.size > 50 * 1024 * 1024) {
-        toast.error("文件大小不能超过 50 MB。");
+        toast.error("ファイルサイズは 50 MB 以下にしてください。");
         return;
       }
       const uploadUrl = await generateUploadUrl({
@@ -226,9 +263,9 @@ export default function ChatPage() {
         headers: { "Content-Type": file.type },
         body: file,
       });
-      if (!res.ok) throw new Error(`上传失败（${res.status}）`);
+      if (!res.ok) throw new Error(`アップロードに失敗しました（${res.status}）`);
       const { storageId } = (await res.json()) as { storageId: string };
-      if (!storageId) throw new Error("无法确认已上传的文件");
+      if (!storageId) throw new Error("アップロード済みファイルを確認できませんでした");
       await sendMedia({
         myCode,
         myName,
@@ -240,7 +277,7 @@ export default function ChatPage() {
         deviceId,
       });
     } catch {
-      toast.error("文件发送失败。");
+      toast.error("ファイル送信に失敗しました。");
     } finally {
       setSending(false);
       e.target.value = "";
@@ -272,7 +309,7 @@ export default function ChatPage() {
         style={{ borderColor: "oklch(1 0 0 / 8%)" }}
       >
         <button
-          aria-label="返回上一页"
+          aria-label="前の画面に戻る"
           className="cursor-pointer opacity-70 hover:opacity-100 p-1"
           onClick={() => navigate(-1)}
         >
@@ -287,12 +324,12 @@ export default function ChatPage() {
         <div className="flex-1 min-w-0">
           <div className="text-sm font-semibold truncate">{chatName}</div>
           <div className="text-xs" style={{ color: "#22c55e" }}>
-            在线
+            オンライン
           </div>
         </div>
         <div className="flex items-center gap-3">
           <button
-            aria-label="发起语音通话"
+            aria-label="音声通話を開始"
             className="cursor-pointer opacity-70 hover:opacity-100 p-1 disabled:opacity-30"
             disabled={callLoading || !theirCode}
             onClick={() => setCallSelectorMode("audio")}
@@ -300,7 +337,7 @@ export default function ChatPage() {
             <Phone size={20} />
           </button>
           <button
-            aria-label="发起视频通话"
+            aria-label="ビデオ通話を開始"
             className="cursor-pointer opacity-70 hover:opacity-100 p-1 disabled:opacity-30"
             disabled={callLoading || !theirCode}
             onClick={() => setCallSelectorMode("camera")}
@@ -318,7 +355,7 @@ export default function ChatPage() {
               onClick={() => loadMore(30)}
               className="text-xs opacity-40 cursor-pointer hover:opacity-70"
             >
-              加载更多
+              さらに読み込む
             </button>
           </div>
         )}
@@ -337,51 +374,14 @@ export default function ChatPage() {
                   {chatName.charAt(0)}
                 </div>
               )}
-              <div
-                className={`max-w-[72%] ${isMe ? "items-end" : "items-start"} flex flex-col gap-1`}
-              >
-                {msg.type === "text" && (
-                  <div
-                    className="px-3 py-2 rounded-2xl text-sm leading-relaxed"
-                    style={{
-                      background: isMe
-                        ? "oklch(0.5 0.07 220)"
-                        : "oklch(0.22 0.03 240)",
-                      borderBottomRightRadius: isMe ? 4 : undefined,
-                      borderBottomLeftRadius: !isMe ? 4 : undefined,
-                    }}
-                  >
-                    {msg.text}
-                  </div>
-                )}
-                {msg.type === "image" && msg.mediaUrl && (
-                  <img
-                    src={msg.mediaUrl}
-                    alt="图片"
-                    className="max-w-full rounded-xl"
-                    style={{ maxHeight: 280 }}
+                <div
+                  className={`max-w-[72%] ${isMe ? "items-end" : "items-start"} flex flex-col gap-1`}
+                >
+                  <ChatMessageContent
+                    message={msg}
+                    isMe={isMe}
+                    onCopyCode={handleCopyCode}
                   />
-                )}
-                {msg.type === "video" && msg.mediaUrl && (
-                  <video
-                    src={msg.mediaUrl}
-                    controls
-                    className="max-w-full rounded-xl"
-                    style={{ maxHeight: 280 }}
-                  />
-                )}
-                {msg.type === "file" && msg.mediaUrl && (
-                  <a
-                    href={msg.mediaUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    download={msg.fileName}
-                    className="flex max-w-full items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm hover:bg-white/10"
-                  >
-                    <FileText size={18} className="shrink-0" />
-                    <span className="truncate">{msg.fileName || "附件"}</span>
-                  </a>
-                )}
                 <div className="text-[10px] opacity-30 px-1">
                   {new Date(msg.sentAt).toLocaleTimeString("zh-CN", {
                     hour: "2-digit",
@@ -404,7 +404,7 @@ export default function ChatPage() {
       >
         {/* Media upload */}
         <button
-          aria-label="发送图片、视频或文件"
+          aria-label="画像・動画・ファイルを送信"
           className="cursor-pointer opacity-60 hover:opacity-100 p-2 shrink-0"
           onClick={() => fileInputRef.current?.click()}
           disabled={sending}
@@ -423,7 +423,7 @@ export default function ChatPage() {
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="输入消息..."
+          placeholder="メッセージを入力..."
           rows={1}
           disabled={sending}
           className="flex-1 rounded-2xl px-4 py-2.5 text-sm text-white placeholder:text-white/30 outline-none resize-none disabled:opacity-50"
@@ -435,7 +435,7 @@ export default function ChatPage() {
         />
 
         <button
-          aria-label="发送消息"
+          aria-label="メッセージを送信"
           onClick={handleSendText}
           disabled={!text.trim() || sending}
           className="shrink-0 w-10 h-10 rounded-full flex items-center justify-center cursor-pointer disabled:opacity-30 transition-opacity"
@@ -460,15 +460,15 @@ export default function ChatPage() {
             <header className="flex items-center justify-between border-b border-white/10 px-5 py-4">
               <div>
                 <h2 id="face-library-title" className="text-base font-bold">
-                  人脸资料库
+                  顔ライブラリ
                 </h2>
                 <p className="mt-1 text-xs text-white/45">
-                  保存和管理照片及人脸编号
+                  写真と顔データを保存・管理します
                 </p>
               </div>
               <button
                 type="button"
-                aria-label="关闭人脸资料库"
+                aria-label="顔ライブラリを閉じる"
                 onClick={() => setFaceLibraryOpen(false)}
                 className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10"
               >
@@ -481,7 +481,7 @@ export default function ChatPage() {
                 onClick={() => setAddFaceOpen((open) => !open)}
                 className="w-full rounded-xl bg-blue-600 py-3 text-sm font-bold"
               >
-                添加人脸
+                顔を追加
               </button>
               {addFaceOpen && (
                 <div className="mt-4 space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -489,11 +489,11 @@ export default function ChatPage() {
                     value={faceName}
                     maxLength={80}
                     onChange={(event) => setFaceName(event.target.value)}
-                    placeholder="人脸名称"
+                    placeholder="顔データ名"
                     className="w-full rounded-xl bg-black/25 px-4 py-3 text-sm outline-none"
                   />
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-white/40">示例：</span>
+                    <span className="text-[10px] text-white/40">例：</span>
                     {["Tom", "Jack", "Mary"].map((name) => (
                       <button
                         key={name}
@@ -508,7 +508,7 @@ export default function ChatPage() {
                   <div className="grid grid-cols-2 gap-2">
                     <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-white/20 bg-black/20 p-3 text-center text-xs text-white/70">
                       <ImagePlus size={16} />
-                      选择照片
+                      写真を選択
                       <input
                         type="file"
                         accept="image/*"
@@ -520,7 +520,7 @@ export default function ChatPage() {
                     </label>
                     <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-white/20 bg-black/20 p-3 text-center text-xs text-white/70">
                       <Camera size={16} />
-                      拍摄照片
+                      写真を撮影
                       <input
                         type="file"
                         accept="image/*"
@@ -534,7 +534,7 @@ export default function ChatPage() {
                   </div>
                   {faceFile && (
                     <div className="rounded-lg bg-black/20 px-3 py-2 text-xs text-white/55">
-                      已选择：{faceFile.name}
+                      選択済み：{faceFile.name}
                     </div>
                   )}
                   <button
@@ -543,13 +543,13 @@ export default function ChatPage() {
                     onClick={() => void handleAddFace()}
                     className="w-full rounded-xl bg-green-600 py-3 text-sm font-bold disabled:opacity-40"
                   >
-                    {faceSaving ? "正在添加..." : "添加"}
+                    {faceSaving ? "追加中..." : "追加"}
                   </button>
                 </div>
               )}
               {faces === undefined && (
                 <p className="py-12 text-center text-sm text-white/40">
-                  正在加载...
+                  読み込み中...
                 </p>
               )}
               {faces?.length === 0 && !addFaceOpen && (
@@ -557,7 +557,7 @@ export default function ChatPage() {
                   <div>
                     <div className="text-4xl">🎭</div>
                     <p className="mt-3 text-sm font-semibold">
-                      暂无已保存的人脸资料
+                      保存済みの顔データはありません
                     </p>
                   </div>
                 </div>
@@ -571,7 +571,7 @@ export default function ChatPage() {
                     >
                       <button
                         type="button"
-                        aria-label={`预览 ${face.name}`}
+                        aria-label={`${face.name} をプレビュー`}
                         onClick={() =>
                           face.imageUrl &&
                           setPreviewFace({
@@ -601,7 +601,7 @@ export default function ChatPage() {
                       <div className="grid grid-cols-2 gap-1 p-2">
                         <button
                           type="button"
-                          aria-label={`重命名 ${face.name}`}
+                          aria-label={`${face.name} の名前を変更`}
                           onClick={() =>
                             void handleRenameFace(face._id, face.name)
                           }
@@ -611,7 +611,7 @@ export default function ChatPage() {
                         </button>
                         <button
                           type="button"
-                          aria-label={`删除 ${face.name}`}
+                          aria-label={`${face.name} を削除`}
                           onClick={() =>
                             void handleDeleteFace(face._id, face.name)
                           }
@@ -647,7 +647,7 @@ export default function ChatPage() {
             </div>
             <button
               type="button"
-              aria-label="关闭预览"
+              aria-label="プレビューを閉じる"
               onClick={() => setPreviewFace(null)}
               className="absolute -right-2 -top-2 flex h-10 w-10 items-center justify-center rounded-full bg-white text-black shadow-xl"
             >

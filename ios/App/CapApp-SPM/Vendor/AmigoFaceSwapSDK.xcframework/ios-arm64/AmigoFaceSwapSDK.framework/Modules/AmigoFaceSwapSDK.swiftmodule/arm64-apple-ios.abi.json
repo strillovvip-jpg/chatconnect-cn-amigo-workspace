@@ -1,0 +1,4213 @@
+{
+  "ABIRoot": {
+    "kind": "Root",
+    "name": "AmigoFaceSwapSDK",
+    "printedName": "AmigoFaceSwapSDK",
+    "children": [
+      {
+        "kind": "Import",
+        "name": "Foundation",
+        "printedName": "Foundation",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "Foundation",
+        "printedName": "Foundation",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "Foundation",
+        "printedName": "Foundation",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "Foundation",
+        "printedName": "Foundation",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "TypeDecl",
+        "name": "AmigoError",
+        "printedName": "AmigoError",
+        "children": [
+          {
+            "kind": "Var",
+            "name": "notInitialized",
+            "printedName": "notInitialized",
+            "children": [
+              {
+                "kind": "TypeFunc",
+                "name": "Function",
+                "printedName": "(AmigoFaceSwapSDK.AmigoError.Type) -> AmigoFaceSwapSDK.AmigoError",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "AmigoError",
+                    "printedName": "AmigoFaceSwapSDK.AmigoError",
+                    "usr": "s:16AmigoFaceSwapSDK0A5ErrorO"
+                  },
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Metatype",
+                    "printedName": "AmigoFaceSwapSDK.AmigoError.Type",
+                    "children": [
+                      {
+                        "kind": "TypeNominal",
+                        "name": "AmigoError",
+                        "printedName": "AmigoFaceSwapSDK.AmigoError",
+                        "usr": "s:16AmigoFaceSwapSDK0A5ErrorO"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "declKind": "EnumElement",
+            "usr": "s:16AmigoFaceSwapSDK0A5ErrorO14notInitializedyA2CmF",
+            "mangledName": "$s16AmigoFaceSwapSDK0A5ErrorO14notInitializedyA2CmF",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "RawDocComment"
+            ]
+          },
+          {
+            "kind": "Var",
+            "name": "invalidAPIKey",
+            "printedName": "invalidAPIKey",
+            "children": [
+              {
+                "kind": "TypeFunc",
+                "name": "Function",
+                "printedName": "(AmigoFaceSwapSDK.AmigoError.Type) -> (Swift.String) -> AmigoFaceSwapSDK.AmigoError",
+                "children": [
+                  {
+                    "kind": "TypeFunc",
+                    "name": "Function",
+                    "printedName": "(Swift.String) -> AmigoFaceSwapSDK.AmigoError",
+                    "children": [
+                      {
+                        "kind": "TypeNominal",
+                        "name": "AmigoError",
+                        "printedName": "AmigoFaceSwapSDK.AmigoError",
+                        "usr": "s:16AmigoFaceSwapSDK0A5ErrorO"
+                      },
+                      {
+                        "kind": "TypeNominal",
+                        "name": "String",
+                        "printedName": "Swift.String",
+                        "usr": "s:SS"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Metatype",
+                    "printedName": "AmigoFaceSwapSDK.AmigoError.Type",
+                    "children": [
+                      {
+                        "kind": "TypeNominal",
+                        "name": "AmigoError",
+                        "printedName": "AmigoFaceSwapSDK.AmigoError",
+                        "usr": "s:16AmigoFaceSwapSDK0A5ErrorO"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "declKind": "EnumElement",
+            "usr": "s:16AmigoFaceSwapSDK0A5ErrorO13invalidAPIKeyyACSScACmF",
+            "mangledName": "$s16AmigoFaceSwapSDK0A5ErrorO13invalidAPIKeyyACSScACmF",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "RawDocComment"
+            ]
+          },
+          {
+            "kind": "Var",
+            "name": "noFaceDetected",
+            "printedName": "noFaceDetected",
+            "children": [
+              {
+                "kind": "TypeFunc",
+                "name": "Function",
+                "printedName": "(AmigoFaceSwapSDK.AmigoError.Type) -> AmigoFaceSwapSDK.AmigoError",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "AmigoError",
+                    "printedName": "AmigoFaceSwapSDK.AmigoError",
+                    "usr": "s:16AmigoFaceSwapSDK0A5ErrorO"
+                  },
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Metatype",
+                    "printedName": "AmigoFaceSwapSDK.AmigoError.Type",
+                    "children": [
+                      {
+                        "kind": "TypeNominal",
+                        "name": "AmigoError",
+                        "printedName": "AmigoFaceSwapSDK.AmigoError",
+                        "usr": "s:16AmigoFaceSwapSDK0A5ErrorO"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "declKind": "EnumElement",
+            "usr": "s:16AmigoFaceSwapSDK0A5ErrorO02noB8DetectedyA2CmF",
+            "mangledName": "$s16AmigoFaceSwapSDK0A5ErrorO02noB8DetectedyA2CmF",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "RawDocComment"
+            ]
+          },
+          {
+            "kind": "Var",
+            "name": "modelLoadFailed",
+            "printedName": "modelLoadFailed",
+            "children": [
+              {
+                "kind": "TypeFunc",
+                "name": "Function",
+                "printedName": "(AmigoFaceSwapSDK.AmigoError.Type) -> AmigoFaceSwapSDK.AmigoError",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "AmigoError",
+                    "printedName": "AmigoFaceSwapSDK.AmigoError",
+                    "usr": "s:16AmigoFaceSwapSDK0A5ErrorO"
+                  },
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Metatype",
+                    "printedName": "AmigoFaceSwapSDK.AmigoError.Type",
+                    "children": [
+                      {
+                        "kind": "TypeNominal",
+                        "name": "AmigoError",
+                        "printedName": "AmigoFaceSwapSDK.AmigoError",
+                        "usr": "s:16AmigoFaceSwapSDK0A5ErrorO"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "declKind": "EnumElement",
+            "usr": "s:16AmigoFaceSwapSDK0A5ErrorO15modelLoadFailedyA2CmF",
+            "mangledName": "$s16AmigoFaceSwapSDK0A5ErrorO15modelLoadFailedyA2CmF",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "RawDocComment"
+            ]
+          },
+          {
+            "kind": "Var",
+            "name": "inferenceFailure",
+            "printedName": "inferenceFailure",
+            "children": [
+              {
+                "kind": "TypeFunc",
+                "name": "Function",
+                "printedName": "(AmigoFaceSwapSDK.AmigoError.Type) -> (Swift.String) -> AmigoFaceSwapSDK.AmigoError",
+                "children": [
+                  {
+                    "kind": "TypeFunc",
+                    "name": "Function",
+                    "printedName": "(Swift.String) -> AmigoFaceSwapSDK.AmigoError",
+                    "children": [
+                      {
+                        "kind": "TypeNominal",
+                        "name": "AmigoError",
+                        "printedName": "AmigoFaceSwapSDK.AmigoError",
+                        "usr": "s:16AmigoFaceSwapSDK0A5ErrorO"
+                      },
+                      {
+                        "kind": "TypeNominal",
+                        "name": "String",
+                        "printedName": "Swift.String",
+                        "usr": "s:SS"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Metatype",
+                    "printedName": "AmigoFaceSwapSDK.AmigoError.Type",
+                    "children": [
+                      {
+                        "kind": "TypeNominal",
+                        "name": "AmigoError",
+                        "printedName": "AmigoFaceSwapSDK.AmigoError",
+                        "usr": "s:16AmigoFaceSwapSDK0A5ErrorO"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "declKind": "EnumElement",
+            "usr": "s:16AmigoFaceSwapSDK0A5ErrorO16inferenceFailureyACSScACmF",
+            "mangledName": "$s16AmigoFaceSwapSDK0A5ErrorO16inferenceFailureyACSScACmF",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "RawDocComment"
+            ]
+          },
+          {
+            "kind": "Var",
+            "name": "invalidInput",
+            "printedName": "invalidInput",
+            "children": [
+              {
+                "kind": "TypeFunc",
+                "name": "Function",
+                "printedName": "(AmigoFaceSwapSDK.AmigoError.Type) -> (Swift.String) -> AmigoFaceSwapSDK.AmigoError",
+                "children": [
+                  {
+                    "kind": "TypeFunc",
+                    "name": "Function",
+                    "printedName": "(Swift.String) -> AmigoFaceSwapSDK.AmigoError",
+                    "children": [
+                      {
+                        "kind": "TypeNominal",
+                        "name": "AmigoError",
+                        "printedName": "AmigoFaceSwapSDK.AmigoError",
+                        "usr": "s:16AmigoFaceSwapSDK0A5ErrorO"
+                      },
+                      {
+                        "kind": "TypeNominal",
+                        "name": "String",
+                        "printedName": "Swift.String",
+                        "usr": "s:SS"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Metatype",
+                    "printedName": "AmigoFaceSwapSDK.AmigoError.Type",
+                    "children": [
+                      {
+                        "kind": "TypeNominal",
+                        "name": "AmigoError",
+                        "printedName": "AmigoFaceSwapSDK.AmigoError",
+                        "usr": "s:16AmigoFaceSwapSDK0A5ErrorO"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "declKind": "EnumElement",
+            "usr": "s:16AmigoFaceSwapSDK0A5ErrorO12invalidInputyACSScACmF",
+            "mangledName": "$s16AmigoFaceSwapSDK0A5ErrorO12invalidInputyACSScACmF",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "RawDocComment"
+            ]
+          },
+          {
+            "kind": "Var",
+            "name": "modelDownloadFailed",
+            "printedName": "modelDownloadFailed",
+            "children": [
+              {
+                "kind": "TypeFunc",
+                "name": "Function",
+                "printedName": "(AmigoFaceSwapSDK.AmigoError.Type) -> (Swift.String) -> AmigoFaceSwapSDK.AmigoError",
+                "children": [
+                  {
+                    "kind": "TypeFunc",
+                    "name": "Function",
+                    "printedName": "(Swift.String) -> AmigoFaceSwapSDK.AmigoError",
+                    "children": [
+                      {
+                        "kind": "TypeNominal",
+                        "name": "AmigoError",
+                        "printedName": "AmigoFaceSwapSDK.AmigoError",
+                        "usr": "s:16AmigoFaceSwapSDK0A5ErrorO"
+                      },
+                      {
+                        "kind": "TypeNominal",
+                        "name": "String",
+                        "printedName": "Swift.String",
+                        "usr": "s:SS"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Metatype",
+                    "printedName": "AmigoFaceSwapSDK.AmigoError.Type",
+                    "children": [
+                      {
+                        "kind": "TypeNominal",
+                        "name": "AmigoError",
+                        "printedName": "AmigoFaceSwapSDK.AmigoError",
+                        "usr": "s:16AmigoFaceSwapSDK0A5ErrorO"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "declKind": "EnumElement",
+            "usr": "s:16AmigoFaceSwapSDK0A5ErrorO19modelDownloadFailedyACSScACmF",
+            "mangledName": "$s16AmigoFaceSwapSDK0A5ErrorO19modelDownloadFailedyACSScACmF",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "RawDocComment"
+            ]
+          },
+          {
+            "kind": "Var",
+            "name": "modelDecryptionFailed",
+            "printedName": "modelDecryptionFailed",
+            "children": [
+              {
+                "kind": "TypeFunc",
+                "name": "Function",
+                "printedName": "(AmigoFaceSwapSDK.AmigoError.Type) -> AmigoFaceSwapSDK.AmigoError",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "AmigoError",
+                    "printedName": "AmigoFaceSwapSDK.AmigoError",
+                    "usr": "s:16AmigoFaceSwapSDK0A5ErrorO"
+                  },
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Metatype",
+                    "printedName": "AmigoFaceSwapSDK.AmigoError.Type",
+                    "children": [
+                      {
+                        "kind": "TypeNominal",
+                        "name": "AmigoError",
+                        "printedName": "AmigoFaceSwapSDK.AmigoError",
+                        "usr": "s:16AmigoFaceSwapSDK0A5ErrorO"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "declKind": "EnumElement",
+            "usr": "s:16AmigoFaceSwapSDK0A5ErrorO21modelDecryptionFailedyA2CmF",
+            "mangledName": "$s16AmigoFaceSwapSDK0A5ErrorO21modelDecryptionFailedyA2CmF",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "RawDocComment"
+            ]
+          },
+          {
+            "kind": "Var",
+            "name": "networkRequired",
+            "printedName": "networkRequired",
+            "children": [
+              {
+                "kind": "TypeFunc",
+                "name": "Function",
+                "printedName": "(AmigoFaceSwapSDK.AmigoError.Type) -> AmigoFaceSwapSDK.AmigoError",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "AmigoError",
+                    "printedName": "AmigoFaceSwapSDK.AmigoError",
+                    "usr": "s:16AmigoFaceSwapSDK0A5ErrorO"
+                  },
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Metatype",
+                    "printedName": "AmigoFaceSwapSDK.AmigoError.Type",
+                    "children": [
+                      {
+                        "kind": "TypeNominal",
+                        "name": "AmigoError",
+                        "printedName": "AmigoFaceSwapSDK.AmigoError",
+                        "usr": "s:16AmigoFaceSwapSDK0A5ErrorO"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "declKind": "EnumElement",
+            "usr": "s:16AmigoFaceSwapSDK0A5ErrorO15networkRequiredyA2CmF",
+            "mangledName": "$s16AmigoFaceSwapSDK0A5ErrorO15networkRequiredyA2CmF",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "RawDocComment"
+            ]
+          },
+          {
+            "kind": "Var",
+            "name": "revokedAPIKey",
+            "printedName": "revokedAPIKey",
+            "children": [
+              {
+                "kind": "TypeFunc",
+                "name": "Function",
+                "printedName": "(AmigoFaceSwapSDK.AmigoError.Type) -> AmigoFaceSwapSDK.AmigoError",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "AmigoError",
+                    "printedName": "AmigoFaceSwapSDK.AmigoError",
+                    "usr": "s:16AmigoFaceSwapSDK0A5ErrorO"
+                  },
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Metatype",
+                    "printedName": "AmigoFaceSwapSDK.AmigoError.Type",
+                    "children": [
+                      {
+                        "kind": "TypeNominal",
+                        "name": "AmigoError",
+                        "printedName": "AmigoFaceSwapSDK.AmigoError",
+                        "usr": "s:16AmigoFaceSwapSDK0A5ErrorO"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "declKind": "EnumElement",
+            "usr": "s:16AmigoFaceSwapSDK0A5ErrorO13revokedAPIKeyyA2CmF",
+            "mangledName": "$s16AmigoFaceSwapSDK0A5ErrorO13revokedAPIKeyyA2CmF",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "RawDocComment"
+            ]
+          },
+          {
+            "kind": "Var",
+            "name": "quotaExceeded",
+            "printedName": "quotaExceeded",
+            "children": [
+              {
+                "kind": "TypeFunc",
+                "name": "Function",
+                "printedName": "(AmigoFaceSwapSDK.AmigoError.Type) -> (Swift.Int, Swift.Int) -> AmigoFaceSwapSDK.AmigoError",
+                "children": [
+                  {
+                    "kind": "TypeFunc",
+                    "name": "Function",
+                    "printedName": "(Swift.Int, Swift.Int) -> AmigoFaceSwapSDK.AmigoError",
+                    "children": [
+                      {
+                        "kind": "TypeNominal",
+                        "name": "AmigoError",
+                        "printedName": "AmigoFaceSwapSDK.AmigoError",
+                        "usr": "s:16AmigoFaceSwapSDK0A5ErrorO"
+                      },
+                      {
+                        "kind": "TypeNominal",
+                        "name": "Tuple",
+                        "printedName": "(limit: Swift.Int, used: Swift.Int)",
+                        "children": [
+                          {
+                            "kind": "TypeNominal",
+                            "name": "Int",
+                            "printedName": "Swift.Int",
+                            "usr": "s:Si"
+                          },
+                          {
+                            "kind": "TypeNominal",
+                            "name": "Int",
+                            "printedName": "Swift.Int",
+                            "usr": "s:Si"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Metatype",
+                    "printedName": "AmigoFaceSwapSDK.AmigoError.Type",
+                    "children": [
+                      {
+                        "kind": "TypeNominal",
+                        "name": "AmigoError",
+                        "printedName": "AmigoFaceSwapSDK.AmigoError",
+                        "usr": "s:16AmigoFaceSwapSDK0A5ErrorO"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "declKind": "EnumElement",
+            "usr": "s:16AmigoFaceSwapSDK0A5ErrorO13quotaExceededyACSi_SitcACmF",
+            "mangledName": "$s16AmigoFaceSwapSDK0A5ErrorO13quotaExceededyACSi_SitcACmF",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "RawDocComment"
+            ]
+          },
+          {
+            "kind": "Var",
+            "name": "serverError",
+            "printedName": "serverError",
+            "children": [
+              {
+                "kind": "TypeFunc",
+                "name": "Function",
+                "printedName": "(AmigoFaceSwapSDK.AmigoError.Type) -> (Swift.String) -> AmigoFaceSwapSDK.AmigoError",
+                "children": [
+                  {
+                    "kind": "TypeFunc",
+                    "name": "Function",
+                    "printedName": "(Swift.String) -> AmigoFaceSwapSDK.AmigoError",
+                    "children": [
+                      {
+                        "kind": "TypeNominal",
+                        "name": "AmigoError",
+                        "printedName": "AmigoFaceSwapSDK.AmigoError",
+                        "usr": "s:16AmigoFaceSwapSDK0A5ErrorO"
+                      },
+                      {
+                        "kind": "TypeNominal",
+                        "name": "String",
+                        "printedName": "Swift.String",
+                        "usr": "s:SS"
+                      }
+                    ]
+                  },
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Metatype",
+                    "printedName": "AmigoFaceSwapSDK.AmigoError.Type",
+                    "children": [
+                      {
+                        "kind": "TypeNominal",
+                        "name": "AmigoError",
+                        "printedName": "AmigoFaceSwapSDK.AmigoError",
+                        "usr": "s:16AmigoFaceSwapSDK0A5ErrorO"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "declKind": "EnumElement",
+            "usr": "s:16AmigoFaceSwapSDK0A5ErrorO06serverE0yACSScACmF",
+            "mangledName": "$s16AmigoFaceSwapSDK0A5ErrorO06serverE0yACSScACmF",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "RawDocComment"
+            ]
+          },
+          {
+            "kind": "Var",
+            "name": "errorDescription",
+            "printedName": "errorDescription",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "Optional",
+                "printedName": "Swift.String?",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "String",
+                    "printedName": "Swift.String",
+                    "usr": "s:SS"
+                  }
+                ],
+                "usr": "s:Sq"
+              }
+            ],
+            "declKind": "Var",
+            "usr": "s:16AmigoFaceSwapSDK0A5ErrorO16errorDescriptionSSSgvp",
+            "mangledName": "$s16AmigoFaceSwapSDK0A5ErrorO16errorDescriptionSSSgvp",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "AccessControl"
+            ],
+            "accessors": [
+              {
+                "kind": "Accessor",
+                "name": "Get",
+                "printedName": "Get()",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Optional",
+                    "printedName": "Swift.String?",
+                    "children": [
+                      {
+                        "kind": "TypeNominal",
+                        "name": "String",
+                        "printedName": "Swift.String",
+                        "usr": "s:SS"
+                      }
+                    ],
+                    "usr": "s:Sq"
+                  }
+                ],
+                "declKind": "Accessor",
+                "usr": "s:16AmigoFaceSwapSDK0A5ErrorO16errorDescriptionSSSgvg",
+                "mangledName": "$s16AmigoFaceSwapSDK0A5ErrorO16errorDescriptionSSSgvg",
+                "moduleName": "AmigoFaceSwapSDK",
+                "accessorKind": "get"
+              }
+            ]
+          }
+        ],
+        "declKind": "Enum",
+        "usr": "s:16AmigoFaceSwapSDK0A5ErrorO",
+        "mangledName": "$s16AmigoFaceSwapSDK0A5ErrorO",
+        "moduleName": "AmigoFaceSwapSDK",
+        "declAttributes": [
+          "AccessControl",
+          "RawDocComment"
+        ],
+        "conformances": [
+          {
+            "kind": "Conformance",
+            "name": "Copyable",
+            "printedName": "Copyable",
+            "usr": "s:s8CopyableP",
+            "mangledName": "$ss8CopyableP"
+          },
+          {
+            "kind": "Conformance",
+            "name": "Escapable",
+            "printedName": "Escapable",
+            "usr": "s:s9EscapableP",
+            "mangledName": "$ss9EscapableP"
+          },
+          {
+            "kind": "Conformance",
+            "name": "LocalizedError",
+            "printedName": "LocalizedError",
+            "usr": "s:10Foundation14LocalizedErrorP",
+            "mangledName": "$s10Foundation14LocalizedErrorP"
+          },
+          {
+            "kind": "Conformance",
+            "name": "Error",
+            "printedName": "Error",
+            "usr": "s:s5ErrorP",
+            "mangledName": "$ss5ErrorP"
+          },
+          {
+            "kind": "Conformance",
+            "name": "Sendable",
+            "printedName": "Sendable",
+            "usr": "s:s8SendableP",
+            "mangledName": "$ss8SendableP"
+          }
+        ]
+      },
+      {
+        "kind": "Import",
+        "name": "Foundation",
+        "printedName": "Foundation",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "UIKit",
+        "printedName": "UIKit",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "CoreImage",
+        "printedName": "CoreImage",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "TypeDecl",
+        "name": "AmigoFaceSwap",
+        "printedName": "AmigoFaceSwap",
+        "children": [
+          {
+            "kind": "Function",
+            "name": "initialize",
+            "printedName": "initialize(apiKey:onProgress:)",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "Void",
+                "printedName": "()"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "String",
+                "printedName": "Swift.String",
+                "usr": "s:SS"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "Optional",
+                "printedName": "((Swift.Float) -> ())?",
+                "children": [
+                  {
+                    "kind": "TypeFunc",
+                    "name": "Function",
+                    "printedName": "(Swift.Float) -> ()",
+                    "children": [
+                      {
+                        "kind": "TypeNominal",
+                        "name": "Void",
+                        "printedName": "()"
+                      },
+                      {
+                        "kind": "TypeNominal",
+                        "name": "Float",
+                        "printedName": "Swift.Float",
+                        "usr": "s:Sf"
+                      }
+                    ]
+                  }
+                ],
+                "hasDefaultArg": true,
+                "usr": "s:Sq"
+              }
+            ],
+            "declKind": "Func",
+            "usr": "s:16AmigoFaceSwapSDK0abC0C10initialize6apiKey10onProgressySS_ySfcSgtYaKFZ",
+            "mangledName": "$s16AmigoFaceSwapSDK0abC0C10initialize6apiKey10onProgressySS_ySfcSgtYaKFZ",
+            "moduleName": "AmigoFaceSwapSDK",
+            "static": true,
+            "declAttributes": [
+              "Final",
+              "AccessControl",
+              "RawDocComment"
+            ],
+            "throwing": true,
+            "funcSelfKind": "NonMutating"
+          },
+          {
+            "kind": "Function",
+            "name": "enrollFace",
+            "printedName": "enrollFace(from:)",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "FaceLatent",
+                "printedName": "AmigoFaceSwapSDK.FaceLatent",
+                "usr": "s:16AmigoFaceSwapSDK0B6LatentV"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "UIImage",
+                "printedName": "UIKit.UIImage",
+                "usr": "c:objc(cs)UIImage"
+              }
+            ],
+            "declKind": "Func",
+            "usr": "s:16AmigoFaceSwapSDK0abC0C06enrollB04fromAA0B6LatentVSo7UIImageC_tYaKFZ",
+            "mangledName": "$s16AmigoFaceSwapSDK0abC0C06enrollB04fromAA0B6LatentVSo7UIImageC_tYaKFZ",
+            "moduleName": "AmigoFaceSwapSDK",
+            "static": true,
+            "declAttributes": [
+              "Final",
+              "AccessControl",
+              "RawDocComment"
+            ],
+            "throwing": true,
+            "funcSelfKind": "NonMutating"
+          },
+          {
+            "kind": "Function",
+            "name": "swapFace",
+            "printedName": "swapFace(in:using:lipMode:)",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "UIImage",
+                "printedName": "UIKit.UIImage",
+                "usr": "c:objc(cs)UIImage"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "UIImage",
+                "printedName": "UIKit.UIImage",
+                "usr": "c:objc(cs)UIImage"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "FaceLatent",
+                "printedName": "AmigoFaceSwapSDK.FaceLatent",
+                "usr": "s:16AmigoFaceSwapSDK0B6LatentV"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "LipMode",
+                "printedName": "AmigoFaceSwapSDK.LipMode",
+                "hasDefaultArg": true,
+                "usr": "s:16AmigoFaceSwapSDK7LipModeO"
+              }
+            ],
+            "declKind": "Func",
+            "usr": "s:16AmigoFaceSwapSDK0abC0C04swapB02in5using7lipModeSo7UIImageCAI_AA0B6LatentVAA03LipI0OtYaKFZ",
+            "mangledName": "$s16AmigoFaceSwapSDK0abC0C04swapB02in5using7lipModeSo7UIImageCAI_AA0B6LatentVAA03LipI0OtYaKFZ",
+            "moduleName": "AmigoFaceSwapSDK",
+            "static": true,
+            "declAttributes": [
+              "Final",
+              "AccessControl",
+              "RawDocComment"
+            ],
+            "throwing": true,
+            "funcSelfKind": "NonMutating"
+          },
+          {
+            "kind": "Function",
+            "name": "processFrame",
+            "printedName": "processFrame(_:using:lipMode:)",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "Optional",
+                "printedName": "CoreImage.CIImage?",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "CIImage",
+                    "printedName": "CoreImage.CIImage",
+                    "usr": "c:objc(cs)CIImage"
+                  }
+                ],
+                "usr": "s:Sq"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "CVBuffer",
+                "printedName": "CoreVideo.CVBuffer",
+                "usr": "c:@T@CVBufferRef"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "FaceLatent",
+                "printedName": "AmigoFaceSwapSDK.FaceLatent",
+                "usr": "s:16AmigoFaceSwapSDK0B6LatentV"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "LipMode",
+                "printedName": "AmigoFaceSwapSDK.LipMode",
+                "hasDefaultArg": true,
+                "usr": "s:16AmigoFaceSwapSDK7LipModeO"
+              }
+            ],
+            "declKind": "Func",
+            "usr": "s:16AmigoFaceSwapSDK0abC0C12processFrame_5using7lipModeSo7CIImageCSgSo11CVBufferRefa_AA0B6LatentVAA03LipI0OtKFZ",
+            "mangledName": "$s16AmigoFaceSwapSDK0abC0C12processFrame_5using7lipModeSo7CIImageCSgSo11CVBufferRefa_AA0B6LatentVAA03LipI0OtKFZ",
+            "moduleName": "AmigoFaceSwapSDK",
+            "static": true,
+            "declAttributes": [
+              "Final",
+              "AccessControl",
+              "RawDocComment"
+            ],
+            "throwing": true,
+            "funcSelfKind": "NonMutating"
+          },
+          {
+            "kind": "Function",
+            "name": "clearModelCache",
+            "printedName": "clearModelCache()",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "Void",
+                "printedName": "()"
+              }
+            ],
+            "declKind": "Func",
+            "usr": "s:16AmigoFaceSwapSDK0abC0C15clearModelCacheyyFZ",
+            "mangledName": "$s16AmigoFaceSwapSDK0abC0C15clearModelCacheyyFZ",
+            "moduleName": "AmigoFaceSwapSDK",
+            "static": true,
+            "declAttributes": [
+              "Final",
+              "AccessControl",
+              "RawDocComment"
+            ],
+            "funcSelfKind": "NonMutating"
+          }
+        ],
+        "declKind": "Class",
+        "usr": "s:16AmigoFaceSwapSDK0abC0C",
+        "mangledName": "$s16AmigoFaceSwapSDK0abC0C",
+        "moduleName": "AmigoFaceSwapSDK",
+        "declAttributes": [
+          "Final",
+          "AccessControl",
+          "RawDocComment"
+        ],
+        "hasMissingDesignatedInitializers": true,
+        "conformances": [
+          {
+            "kind": "Conformance",
+            "name": "Copyable",
+            "printedName": "Copyable",
+            "usr": "s:s8CopyableP",
+            "mangledName": "$ss8CopyableP"
+          },
+          {
+            "kind": "Conformance",
+            "name": "Escapable",
+            "printedName": "Escapable",
+            "usr": "s:s9EscapableP",
+            "mangledName": "$ss9EscapableP"
+          }
+        ]
+      },
+      {
+        "kind": "Import",
+        "name": "Foundation",
+        "printedName": "Foundation",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "SwiftUI",
+        "printedName": "SwiftUI",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "AVFoundation",
+        "printedName": "AVFoundation",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "UIKit",
+        "printedName": "UIKit",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "TypeDecl",
+        "name": "AmigoLiveCameraView",
+        "printedName": "AmigoLiveCameraView",
+        "children": [
+          {
+            "kind": "Constructor",
+            "name": "init",
+            "printedName": "init(targetLatent:lipMode:cameraPosition:onFrame:)",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "AmigoLiveCameraView",
+                "printedName": "AmigoFaceSwapSDK.AmigoLiveCameraView",
+                "usr": "s:16AmigoFaceSwapSDK0A14LiveCameraViewV"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "FaceLatent",
+                "printedName": "AmigoFaceSwapSDK.FaceLatent",
+                "usr": "s:16AmigoFaceSwapSDK0B6LatentV"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "LipMode",
+                "printedName": "AmigoFaceSwapSDK.LipMode",
+                "hasDefaultArg": true,
+                "usr": "s:16AmigoFaceSwapSDK7LipModeO"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "Position",
+                "printedName": "AVFoundation.AVCaptureDevice.Position",
+                "hasDefaultArg": true,
+                "usr": "c:@E@AVCaptureDevicePosition"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "Optional",
+                "printedName": "((UIKit.UIImage) -> ())?",
+                "children": [
+                  {
+                    "kind": "TypeFunc",
+                    "name": "Function",
+                    "printedName": "(UIKit.UIImage) -> ()",
+                    "children": [
+                      {
+                        "kind": "TypeNominal",
+                        "name": "Void",
+                        "printedName": "()"
+                      },
+                      {
+                        "kind": "TypeNominal",
+                        "name": "UIImage",
+                        "printedName": "UIKit.UIImage",
+                        "usr": "c:objc(cs)UIImage"
+                      }
+                    ]
+                  }
+                ],
+                "hasDefaultArg": true,
+                "usr": "s:Sq"
+              }
+            ],
+            "declKind": "Constructor",
+            "usr": "s:16AmigoFaceSwapSDK0A14LiveCameraViewV12targetLatent7lipMode14cameraPosition7onFrameAcA0bI0V_AA03LipK0OSo015AVCaptureDeviceM0VySo7UIImageCcSgtcfc",
+            "mangledName": "$s16AmigoFaceSwapSDK0A14LiveCameraViewV12targetLatent7lipMode14cameraPosition7onFrameAcA0bI0V_AA03LipK0OSo015AVCaptureDeviceM0VySo7UIImageCcSgtcfc",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "Preconcurrency",
+              "Custom",
+              "AccessControl",
+              "RawDocComment"
+            ],
+            "init_kind": "Designated"
+          },
+          {
+            "kind": "Function",
+            "name": "makeCoordinator",
+            "printedName": "makeCoordinator()",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "Coordinator",
+                "printedName": "AmigoFaceSwapSDK.AmigoLiveCameraView.Coordinator",
+                "usr": "s:16AmigoFaceSwapSDK0A14LiveCameraViewV11CoordinatorC"
+              }
+            ],
+            "declKind": "Func",
+            "usr": "s:16AmigoFaceSwapSDK0A14LiveCameraViewV15makeCoordinatorAC0I0CyF",
+            "mangledName": "$s16AmigoFaceSwapSDK0A14LiveCameraViewV15makeCoordinatorAC0I0CyF",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "Preconcurrency",
+              "Custom",
+              "AccessControl"
+            ],
+            "funcSelfKind": "NonMutating"
+          },
+          {
+            "kind": "Function",
+            "name": "makeUIView",
+            "printedName": "makeUIView(context:)",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "UIView",
+                "printedName": "UIKit.UIView",
+                "usr": "c:objc(cs)UIView"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "UIViewRepresentableContext",
+                "printedName": "SwiftUI.UIViewRepresentableContext<AmigoFaceSwapSDK.AmigoLiveCameraView>",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "AmigoLiveCameraView",
+                    "printedName": "AmigoFaceSwapSDK.AmigoLiveCameraView",
+                    "usr": "s:16AmigoFaceSwapSDK0A14LiveCameraViewV"
+                  }
+                ],
+                "usr": "s:7SwiftUI26UIViewRepresentableContextV"
+              }
+            ],
+            "declKind": "Func",
+            "usr": "s:16AmigoFaceSwapSDK0A14LiveCameraViewV10makeUIView7contextSo0I0C7SwiftUI0I20RepresentableContextVyACG_tF",
+            "mangledName": "$s16AmigoFaceSwapSDK0A14LiveCameraViewV10makeUIView7contextSo0I0C7SwiftUI0I20RepresentableContextVyACG_tF",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "Preconcurrency",
+              "Custom",
+              "AccessControl"
+            ],
+            "funcSelfKind": "NonMutating"
+          },
+          {
+            "kind": "Function",
+            "name": "updateUIView",
+            "printedName": "updateUIView(_:context:)",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "Void",
+                "printedName": "()"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "UIView",
+                "printedName": "UIKit.UIView",
+                "usr": "c:objc(cs)UIView"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "UIViewRepresentableContext",
+                "printedName": "SwiftUI.UIViewRepresentableContext<AmigoFaceSwapSDK.AmigoLiveCameraView>",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "AmigoLiveCameraView",
+                    "printedName": "AmigoFaceSwapSDK.AmigoLiveCameraView",
+                    "usr": "s:16AmigoFaceSwapSDK0A14LiveCameraViewV"
+                  }
+                ],
+                "usr": "s:7SwiftUI26UIViewRepresentableContextV"
+              }
+            ],
+            "declKind": "Func",
+            "usr": "s:16AmigoFaceSwapSDK0A14LiveCameraViewV12updateUIView_7contextySo0I0C_7SwiftUI0I20RepresentableContextVyACGtF",
+            "mangledName": "$s16AmigoFaceSwapSDK0A14LiveCameraViewV12updateUIView_7contextySo0I0C_7SwiftUI0I20RepresentableContextVyACGtF",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "Preconcurrency",
+              "Custom",
+              "AccessControl"
+            ],
+            "funcSelfKind": "NonMutating"
+          },
+          {
+            "kind": "Function",
+            "name": "dismantleUIView",
+            "printedName": "dismantleUIView(_:coordinator:)",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "Void",
+                "printedName": "()"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "UIView",
+                "printedName": "UIKit.UIView",
+                "usr": "c:objc(cs)UIView"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "Coordinator",
+                "printedName": "AmigoFaceSwapSDK.AmigoLiveCameraView.Coordinator",
+                "usr": "s:16AmigoFaceSwapSDK0A14LiveCameraViewV11CoordinatorC"
+              }
+            ],
+            "declKind": "Func",
+            "usr": "s:16AmigoFaceSwapSDK0A14LiveCameraViewV15dismantleUIView_11coordinatorySo0I0C_AC11CoordinatorCtFZ",
+            "mangledName": "$s16AmigoFaceSwapSDK0A14LiveCameraViewV15dismantleUIView_11coordinatorySo0I0C_AC11CoordinatorCtFZ",
+            "moduleName": "AmigoFaceSwapSDK",
+            "static": true,
+            "declAttributes": [
+              "Preconcurrency",
+              "Custom",
+              "AccessControl"
+            ],
+            "funcSelfKind": "NonMutating"
+          },
+          {
+            "kind": "TypeDecl",
+            "name": "Coordinator",
+            "printedName": "Coordinator",
+            "children": [
+              {
+                "kind": "Function",
+                "name": "session",
+                "printedName": "session(_:didOutput:)",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Void",
+                    "printedName": "()"
+                  },
+                  {
+                    "kind": "TypeNominal",
+                    "name": "AmigoLiveSession",
+                    "printedName": "AmigoFaceSwapSDK.AmigoLiveSession",
+                    "usr": "c:@M@AmigoFaceSwapSDK@objc(cs)AmigoLiveSession"
+                  },
+                  {
+                    "kind": "TypeNominal",
+                    "name": "UIImage",
+                    "printedName": "UIKit.UIImage",
+                    "usr": "c:objc(cs)UIImage"
+                  }
+                ],
+                "declKind": "Func",
+                "usr": "s:16AmigoFaceSwapSDK0A14LiveCameraViewV11CoordinatorC7session_9didOutputyAA0aE7SessionC_So7UIImageCtF",
+                "mangledName": "$s16AmigoFaceSwapSDK0A14LiveCameraViewV11CoordinatorC7session_9didOutputyAA0aE7SessionC_So7UIImageCtF",
+                "moduleName": "AmigoFaceSwapSDK",
+                "declAttributes": [
+                  "Final",
+                  "AccessControl"
+                ],
+                "funcSelfKind": "NonMutating"
+              },
+              {
+                "kind": "Constructor",
+                "name": "init",
+                "printedName": "init()",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Coordinator",
+                    "printedName": "AmigoFaceSwapSDK.AmigoLiveCameraView.Coordinator",
+                    "usr": "s:16AmigoFaceSwapSDK0A14LiveCameraViewV11CoordinatorC"
+                  }
+                ],
+                "declKind": "Constructor",
+                "usr": "s:16AmigoFaceSwapSDK0A14LiveCameraViewV11CoordinatorCAEycfc",
+                "mangledName": "$s16AmigoFaceSwapSDK0A14LiveCameraViewV11CoordinatorCAEycfc",
+                "moduleName": "AmigoFaceSwapSDK",
+                "overriding": true,
+                "implicit": true,
+                "objc_name": "init",
+                "declAttributes": [
+                  "Dynamic",
+                  "ObjC",
+                  "Override"
+                ],
+                "init_kind": "Designated"
+              }
+            ],
+            "declKind": "Class",
+            "usr": "s:16AmigoFaceSwapSDK0A14LiveCameraViewV11CoordinatorC",
+            "mangledName": "$s16AmigoFaceSwapSDK0A14LiveCameraViewV11CoordinatorC",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "Final",
+              "AccessControl",
+              "RawDocComment",
+              "ObjC"
+            ],
+            "superclassUsr": "c:objc(cs)NSObject",
+            "hasMissingDesignatedInitializers": true,
+            "superclassNames": [
+              "ObjectiveC.NSObject"
+            ],
+            "conformances": [
+              {
+                "kind": "Conformance",
+                "name": "AmigoLiveSessionDelegate",
+                "printedName": "AmigoLiveSessionDelegate",
+                "usr": "s:16AmigoFaceSwapSDK0A19LiveSessionDelegateP",
+                "mangledName": "$s16AmigoFaceSwapSDK0A19LiveSessionDelegateP"
+              },
+              {
+                "kind": "Conformance",
+                "name": "Copyable",
+                "printedName": "Copyable",
+                "usr": "s:s8CopyableP",
+                "mangledName": "$ss8CopyableP"
+              },
+              {
+                "kind": "Conformance",
+                "name": "Escapable",
+                "printedName": "Escapable",
+                "usr": "s:s9EscapableP",
+                "mangledName": "$ss9EscapableP"
+              },
+              {
+                "kind": "Conformance",
+                "name": "Equatable",
+                "printedName": "Equatable",
+                "usr": "s:SQ",
+                "mangledName": "$sSQ"
+              },
+              {
+                "kind": "Conformance",
+                "name": "Hashable",
+                "printedName": "Hashable",
+                "usr": "s:SH",
+                "mangledName": "$sSH"
+              },
+              {
+                "kind": "Conformance",
+                "name": "CVarArg",
+                "printedName": "CVarArg",
+                "usr": "s:s7CVarArgP",
+                "mangledName": "$ss7CVarArgP"
+              },
+              {
+                "kind": "Conformance",
+                "name": "_KeyValueCodingAndObservingPublishing",
+                "printedName": "_KeyValueCodingAndObservingPublishing",
+                "usr": "s:10Foundation37_KeyValueCodingAndObservingPublishingP",
+                "mangledName": "$s10Foundation37_KeyValueCodingAndObservingPublishingP"
+              },
+              {
+                "kind": "Conformance",
+                "name": "_KeyValueCodingAndObserving",
+                "printedName": "_KeyValueCodingAndObserving",
+                "usr": "s:10Foundation27_KeyValueCodingAndObservingP",
+                "mangledName": "$s10Foundation27_KeyValueCodingAndObservingP"
+              },
+              {
+                "kind": "Conformance",
+                "name": "CustomStringConvertible",
+                "printedName": "CustomStringConvertible",
+                "usr": "s:s23CustomStringConvertibleP",
+                "mangledName": "$ss23CustomStringConvertibleP"
+              },
+              {
+                "kind": "Conformance",
+                "name": "CustomDebugStringConvertible",
+                "printedName": "CustomDebugStringConvertible",
+                "usr": "s:s28CustomDebugStringConvertibleP",
+                "mangledName": "$ss28CustomDebugStringConvertibleP"
+              }
+            ]
+          }
+        ],
+        "declKind": "Struct",
+        "usr": "s:16AmigoFaceSwapSDK0A14LiveCameraViewV",
+        "mangledName": "$s16AmigoFaceSwapSDK0A14LiveCameraViewV",
+        "moduleName": "AmigoFaceSwapSDK",
+        "declAttributes": [
+          "Preconcurrency",
+          "Custom",
+          "AccessControl",
+          "RawDocComment"
+        ],
+        "conformances": [
+          {
+            "kind": "Conformance",
+            "name": "Copyable",
+            "printedName": "Copyable",
+            "usr": "s:s8CopyableP",
+            "mangledName": "$ss8CopyableP"
+          },
+          {
+            "kind": "Conformance",
+            "name": "Escapable",
+            "printedName": "Escapable",
+            "usr": "s:s9EscapableP",
+            "mangledName": "$ss9EscapableP"
+          },
+          {
+            "kind": "Conformance",
+            "name": "UIViewRepresentable",
+            "printedName": "UIViewRepresentable",
+            "children": [
+              {
+                "kind": "TypeWitness",
+                "name": "UIViewType",
+                "printedName": "UIViewType",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "UIView",
+                    "printedName": "UIKit.UIView",
+                    "usr": "c:objc(cs)UIView"
+                  }
+                ]
+              },
+              {
+                "kind": "TypeWitness",
+                "name": "Coordinator",
+                "printedName": "Coordinator",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Coordinator",
+                    "printedName": "AmigoFaceSwapSDK.AmigoLiveCameraView.Coordinator",
+                    "usr": "s:16AmigoFaceSwapSDK0A14LiveCameraViewV11CoordinatorC"
+                  }
+                ]
+              }
+            ],
+            "usr": "s:7SwiftUI19UIViewRepresentableP",
+            "mangledName": "$s7SwiftUI19UIViewRepresentableP"
+          },
+          {
+            "kind": "Conformance",
+            "name": "View",
+            "printedName": "View",
+            "children": [
+              {
+                "kind": "TypeWitness",
+                "name": "Body",
+                "printedName": "Body",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Never",
+                    "printedName": "Swift.Never",
+                    "usr": "s:s5NeverO"
+                  }
+                ]
+              }
+            ],
+            "usr": "s:7SwiftUI4ViewP",
+            "mangledName": "$s7SwiftUI4ViewP"
+          },
+          {
+            "kind": "Conformance",
+            "name": "Sendable",
+            "printedName": "Sendable",
+            "usr": "s:s8SendableP",
+            "mangledName": "$ss8SendableP"
+          }
+        ]
+      },
+      {
+        "kind": "Import",
+        "name": "AVFoundation",
+        "printedName": "AVFoundation",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "UIKit",
+        "printedName": "UIKit",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "Vision",
+        "printedName": "Vision",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "CoreImage",
+        "printedName": "CoreImage",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "CoreImage.CIFilterBuiltins",
+        "printedName": "CoreImage.CIFilterBuiltins",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "TypeDecl",
+        "name": "AmigoLiveSession",
+        "printedName": "AmigoLiveSession",
+        "children": [
+          {
+            "kind": "Var",
+            "name": "previewView",
+            "printedName": "previewView",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "UIView",
+                "printedName": "UIKit.UIView",
+                "usr": "c:objc(cs)UIView"
+              }
+            ],
+            "declKind": "Var",
+            "usr": "s:16AmigoFaceSwapSDK0A11LiveSessionC11previewViewSo6UIViewCvp",
+            "mangledName": "$s16AmigoFaceSwapSDK0A11LiveSessionC11previewViewSo6UIViewCvp",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "HasInitialValue",
+              "Final",
+              "HasStorage",
+              "AccessControl",
+              "RawDocComment"
+            ],
+            "isLet": true,
+            "hasStorage": true,
+            "accessors": [
+              {
+                "kind": "Accessor",
+                "name": "Get",
+                "printedName": "Get()",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "UIView",
+                    "printedName": "UIKit.UIView",
+                    "usr": "c:objc(cs)UIView"
+                  }
+                ],
+                "declKind": "Accessor",
+                "usr": "s:16AmigoFaceSwapSDK0A11LiveSessionC11previewViewSo6UIViewCvg",
+                "mangledName": "$s16AmigoFaceSwapSDK0A11LiveSessionC11previewViewSo6UIViewCvg",
+                "moduleName": "AmigoFaceSwapSDK",
+                "implicit": true,
+                "declAttributes": [
+                  "Final"
+                ],
+                "accessorKind": "get"
+              }
+            ]
+          },
+          {
+            "kind": "Var",
+            "name": "targetLatent",
+            "printedName": "targetLatent",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "FaceLatent",
+                "printedName": "AmigoFaceSwapSDK.FaceLatent",
+                "usr": "s:16AmigoFaceSwapSDK0B6LatentV"
+              }
+            ],
+            "declKind": "Var",
+            "usr": "s:16AmigoFaceSwapSDK0A11LiveSessionC12targetLatentAA0bH0Vvp",
+            "mangledName": "$s16AmigoFaceSwapSDK0A11LiveSessionC12targetLatentAA0bH0Vvp",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "Final",
+              "HasStorage",
+              "AccessControl",
+              "RawDocComment"
+            ],
+            "hasStorage": true,
+            "accessors": [
+              {
+                "kind": "Accessor",
+                "name": "Get",
+                "printedName": "Get()",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "FaceLatent",
+                    "printedName": "AmigoFaceSwapSDK.FaceLatent",
+                    "usr": "s:16AmigoFaceSwapSDK0B6LatentV"
+                  }
+                ],
+                "declKind": "Accessor",
+                "usr": "s:16AmigoFaceSwapSDK0A11LiveSessionC12targetLatentAA0bH0Vvg",
+                "mangledName": "$s16AmigoFaceSwapSDK0A11LiveSessionC12targetLatentAA0bH0Vvg",
+                "moduleName": "AmigoFaceSwapSDK",
+                "implicit": true,
+                "declAttributes": [
+                  "Final"
+                ],
+                "accessorKind": "get"
+              },
+              {
+                "kind": "Accessor",
+                "name": "Set",
+                "printedName": "Set()",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Void",
+                    "printedName": "()"
+                  },
+                  {
+                    "kind": "TypeNominal",
+                    "name": "FaceLatent",
+                    "printedName": "AmigoFaceSwapSDK.FaceLatent",
+                    "usr": "s:16AmigoFaceSwapSDK0B6LatentV"
+                  }
+                ],
+                "declKind": "Accessor",
+                "usr": "s:16AmigoFaceSwapSDK0A11LiveSessionC12targetLatentAA0bH0Vvs",
+                "mangledName": "$s16AmigoFaceSwapSDK0A11LiveSessionC12targetLatentAA0bH0Vvs",
+                "moduleName": "AmigoFaceSwapSDK",
+                "implicit": true,
+                "declAttributes": [
+                  "Final"
+                ],
+                "accessorKind": "set"
+              },
+              {
+                "kind": "Accessor",
+                "name": "Modify",
+                "printedName": "Modify()",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Void",
+                    "printedName": "()"
+                  }
+                ],
+                "declKind": "Accessor",
+                "usr": "s:16AmigoFaceSwapSDK0A11LiveSessionC12targetLatentAA0bH0VvM",
+                "mangledName": "$s16AmigoFaceSwapSDK0A11LiveSessionC12targetLatentAA0bH0VvM",
+                "moduleName": "AmigoFaceSwapSDK",
+                "implicit": true,
+                "declAttributes": [
+                  "Final"
+                ],
+                "accessorKind": "_modify"
+              }
+            ]
+          },
+          {
+            "kind": "Var",
+            "name": "lipMode",
+            "printedName": "lipMode",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "LipMode",
+                "printedName": "AmigoFaceSwapSDK.LipMode",
+                "usr": "s:16AmigoFaceSwapSDK7LipModeO"
+              }
+            ],
+            "declKind": "Var",
+            "usr": "s:16AmigoFaceSwapSDK0A11LiveSessionC7lipModeAA03LipH0Ovp",
+            "mangledName": "$s16AmigoFaceSwapSDK0A11LiveSessionC7lipModeAA03LipH0Ovp",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "HasInitialValue",
+              "Final",
+              "HasStorage",
+              "AccessControl",
+              "RawDocComment"
+            ],
+            "hasStorage": true,
+            "accessors": [
+              {
+                "kind": "Accessor",
+                "name": "Get",
+                "printedName": "Get()",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "LipMode",
+                    "printedName": "AmigoFaceSwapSDK.LipMode",
+                    "usr": "s:16AmigoFaceSwapSDK7LipModeO"
+                  }
+                ],
+                "declKind": "Accessor",
+                "usr": "s:16AmigoFaceSwapSDK0A11LiveSessionC7lipModeAA03LipH0Ovg",
+                "mangledName": "$s16AmigoFaceSwapSDK0A11LiveSessionC7lipModeAA03LipH0Ovg",
+                "moduleName": "AmigoFaceSwapSDK",
+                "implicit": true,
+                "declAttributes": [
+                  "Final"
+                ],
+                "accessorKind": "get"
+              },
+              {
+                "kind": "Accessor",
+                "name": "Set",
+                "printedName": "Set()",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Void",
+                    "printedName": "()"
+                  },
+                  {
+                    "kind": "TypeNominal",
+                    "name": "LipMode",
+                    "printedName": "AmigoFaceSwapSDK.LipMode",
+                    "usr": "s:16AmigoFaceSwapSDK7LipModeO"
+                  }
+                ],
+                "declKind": "Accessor",
+                "usr": "s:16AmigoFaceSwapSDK0A11LiveSessionC7lipModeAA03LipH0Ovs",
+                "mangledName": "$s16AmigoFaceSwapSDK0A11LiveSessionC7lipModeAA03LipH0Ovs",
+                "moduleName": "AmigoFaceSwapSDK",
+                "implicit": true,
+                "declAttributes": [
+                  "Final"
+                ],
+                "accessorKind": "set"
+              },
+              {
+                "kind": "Accessor",
+                "name": "Modify",
+                "printedName": "Modify()",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Void",
+                    "printedName": "()"
+                  }
+                ],
+                "declKind": "Accessor",
+                "usr": "s:16AmigoFaceSwapSDK0A11LiveSessionC7lipModeAA03LipH0OvM",
+                "mangledName": "$s16AmigoFaceSwapSDK0A11LiveSessionC7lipModeAA03LipH0OvM",
+                "moduleName": "AmigoFaceSwapSDK",
+                "implicit": true,
+                "declAttributes": [
+                  "Final"
+                ],
+                "accessorKind": "_modify"
+              }
+            ]
+          },
+          {
+            "kind": "Var",
+            "name": "isFaceSwapEnabled",
+            "printedName": "isFaceSwapEnabled",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "Bool",
+                "printedName": "Swift.Bool",
+                "usr": "s:Sb"
+              }
+            ],
+            "declKind": "Var",
+            "usr": "s:16AmigoFaceSwapSDK0A11LiveSessionC02isbC7EnabledSbvp",
+            "mangledName": "$s16AmigoFaceSwapSDK0A11LiveSessionC02isbC7EnabledSbvp",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "HasInitialValue",
+              "Final",
+              "HasStorage",
+              "AccessControl",
+              "RawDocComment"
+            ],
+            "hasStorage": true,
+            "accessors": [
+              {
+                "kind": "Accessor",
+                "name": "Get",
+                "printedName": "Get()",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Bool",
+                    "printedName": "Swift.Bool",
+                    "usr": "s:Sb"
+                  }
+                ],
+                "declKind": "Accessor",
+                "usr": "s:16AmigoFaceSwapSDK0A11LiveSessionC02isbC7EnabledSbvg",
+                "mangledName": "$s16AmigoFaceSwapSDK0A11LiveSessionC02isbC7EnabledSbvg",
+                "moduleName": "AmigoFaceSwapSDK",
+                "implicit": true,
+                "declAttributes": [
+                  "Final"
+                ],
+                "accessorKind": "get"
+              },
+              {
+                "kind": "Accessor",
+                "name": "Set",
+                "printedName": "Set()",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Void",
+                    "printedName": "()"
+                  },
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Bool",
+                    "printedName": "Swift.Bool",
+                    "usr": "s:Sb"
+                  }
+                ],
+                "declKind": "Accessor",
+                "usr": "s:16AmigoFaceSwapSDK0A11LiveSessionC02isbC7EnabledSbvs",
+                "mangledName": "$s16AmigoFaceSwapSDK0A11LiveSessionC02isbC7EnabledSbvs",
+                "moduleName": "AmigoFaceSwapSDK",
+                "implicit": true,
+                "declAttributes": [
+                  "Final"
+                ],
+                "accessorKind": "set"
+              },
+              {
+                "kind": "Accessor",
+                "name": "Modify",
+                "printedName": "Modify()",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Void",
+                    "printedName": "()"
+                  }
+                ],
+                "declKind": "Accessor",
+                "usr": "s:16AmigoFaceSwapSDK0A11LiveSessionC02isbC7EnabledSbvM",
+                "mangledName": "$s16AmigoFaceSwapSDK0A11LiveSessionC02isbC7EnabledSbvM",
+                "moduleName": "AmigoFaceSwapSDK",
+                "implicit": true,
+                "declAttributes": [
+                  "Final"
+                ],
+                "accessorKind": "_modify"
+              }
+            ]
+          },
+          {
+            "kind": "Var",
+            "name": "backgroundImage",
+            "printedName": "backgroundImage",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "Optional",
+                "printedName": "UIKit.UIImage?",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "UIImage",
+                    "printedName": "UIKit.UIImage",
+                    "usr": "c:objc(cs)UIImage"
+                  }
+                ],
+                "usr": "s:Sq"
+              }
+            ],
+            "declKind": "Var",
+            "usr": "s:16AmigoFaceSwapSDK0A11LiveSessionC15backgroundImageSo7UIImageCSgvp",
+            "mangledName": "$s16AmigoFaceSwapSDK0A11LiveSessionC15backgroundImageSo7UIImageCSgvp",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "HasInitialValue",
+              "Final",
+              "HasStorage",
+              "AccessControl",
+              "RawDocComment"
+            ],
+            "hasStorage": true,
+            "accessors": [
+              {
+                "kind": "Accessor",
+                "name": "Get",
+                "printedName": "Get()",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Optional",
+                    "printedName": "UIKit.UIImage?",
+                    "children": [
+                      {
+                        "kind": "TypeNominal",
+                        "name": "UIImage",
+                        "printedName": "UIKit.UIImage",
+                        "usr": "c:objc(cs)UIImage"
+                      }
+                    ],
+                    "usr": "s:Sq"
+                  }
+                ],
+                "declKind": "Accessor",
+                "usr": "s:16AmigoFaceSwapSDK0A11LiveSessionC15backgroundImageSo7UIImageCSgvg",
+                "mangledName": "$s16AmigoFaceSwapSDK0A11LiveSessionC15backgroundImageSo7UIImageCSgvg",
+                "moduleName": "AmigoFaceSwapSDK",
+                "implicit": true,
+                "declAttributes": [
+                  "Final"
+                ],
+                "accessorKind": "get"
+              },
+              {
+                "kind": "Accessor",
+                "name": "Set",
+                "printedName": "Set()",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Void",
+                    "printedName": "()"
+                  },
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Optional",
+                    "printedName": "UIKit.UIImage?",
+                    "children": [
+                      {
+                        "kind": "TypeNominal",
+                        "name": "UIImage",
+                        "printedName": "UIKit.UIImage",
+                        "usr": "c:objc(cs)UIImage"
+                      }
+                    ],
+                    "usr": "s:Sq"
+                  }
+                ],
+                "declKind": "Accessor",
+                "usr": "s:16AmigoFaceSwapSDK0A11LiveSessionC15backgroundImageSo7UIImageCSgvs",
+                "mangledName": "$s16AmigoFaceSwapSDK0A11LiveSessionC15backgroundImageSo7UIImageCSgvs",
+                "moduleName": "AmigoFaceSwapSDK",
+                "implicit": true,
+                "declAttributes": [
+                  "Final"
+                ],
+                "accessorKind": "set"
+              },
+              {
+                "kind": "Accessor",
+                "name": "Modify",
+                "printedName": "Modify()",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Void",
+                    "printedName": "()"
+                  }
+                ],
+                "declKind": "Accessor",
+                "usr": "s:16AmigoFaceSwapSDK0A11LiveSessionC15backgroundImageSo7UIImageCSgvM",
+                "mangledName": "$s16AmigoFaceSwapSDK0A11LiveSessionC15backgroundImageSo7UIImageCSgvM",
+                "moduleName": "AmigoFaceSwapSDK",
+                "implicit": true,
+                "declAttributes": [
+                  "Final"
+                ],
+                "accessorKind": "_modify"
+              }
+            ]
+          },
+          {
+            "kind": "Var",
+            "name": "delegate",
+            "printedName": "delegate",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "WeakStorage",
+                "printedName": "(any AmigoFaceSwapSDK.AmigoLiveSessionDelegate)?"
+              }
+            ],
+            "declKind": "Var",
+            "usr": "s:16AmigoFaceSwapSDK0A11LiveSessionC8delegateAA0aeF8Delegate_pSgvp",
+            "mangledName": "$s16AmigoFaceSwapSDK0A11LiveSessionC8delegateAA0aeF8Delegate_pSgvp",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "HasInitialValue",
+              "Final",
+              "HasStorage",
+              "ReferenceOwnership",
+              "AccessControl",
+              "RawDocComment"
+            ],
+            "ownership": 1,
+            "hasStorage": true,
+            "accessors": [
+              {
+                "kind": "Accessor",
+                "name": "Get",
+                "printedName": "Get()",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Optional",
+                    "printedName": "(any AmigoFaceSwapSDK.AmigoLiveSessionDelegate)?",
+                    "children": [
+                      {
+                        "kind": "TypeNominal",
+                        "name": "AmigoLiveSessionDelegate",
+                        "printedName": "any AmigoFaceSwapSDK.AmigoLiveSessionDelegate",
+                        "usr": "s:16AmigoFaceSwapSDK0A19LiveSessionDelegateP"
+                      }
+                    ],
+                    "usr": "s:Sq"
+                  }
+                ],
+                "declKind": "Accessor",
+                "usr": "s:16AmigoFaceSwapSDK0A11LiveSessionC8delegateAA0aeF8Delegate_pSgvg",
+                "mangledName": "$s16AmigoFaceSwapSDK0A11LiveSessionC8delegateAA0aeF8Delegate_pSgvg",
+                "moduleName": "AmigoFaceSwapSDK",
+                "implicit": true,
+                "declAttributes": [
+                  "Final"
+                ],
+                "accessorKind": "get"
+              },
+              {
+                "kind": "Accessor",
+                "name": "Set",
+                "printedName": "Set()",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Void",
+                    "printedName": "()"
+                  },
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Optional",
+                    "printedName": "(any AmigoFaceSwapSDK.AmigoLiveSessionDelegate)?",
+                    "children": [
+                      {
+                        "kind": "TypeNominal",
+                        "name": "AmigoLiveSessionDelegate",
+                        "printedName": "any AmigoFaceSwapSDK.AmigoLiveSessionDelegate",
+                        "usr": "s:16AmigoFaceSwapSDK0A19LiveSessionDelegateP"
+                      }
+                    ],
+                    "usr": "s:Sq"
+                  }
+                ],
+                "declKind": "Accessor",
+                "usr": "s:16AmigoFaceSwapSDK0A11LiveSessionC8delegateAA0aeF8Delegate_pSgvs",
+                "mangledName": "$s16AmigoFaceSwapSDK0A11LiveSessionC8delegateAA0aeF8Delegate_pSgvs",
+                "moduleName": "AmigoFaceSwapSDK",
+                "implicit": true,
+                "declAttributes": [
+                  "Final"
+                ],
+                "accessorKind": "set"
+              },
+              {
+                "kind": "Accessor",
+                "name": "Modify",
+                "printedName": "Modify()",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Void",
+                    "printedName": "()"
+                  }
+                ],
+                "declKind": "Accessor",
+                "usr": "s:16AmigoFaceSwapSDK0A11LiveSessionC8delegateAA0aeF8Delegate_pSgvM",
+                "mangledName": "$s16AmigoFaceSwapSDK0A11LiveSessionC8delegateAA0aeF8Delegate_pSgvM",
+                "moduleName": "AmigoFaceSwapSDK",
+                "implicit": true,
+                "declAttributes": [
+                  "Final"
+                ],
+                "accessorKind": "_modify"
+              }
+            ]
+          },
+          {
+            "kind": "Constructor",
+            "name": "init",
+            "printedName": "init(targetLatent:cameraPosition:)",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "AmigoLiveSession",
+                "printedName": "AmigoFaceSwapSDK.AmigoLiveSession",
+                "usr": "c:@M@AmigoFaceSwapSDK@objc(cs)AmigoLiveSession"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "FaceLatent",
+                "printedName": "AmigoFaceSwapSDK.FaceLatent",
+                "usr": "s:16AmigoFaceSwapSDK0B6LatentV"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "Position",
+                "printedName": "AVFoundation.AVCaptureDevice.Position",
+                "hasDefaultArg": true,
+                "usr": "c:@E@AVCaptureDevicePosition"
+              }
+            ],
+            "declKind": "Constructor",
+            "usr": "s:16AmigoFaceSwapSDK0A11LiveSessionC12targetLatent14cameraPositionAcA0bH0V_So015AVCaptureDeviceJ0Vtcfc",
+            "mangledName": "$s16AmigoFaceSwapSDK0A11LiveSessionC12targetLatent14cameraPositionAcA0bH0V_So015AVCaptureDeviceJ0Vtcfc",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "AccessControl",
+              "RawDocComment"
+            ],
+            "init_kind": "Designated"
+          },
+          {
+            "kind": "Function",
+            "name": "start",
+            "printedName": "start()",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "Void",
+                "printedName": "()"
+              }
+            ],
+            "declKind": "Func",
+            "usr": "s:16AmigoFaceSwapSDK0A11LiveSessionC5startyyF",
+            "mangledName": "$s16AmigoFaceSwapSDK0A11LiveSessionC5startyyF",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "Final",
+              "AccessControl",
+              "RawDocComment"
+            ],
+            "funcSelfKind": "NonMutating"
+          },
+          {
+            "kind": "Function",
+            "name": "stop",
+            "printedName": "stop()",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "Void",
+                "printedName": "()"
+              }
+            ],
+            "declKind": "Func",
+            "usr": "s:16AmigoFaceSwapSDK0A11LiveSessionC4stopyyF",
+            "mangledName": "$s16AmigoFaceSwapSDK0A11LiveSessionC4stopyyF",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "Final",
+              "AccessControl",
+              "RawDocComment"
+            ],
+            "funcSelfKind": "NonMutating"
+          },
+          {
+            "kind": "Function",
+            "name": "switchCamera",
+            "printedName": "switchCamera()",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "Void",
+                "printedName": "()"
+              }
+            ],
+            "declKind": "Func",
+            "usr": "s:16AmigoFaceSwapSDK0A11LiveSessionC12switchCamerayyF",
+            "mangledName": "$s16AmigoFaceSwapSDK0A11LiveSessionC12switchCamerayyF",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "Final",
+              "AccessControl",
+              "RawDocComment"
+            ],
+            "funcSelfKind": "NonMutating"
+          },
+          {
+            "kind": "Constructor",
+            "name": "init",
+            "printedName": "init()",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "AmigoLiveSession",
+                "printedName": "AmigoFaceSwapSDK.AmigoLiveSession",
+                "usr": "c:@M@AmigoFaceSwapSDK@objc(cs)AmigoLiveSession"
+              }
+            ],
+            "declKind": "Constructor",
+            "usr": "c:@M@AmigoFaceSwapSDK@objc(cs)AmigoLiveSession(im)init",
+            "mangledName": "$s16AmigoFaceSwapSDK0A11LiveSessionCACycfc",
+            "moduleName": "AmigoFaceSwapSDK",
+            "overriding": true,
+            "implicit": true,
+            "objc_name": "init",
+            "declAttributes": [
+              "Dynamic",
+              "ObjC",
+              "Override"
+            ],
+            "init_kind": "Designated"
+          },
+          {
+            "kind": "Function",
+            "name": "captureOutput",
+            "printedName": "captureOutput(_:didOutput:from:)",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "Void",
+                "printedName": "()"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "AVCaptureOutput",
+                "printedName": "AVFoundation.AVCaptureOutput",
+                "usr": "c:objc(cs)AVCaptureOutput"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "CMSampleBuffer",
+                "printedName": "CoreMedia.CMSampleBuffer",
+                "usr": "c:@T@CMSampleBufferRef"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "AVCaptureConnection",
+                "printedName": "AVFoundation.AVCaptureConnection",
+                "usr": "c:objc(cs)AVCaptureConnection"
+              }
+            ],
+            "declKind": "Func",
+            "usr": "c:@CM@AmigoFaceSwapSDK@objc(cs)AmigoLiveSession(im)captureOutput:didOutputSampleBuffer:fromConnection:",
+            "mangledName": "$s16AmigoFaceSwapSDK0A11LiveSessionC13captureOutput_03didH04fromySo09AVCaptureH0C_So17CMSampleBufferRefaSo0K10ConnectionCtF",
+            "moduleName": "AmigoFaceSwapSDK",
+            "objc_name": "captureOutput:didOutputSampleBuffer:fromConnection:",
+            "declAttributes": [
+              "Final",
+              "ObjC",
+              "AccessControl"
+            ],
+            "isFromExtension": true,
+            "funcSelfKind": "NonMutating"
+          }
+        ],
+        "declKind": "Class",
+        "usr": "c:@M@AmigoFaceSwapSDK@objc(cs)AmigoLiveSession",
+        "mangledName": "$s16AmigoFaceSwapSDK0A11LiveSessionC",
+        "moduleName": "AmigoFaceSwapSDK",
+        "declAttributes": [
+          "Final",
+          "AccessControl",
+          "RawDocComment",
+          "ObjC"
+        ],
+        "superclassUsr": "c:objc(cs)NSObject",
+        "superclassNames": [
+          "ObjectiveC.NSObject"
+        ],
+        "conformances": [
+          {
+            "kind": "Conformance",
+            "name": "Copyable",
+            "printedName": "Copyable",
+            "usr": "s:s8CopyableP",
+            "mangledName": "$ss8CopyableP"
+          },
+          {
+            "kind": "Conformance",
+            "name": "Escapable",
+            "printedName": "Escapable",
+            "usr": "s:s9EscapableP",
+            "mangledName": "$ss9EscapableP"
+          },
+          {
+            "kind": "Conformance",
+            "name": "Equatable",
+            "printedName": "Equatable",
+            "usr": "s:SQ",
+            "mangledName": "$sSQ"
+          },
+          {
+            "kind": "Conformance",
+            "name": "Hashable",
+            "printedName": "Hashable",
+            "usr": "s:SH",
+            "mangledName": "$sSH"
+          },
+          {
+            "kind": "Conformance",
+            "name": "CVarArg",
+            "printedName": "CVarArg",
+            "usr": "s:s7CVarArgP",
+            "mangledName": "$ss7CVarArgP"
+          },
+          {
+            "kind": "Conformance",
+            "name": "_KeyValueCodingAndObservingPublishing",
+            "printedName": "_KeyValueCodingAndObservingPublishing",
+            "usr": "s:10Foundation37_KeyValueCodingAndObservingPublishingP",
+            "mangledName": "$s10Foundation37_KeyValueCodingAndObservingPublishingP"
+          },
+          {
+            "kind": "Conformance",
+            "name": "_KeyValueCodingAndObserving",
+            "printedName": "_KeyValueCodingAndObserving",
+            "usr": "s:10Foundation27_KeyValueCodingAndObservingP",
+            "mangledName": "$s10Foundation27_KeyValueCodingAndObservingP"
+          },
+          {
+            "kind": "Conformance",
+            "name": "CustomStringConvertible",
+            "printedName": "CustomStringConvertible",
+            "usr": "s:s23CustomStringConvertibleP",
+            "mangledName": "$ss23CustomStringConvertibleP"
+          },
+          {
+            "kind": "Conformance",
+            "name": "CustomDebugStringConvertible",
+            "printedName": "CustomDebugStringConvertible",
+            "usr": "s:s28CustomDebugStringConvertibleP",
+            "mangledName": "$ss28CustomDebugStringConvertibleP"
+          }
+        ]
+      },
+      {
+        "kind": "Import",
+        "name": "UIKit",
+        "printedName": "UIKit",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "TypeDecl",
+        "name": "AmigoLiveSessionDelegate",
+        "printedName": "AmigoLiveSessionDelegate",
+        "children": [
+          {
+            "kind": "Function",
+            "name": "session",
+            "printedName": "session(_:didOutput:)",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "Void",
+                "printedName": "()"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "AmigoLiveSession",
+                "printedName": "AmigoFaceSwapSDK.AmigoLiveSession",
+                "usr": "c:@M@AmigoFaceSwapSDK@objc(cs)AmigoLiveSession"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "UIImage",
+                "printedName": "UIKit.UIImage",
+                "usr": "c:objc(cs)UIImage"
+              }
+            ],
+            "declKind": "Func",
+            "usr": "s:16AmigoFaceSwapSDK0A19LiveSessionDelegateP7session_9didOutputyAA0aeF0C_So7UIImageCtF",
+            "mangledName": "$s16AmigoFaceSwapSDK0A19LiveSessionDelegateP7session_9didOutputyAA0aeF0C_So7UIImageCtF",
+            "moduleName": "AmigoFaceSwapSDK",
+            "genericSig": "<τ_0_0 where τ_0_0 : AmigoFaceSwapSDK.AmigoLiveSessionDelegate>",
+            "sugared_genericSig": "<Self where Self : AmigoFaceSwapSDK.AmigoLiveSessionDelegate>",
+            "protocolReq": true,
+            "declAttributes": [
+              "RawDocComment"
+            ],
+            "reqNewWitnessTableEntry": true,
+            "funcSelfKind": "NonMutating"
+          },
+          {
+            "kind": "Function",
+            "name": "session",
+            "printedName": "session(_:didEncounterError:)",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "Void",
+                "printedName": "()"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "AmigoLiveSession",
+                "printedName": "AmigoFaceSwapSDK.AmigoLiveSession",
+                "usr": "c:@M@AmigoFaceSwapSDK@objc(cs)AmigoLiveSession"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "Error",
+                "printedName": "any Swift.Error",
+                "usr": "s:s5ErrorP"
+              }
+            ],
+            "declKind": "Func",
+            "usr": "s:16AmigoFaceSwapSDK0A19LiveSessionDelegateP7session_17didEncounterErroryAA0aeF0C_s0K0_ptF",
+            "mangledName": "$s16AmigoFaceSwapSDK0A19LiveSessionDelegateP7session_17didEncounterErroryAA0aeF0C_s0K0_ptF",
+            "moduleName": "AmigoFaceSwapSDK",
+            "genericSig": "<τ_0_0 where τ_0_0 : AmigoFaceSwapSDK.AmigoLiveSessionDelegate>",
+            "sugared_genericSig": "<Self where Self : AmigoFaceSwapSDK.AmigoLiveSessionDelegate>",
+            "protocolReq": true,
+            "declAttributes": [
+              "RawDocComment"
+            ],
+            "reqNewWitnessTableEntry": true,
+            "funcSelfKind": "NonMutating"
+          },
+          {
+            "kind": "Function",
+            "name": "session",
+            "printedName": "session(_:didEncounterError:)",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "Void",
+                "printedName": "()"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "AmigoLiveSession",
+                "printedName": "AmigoFaceSwapSDK.AmigoLiveSession",
+                "usr": "c:@M@AmigoFaceSwapSDK@objc(cs)AmigoLiveSession"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "Error",
+                "printedName": "any Swift.Error",
+                "usr": "s:s5ErrorP"
+              }
+            ],
+            "declKind": "Func",
+            "usr": "s:16AmigoFaceSwapSDK0A19LiveSessionDelegatePAAE7session_17didEncounterErroryAA0aeF0C_s0K0_ptF",
+            "mangledName": "$s16AmigoFaceSwapSDK0A19LiveSessionDelegatePAAE7session_17didEncounterErroryAA0aeF0C_s0K0_ptF",
+            "moduleName": "AmigoFaceSwapSDK",
+            "genericSig": "<τ_0_0 where τ_0_0 : AmigoFaceSwapSDK.AmigoLiveSessionDelegate>",
+            "sugared_genericSig": "<Self where Self : AmigoFaceSwapSDK.AmigoLiveSessionDelegate>",
+            "declAttributes": [
+              "RawDocComment"
+            ],
+            "isFromExtension": true,
+            "funcSelfKind": "NonMutating"
+          }
+        ],
+        "declKind": "Protocol",
+        "usr": "s:16AmigoFaceSwapSDK0A19LiveSessionDelegateP",
+        "mangledName": "$s16AmigoFaceSwapSDK0A19LiveSessionDelegateP",
+        "moduleName": "AmigoFaceSwapSDK",
+        "genericSig": "<τ_0_0 : AnyObject>",
+        "sugared_genericSig": "<Self : AnyObject>",
+        "declAttributes": [
+          "AccessControl",
+          "RawDocComment"
+        ],
+        "conformances": [
+          {
+            "kind": "Conformance",
+            "name": "Escapable",
+            "printedName": "Escapable",
+            "usr": "s:s9EscapableP",
+            "mangledName": "$ss9EscapableP"
+          },
+          {
+            "kind": "Conformance",
+            "name": "Copyable",
+            "printedName": "Copyable",
+            "usr": "s:s8CopyableP",
+            "mangledName": "$ss8CopyableP"
+          }
+        ]
+      },
+      {
+        "kind": "Import",
+        "name": "UIKit",
+        "printedName": "UIKit",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "AVFoundation",
+        "printedName": "AVFoundation",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "TypeDecl",
+        "name": "AmigoLiveViewController",
+        "printedName": "AmigoLiveViewController",
+        "children": [
+          {
+            "kind": "Var",
+            "name": "session",
+            "printedName": "session",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "AmigoLiveSession",
+                "printedName": "AmigoFaceSwapSDK.AmigoLiveSession",
+                "usr": "c:@M@AmigoFaceSwapSDK@objc(cs)AmigoLiveSession"
+              }
+            ],
+            "declKind": "Var",
+            "usr": "s:16AmigoFaceSwapSDK0A18LiveViewControllerC7sessionAA0aE7SessionCvp",
+            "mangledName": "$s16AmigoFaceSwapSDK0A18LiveViewControllerC7sessionAA0aE7SessionCvp",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "Final",
+              "Preconcurrency",
+              "Custom",
+              "HasStorage",
+              "AccessControl",
+              "RawDocComment"
+            ],
+            "isLet": true,
+            "hasStorage": true,
+            "accessors": [
+              {
+                "kind": "Accessor",
+                "name": "Get",
+                "printedName": "Get()",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "AmigoLiveSession",
+                    "printedName": "AmigoFaceSwapSDK.AmigoLiveSession",
+                    "usr": "c:@M@AmigoFaceSwapSDK@objc(cs)AmigoLiveSession"
+                  }
+                ],
+                "declKind": "Accessor",
+                "usr": "s:16AmigoFaceSwapSDK0A18LiveViewControllerC7sessionAA0aE7SessionCvg",
+                "mangledName": "$s16AmigoFaceSwapSDK0A18LiveViewControllerC7sessionAA0aE7SessionCvg",
+                "moduleName": "AmigoFaceSwapSDK",
+                "implicit": true,
+                "declAttributes": [
+                  "Final"
+                ],
+                "accessorKind": "get"
+              }
+            ]
+          },
+          {
+            "kind": "Var",
+            "name": "onFrame",
+            "printedName": "onFrame",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "Optional",
+                "printedName": "((UIKit.UIImage) -> ())?",
+                "children": [
+                  {
+                    "kind": "TypeFunc",
+                    "name": "Function",
+                    "printedName": "(UIKit.UIImage) -> ()",
+                    "children": [
+                      {
+                        "kind": "TypeNominal",
+                        "name": "Void",
+                        "printedName": "()"
+                      },
+                      {
+                        "kind": "TypeNominal",
+                        "name": "UIImage",
+                        "printedName": "UIKit.UIImage",
+                        "usr": "c:objc(cs)UIImage"
+                      }
+                    ]
+                  }
+                ],
+                "usr": "s:Sq"
+              }
+            ],
+            "declKind": "Var",
+            "usr": "s:16AmigoFaceSwapSDK0A18LiveViewControllerC7onFrameySo7UIImageCcSgvp",
+            "mangledName": "$s16AmigoFaceSwapSDK0A18LiveViewControllerC7onFrameySo7UIImageCcSgvp",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "HasInitialValue",
+              "Final",
+              "Preconcurrency",
+              "Custom",
+              "HasStorage",
+              "AccessControl",
+              "RawDocComment"
+            ],
+            "hasStorage": true,
+            "accessors": [
+              {
+                "kind": "Accessor",
+                "name": "Get",
+                "printedName": "Get()",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Optional",
+                    "printedName": "((UIKit.UIImage) -> ())?",
+                    "children": [
+                      {
+                        "kind": "TypeFunc",
+                        "name": "Function",
+                        "printedName": "(UIKit.UIImage) -> ()",
+                        "children": [
+                          {
+                            "kind": "TypeNominal",
+                            "name": "Void",
+                            "printedName": "()"
+                          },
+                          {
+                            "kind": "TypeNominal",
+                            "name": "UIImage",
+                            "printedName": "UIKit.UIImage",
+                            "usr": "c:objc(cs)UIImage"
+                          }
+                        ]
+                      }
+                    ],
+                    "usr": "s:Sq"
+                  }
+                ],
+                "declKind": "Accessor",
+                "usr": "s:16AmigoFaceSwapSDK0A18LiveViewControllerC7onFrameySo7UIImageCcSgvg",
+                "mangledName": "$s16AmigoFaceSwapSDK0A18LiveViewControllerC7onFrameySo7UIImageCcSgvg",
+                "moduleName": "AmigoFaceSwapSDK",
+                "implicit": true,
+                "declAttributes": [
+                  "Final"
+                ],
+                "accessorKind": "get"
+              },
+              {
+                "kind": "Accessor",
+                "name": "Set",
+                "printedName": "Set()",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Void",
+                    "printedName": "()"
+                  },
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Optional",
+                    "printedName": "((UIKit.UIImage) -> ())?",
+                    "children": [
+                      {
+                        "kind": "TypeFunc",
+                        "name": "Function",
+                        "printedName": "(UIKit.UIImage) -> ()",
+                        "children": [
+                          {
+                            "kind": "TypeNominal",
+                            "name": "Void",
+                            "printedName": "()"
+                          },
+                          {
+                            "kind": "TypeNominal",
+                            "name": "UIImage",
+                            "printedName": "UIKit.UIImage",
+                            "usr": "c:objc(cs)UIImage"
+                          }
+                        ]
+                      }
+                    ],
+                    "usr": "s:Sq"
+                  }
+                ],
+                "declKind": "Accessor",
+                "usr": "s:16AmigoFaceSwapSDK0A18LiveViewControllerC7onFrameySo7UIImageCcSgvs",
+                "mangledName": "$s16AmigoFaceSwapSDK0A18LiveViewControllerC7onFrameySo7UIImageCcSgvs",
+                "moduleName": "AmigoFaceSwapSDK",
+                "implicit": true,
+                "declAttributes": [
+                  "Final"
+                ],
+                "accessorKind": "set"
+              },
+              {
+                "kind": "Accessor",
+                "name": "Modify",
+                "printedName": "Modify()",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Void",
+                    "printedName": "()"
+                  }
+                ],
+                "declKind": "Accessor",
+                "usr": "s:16AmigoFaceSwapSDK0A18LiveViewControllerC7onFrameySo7UIImageCcSgvM",
+                "mangledName": "$s16AmigoFaceSwapSDK0A18LiveViewControllerC7onFrameySo7UIImageCcSgvM",
+                "moduleName": "AmigoFaceSwapSDK",
+                "implicit": true,
+                "declAttributes": [
+                  "Final"
+                ],
+                "accessorKind": "_modify"
+              }
+            ]
+          },
+          {
+            "kind": "Constructor",
+            "name": "init",
+            "printedName": "init(targetLatent:lipMode:cameraPosition:)",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "AmigoLiveViewController",
+                "printedName": "AmigoFaceSwapSDK.AmigoLiveViewController",
+                "usr": "c:@M@AmigoFaceSwapSDK@objc(cs)AmigoLiveViewController"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "FaceLatent",
+                "printedName": "AmigoFaceSwapSDK.FaceLatent",
+                "usr": "s:16AmigoFaceSwapSDK0B6LatentV"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "LipMode",
+                "printedName": "AmigoFaceSwapSDK.LipMode",
+                "hasDefaultArg": true,
+                "usr": "s:16AmigoFaceSwapSDK7LipModeO"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "Position",
+                "printedName": "AVFoundation.AVCaptureDevice.Position",
+                "hasDefaultArg": true,
+                "usr": "c:@E@AVCaptureDevicePosition"
+              }
+            ],
+            "declKind": "Constructor",
+            "usr": "s:16AmigoFaceSwapSDK0A18LiveViewControllerC12targetLatent7lipMode14cameraPositionAcA0bI0V_AA03LipK0OSo015AVCaptureDeviceM0Vtcfc",
+            "mangledName": "$s16AmigoFaceSwapSDK0A18LiveViewControllerC12targetLatent7lipMode14cameraPositionAcA0bI0V_AA03LipK0OSo015AVCaptureDeviceM0Vtcfc",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "Preconcurrency",
+              "Custom",
+              "AccessControl",
+              "RawDocComment"
+            ],
+            "init_kind": "Designated"
+          },
+          {
+            "kind": "Function",
+            "name": "viewDidLoad",
+            "printedName": "viewDidLoad()",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "Void",
+                "printedName": "()"
+              }
+            ],
+            "declKind": "Func",
+            "usr": "c:@M@AmigoFaceSwapSDK@objc(cs)AmigoLiveViewController(im)viewDidLoad",
+            "mangledName": "$s16AmigoFaceSwapSDK0A18LiveViewControllerC11viewDidLoadyyF",
+            "moduleName": "AmigoFaceSwapSDK",
+            "overriding": true,
+            "objc_name": "viewDidLoad",
+            "declAttributes": [
+              "Final",
+              "ObjC",
+              "Preconcurrency",
+              "Custom",
+              "Override",
+              "AccessControl",
+              "RawDocComment"
+            ],
+            "funcSelfKind": "NonMutating"
+          },
+          {
+            "kind": "Function",
+            "name": "viewWillAppear",
+            "printedName": "viewWillAppear(_:)",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "Void",
+                "printedName": "()"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "Bool",
+                "printedName": "Swift.Bool",
+                "usr": "s:Sb"
+              }
+            ],
+            "declKind": "Func",
+            "usr": "c:@M@AmigoFaceSwapSDK@objc(cs)AmigoLiveViewController(im)viewWillAppear:",
+            "mangledName": "$s16AmigoFaceSwapSDK0A18LiveViewControllerC14viewWillAppearyySbF",
+            "moduleName": "AmigoFaceSwapSDK",
+            "overriding": true,
+            "objc_name": "viewWillAppear:",
+            "declAttributes": [
+              "Final",
+              "ObjC",
+              "Preconcurrency",
+              "Custom",
+              "Override",
+              "AccessControl"
+            ],
+            "funcSelfKind": "NonMutating"
+          },
+          {
+            "kind": "Function",
+            "name": "viewWillDisappear",
+            "printedName": "viewWillDisappear(_:)",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "Void",
+                "printedName": "()"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "Bool",
+                "printedName": "Swift.Bool",
+                "usr": "s:Sb"
+              }
+            ],
+            "declKind": "Func",
+            "usr": "c:@M@AmigoFaceSwapSDK@objc(cs)AmigoLiveViewController(im)viewWillDisappear:",
+            "mangledName": "$s16AmigoFaceSwapSDK0A18LiveViewControllerC17viewWillDisappearyySbF",
+            "moduleName": "AmigoFaceSwapSDK",
+            "overriding": true,
+            "objc_name": "viewWillDisappear:",
+            "declAttributes": [
+              "Final",
+              "ObjC",
+              "Preconcurrency",
+              "Custom",
+              "Override",
+              "AccessControl"
+            ],
+            "funcSelfKind": "NonMutating"
+          },
+          {
+            "kind": "Constructor",
+            "name": "init",
+            "printedName": "init(nibName:bundle:)",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "AmigoLiveViewController",
+                "printedName": "AmigoFaceSwapSDK.AmigoLiveViewController",
+                "usr": "c:@M@AmigoFaceSwapSDK@objc(cs)AmigoLiveViewController"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "Optional",
+                "printedName": "Swift.String?",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "String",
+                    "printedName": "Swift.String",
+                    "usr": "s:SS"
+                  }
+                ],
+                "usr": "s:Sq"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "Optional",
+                "printedName": "Foundation.Bundle?",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Bundle",
+                    "printedName": "Foundation.Bundle",
+                    "usr": "c:objc(cs)NSBundle"
+                  }
+                ],
+                "usr": "s:Sq"
+              }
+            ],
+            "declKind": "Constructor",
+            "usr": "c:@M@AmigoFaceSwapSDK@objc(cs)AmigoLiveViewController(im)initWithNibName:bundle:",
+            "mangledName": "$s16AmigoFaceSwapSDK0A18LiveViewControllerC7nibName6bundleACSSSg_So8NSBundleCSgtcfc",
+            "moduleName": "AmigoFaceSwapSDK",
+            "overriding": true,
+            "implicit": true,
+            "objc_name": "initWithNibName:bundle:",
+            "declAttributes": [
+              "Dynamic",
+              "ObjC",
+              "Preconcurrency",
+              "Custom",
+              "Override"
+            ],
+            "init_kind": "Designated"
+          },
+          {
+            "kind": "Function",
+            "name": "session",
+            "printedName": "session(_:didOutput:)",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "Void",
+                "printedName": "()"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "AmigoLiveSession",
+                "printedName": "AmigoFaceSwapSDK.AmigoLiveSession",
+                "usr": "c:@M@AmigoFaceSwapSDK@objc(cs)AmigoLiveSession"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "UIImage",
+                "printedName": "UIKit.UIImage",
+                "usr": "c:objc(cs)UIImage"
+              }
+            ],
+            "declKind": "Func",
+            "usr": "s:16AmigoFaceSwapSDK0A18LiveViewControllerC7session_9didOutputyAA0aE7SessionC_So7UIImageCtF",
+            "mangledName": "$s16AmigoFaceSwapSDK0A18LiveViewControllerC7session_9didOutputyAA0aE7SessionC_So7UIImageCtF",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "Preconcurrency",
+              "Custom",
+              "Final",
+              "AccessControl"
+            ],
+            "isFromExtension": true,
+            "funcSelfKind": "NonMutating"
+          },
+          {
+            "kind": "Function",
+            "name": "session",
+            "printedName": "session(_:didEncounterError:)",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "Void",
+                "printedName": "()"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "AmigoLiveSession",
+                "printedName": "AmigoFaceSwapSDK.AmigoLiveSession",
+                "usr": "c:@M@AmigoFaceSwapSDK@objc(cs)AmigoLiveSession"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "Error",
+                "printedName": "any Swift.Error",
+                "usr": "s:s5ErrorP"
+              }
+            ],
+            "declKind": "Func",
+            "usr": "s:16AmigoFaceSwapSDK0A18LiveViewControllerC7session_17didEncounterErroryAA0aE7SessionC_s0K0_ptF",
+            "mangledName": "$s16AmigoFaceSwapSDK0A18LiveViewControllerC7session_17didEncounterErroryAA0aE7SessionC_s0K0_ptF",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "Preconcurrency",
+              "Custom",
+              "Final",
+              "AccessControl"
+            ],
+            "isFromExtension": true,
+            "funcSelfKind": "NonMutating"
+          }
+        ],
+        "declKind": "Class",
+        "usr": "c:@M@AmigoFaceSwapSDK@objc(cs)AmigoLiveViewController",
+        "mangledName": "$s16AmigoFaceSwapSDK0A18LiveViewControllerC",
+        "moduleName": "AmigoFaceSwapSDK",
+        "declAttributes": [
+          "Preconcurrency",
+          "Custom",
+          "Final",
+          "AccessControl",
+          "RawDocComment",
+          "ObjC"
+        ],
+        "superclassUsr": "c:objc(cs)UIViewController",
+        "hasMissingDesignatedInitializers": true,
+        "superclassNames": [
+          "UIKit.UIViewController",
+          "UIKit.UIResponder",
+          "ObjectiveC.NSObject"
+        ],
+        "conformances": [
+          {
+            "kind": "Conformance",
+            "name": "Copyable",
+            "printedName": "Copyable",
+            "usr": "s:s8CopyableP",
+            "mangledName": "$ss8CopyableP"
+          },
+          {
+            "kind": "Conformance",
+            "name": "Escapable",
+            "printedName": "Escapable",
+            "usr": "s:s9EscapableP",
+            "mangledName": "$ss9EscapableP"
+          },
+          {
+            "kind": "Conformance",
+            "name": "Equatable",
+            "printedName": "Equatable",
+            "usr": "s:SQ",
+            "mangledName": "$sSQ"
+          },
+          {
+            "kind": "Conformance",
+            "name": "Hashable",
+            "printedName": "Hashable",
+            "usr": "s:SH",
+            "mangledName": "$sSH"
+          },
+          {
+            "kind": "Conformance",
+            "name": "CVarArg",
+            "printedName": "CVarArg",
+            "usr": "s:s7CVarArgP",
+            "mangledName": "$ss7CVarArgP"
+          },
+          {
+            "kind": "Conformance",
+            "name": "_KeyValueCodingAndObservingPublishing",
+            "printedName": "_KeyValueCodingAndObservingPublishing",
+            "usr": "s:10Foundation37_KeyValueCodingAndObservingPublishingP",
+            "mangledName": "$s10Foundation37_KeyValueCodingAndObservingPublishingP"
+          },
+          {
+            "kind": "Conformance",
+            "name": "_KeyValueCodingAndObserving",
+            "printedName": "_KeyValueCodingAndObserving",
+            "usr": "s:10Foundation27_KeyValueCodingAndObservingP",
+            "mangledName": "$s10Foundation27_KeyValueCodingAndObservingP"
+          },
+          {
+            "kind": "Conformance",
+            "name": "CustomStringConvertible",
+            "printedName": "CustomStringConvertible",
+            "usr": "s:s23CustomStringConvertibleP",
+            "mangledName": "$ss23CustomStringConvertibleP"
+          },
+          {
+            "kind": "Conformance",
+            "name": "CustomDebugStringConvertible",
+            "printedName": "CustomDebugStringConvertible",
+            "usr": "s:s28CustomDebugStringConvertibleP",
+            "mangledName": "$ss28CustomDebugStringConvertibleP"
+          },
+          {
+            "kind": "Conformance",
+            "name": "UITraitChangeObservable",
+            "printedName": "UITraitChangeObservable",
+            "usr": "s:5UIKit23UITraitChangeObservableP",
+            "mangledName": "$s5UIKit23UITraitChangeObservableP"
+          },
+          {
+            "kind": "Conformance",
+            "name": "AmigoLiveSessionDelegate",
+            "printedName": "AmigoLiveSessionDelegate",
+            "usr": "s:16AmigoFaceSwapSDK0A19LiveSessionDelegateP",
+            "mangledName": "$s16AmigoFaceSwapSDK0A19LiveSessionDelegateP"
+          }
+        ]
+      },
+      {
+        "kind": "Import",
+        "name": "CoreML",
+        "printedName": "CoreML",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "Foundation",
+        "printedName": "Foundation",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "Vision",
+        "printedName": "Vision",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "UIKit",
+        "printedName": "UIKit",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "CoreImage",
+        "printedName": "CoreImage",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "CoreImage.CIFilterBuiltins",
+        "printedName": "CoreImage.CIFilterBuiltins",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "Foundation",
+        "printedName": "Foundation",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "Vision",
+        "printedName": "Vision",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "CoreGraphics",
+        "printedName": "CoreGraphics",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "UIKit",
+        "printedName": "UIKit",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "CoreImage",
+        "printedName": "CoreImage",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "CoreImage.CIFilterBuiltins",
+        "printedName": "CoreImage.CIFilterBuiltins",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "Foundation",
+        "printedName": "Foundation",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "Foundation",
+        "printedName": "Foundation",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "CryptoKit",
+        "printedName": "CryptoKit",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "CommonCrypto",
+        "printedName": "CommonCrypto",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "Compression",
+        "printedName": "Compression",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "Foundation",
+        "printedName": "Foundation",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "CryptoKit",
+        "printedName": "CryptoKit",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "Foundation",
+        "printedName": "Foundation",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "CryptoKit",
+        "printedName": "CryptoKit",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "Foundation",
+        "printedName": "Foundation",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "CoreML",
+        "printedName": "CoreML",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "CoreImage",
+        "printedName": "CoreImage",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "Accelerate",
+        "printedName": "Accelerate",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "UIKit",
+        "printedName": "UIKit",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "Vision",
+        "printedName": "Vision",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "CoreImage",
+        "printedName": "CoreImage",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "Accelerate",
+        "printedName": "Accelerate",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "Foundation",
+        "printedName": "Foundation",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "TypeDecl",
+        "name": "FaceLatent",
+        "printedName": "FaceLatent",
+        "children": [
+          {
+            "kind": "Constructor",
+            "name": "init",
+            "printedName": "init(embedding:)",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "Optional",
+                "printedName": "AmigoFaceSwapSDK.FaceLatent?",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "FaceLatent",
+                    "printedName": "AmigoFaceSwapSDK.FaceLatent",
+                    "usr": "s:16AmigoFaceSwapSDK0B6LatentV"
+                  }
+                ],
+                "usr": "s:Sq"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "Array",
+                "printedName": "[Swift.Float]",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Float",
+                    "printedName": "Swift.Float",
+                    "usr": "s:Sf"
+                  }
+                ],
+                "usr": "s:Sa"
+              }
+            ],
+            "declKind": "Constructor",
+            "usr": "s:16AmigoFaceSwapSDK0B6LatentV9embeddingACSgSaySfG_tcfc",
+            "mangledName": "$s16AmigoFaceSwapSDK0B6LatentV9embeddingACSgSaySfG_tcfc",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "AccessControl",
+              "RawDocComment"
+            ],
+            "init_kind": "Designated"
+          },
+          {
+            "kind": "Constructor",
+            "name": "init",
+            "printedName": "init(embedding:)",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "Optional",
+                "printedName": "AmigoFaceSwapSDK.FaceLatent?",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "FaceLatent",
+                    "printedName": "AmigoFaceSwapSDK.FaceLatent",
+                    "usr": "s:16AmigoFaceSwapSDK0B6LatentV"
+                  }
+                ],
+                "usr": "s:Sq"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "Array",
+                "printedName": "[Swift.Double]",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Double",
+                    "printedName": "Swift.Double",
+                    "usr": "s:Sd"
+                  }
+                ],
+                "usr": "s:Sa"
+              }
+            ],
+            "declKind": "Constructor",
+            "usr": "s:16AmigoFaceSwapSDK0B6LatentV9embeddingACSgSaySdG_tcfc",
+            "mangledName": "$s16AmigoFaceSwapSDK0B6LatentV9embeddingACSgSaySdG_tcfc",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "AccessControl",
+              "RawDocComment"
+            ],
+            "init_kind": "Designated"
+          },
+          {
+            "kind": "Var",
+            "name": "hashValue",
+            "printedName": "hashValue",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "Int",
+                "printedName": "Swift.Int",
+                "usr": "s:Si"
+              }
+            ],
+            "declKind": "Var",
+            "usr": "s:16AmigoFaceSwapSDK0B6LatentV9hashValueSivp",
+            "mangledName": "$s16AmigoFaceSwapSDK0B6LatentV9hashValueSivp",
+            "moduleName": "AmigoFaceSwapSDK",
+            "implicit": true,
+            "accessors": [
+              {
+                "kind": "Accessor",
+                "name": "Get",
+                "printedName": "Get()",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Int",
+                    "printedName": "Swift.Int",
+                    "usr": "s:Si"
+                  }
+                ],
+                "declKind": "Accessor",
+                "usr": "s:16AmigoFaceSwapSDK0B6LatentV9hashValueSivg",
+                "mangledName": "$s16AmigoFaceSwapSDK0B6LatentV9hashValueSivg",
+                "moduleName": "AmigoFaceSwapSDK",
+                "implicit": true,
+                "accessorKind": "get"
+              }
+            ]
+          },
+          {
+            "kind": "Function",
+            "name": "hash",
+            "printedName": "hash(into:)",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "Void",
+                "printedName": "()"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "Hasher",
+                "printedName": "Swift.Hasher",
+                "paramValueOwnership": "InOut",
+                "usr": "s:s6HasherV"
+              }
+            ],
+            "declKind": "Func",
+            "usr": "s:16AmigoFaceSwapSDK0B6LatentV4hash4intoys6HasherVz_tF",
+            "mangledName": "$s16AmigoFaceSwapSDK0B6LatentV4hash4intoys6HasherVz_tF",
+            "moduleName": "AmigoFaceSwapSDK",
+            "implicit": true,
+            "funcSelfKind": "NonMutating"
+          },
+          {
+            "kind": "Function",
+            "name": "==",
+            "printedName": "==(_:_:)",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "Bool",
+                "printedName": "Swift.Bool",
+                "usr": "s:Sb"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "FaceLatent",
+                "printedName": "AmigoFaceSwapSDK.FaceLatent",
+                "usr": "s:16AmigoFaceSwapSDK0B6LatentV"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "FaceLatent",
+                "printedName": "AmigoFaceSwapSDK.FaceLatent",
+                "usr": "s:16AmigoFaceSwapSDK0B6LatentV"
+              }
+            ],
+            "declKind": "Func",
+            "usr": "s:16AmigoFaceSwapSDK0B6LatentV2eeoiySbAC_ACtFZ",
+            "mangledName": "$s16AmigoFaceSwapSDK0B6LatentV2eeoiySbAC_ACtFZ",
+            "moduleName": "AmigoFaceSwapSDK",
+            "static": true,
+            "implicit": true,
+            "funcSelfKind": "NonMutating"
+          }
+        ],
+        "declKind": "Struct",
+        "usr": "s:16AmigoFaceSwapSDK0B6LatentV",
+        "mangledName": "$s16AmigoFaceSwapSDK0B6LatentV",
+        "moduleName": "AmigoFaceSwapSDK",
+        "declAttributes": [
+          "AccessControl",
+          "RawDocComment"
+        ],
+        "conformances": [
+          {
+            "kind": "Conformance",
+            "name": "Copyable",
+            "printedName": "Copyable",
+            "usr": "s:s8CopyableP",
+            "mangledName": "$ss8CopyableP"
+          },
+          {
+            "kind": "Conformance",
+            "name": "Escapable",
+            "printedName": "Escapable",
+            "usr": "s:s9EscapableP",
+            "mangledName": "$ss9EscapableP"
+          },
+          {
+            "kind": "Conformance",
+            "name": "Sendable",
+            "printedName": "Sendable",
+            "usr": "s:s8SendableP",
+            "mangledName": "$ss8SendableP"
+          },
+          {
+            "kind": "Conformance",
+            "name": "Hashable",
+            "printedName": "Hashable",
+            "usr": "s:SH",
+            "mangledName": "$sSH"
+          },
+          {
+            "kind": "Conformance",
+            "name": "Equatable",
+            "printedName": "Equatable",
+            "usr": "s:SQ",
+            "mangledName": "$sSQ"
+          }
+        ]
+      },
+      {
+        "kind": "Import",
+        "name": "Foundation",
+        "printedName": "Foundation",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "UIKit",
+        "printedName": "UIKit",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "Foundation",
+        "printedName": "Foundation",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "Import",
+        "name": "Foundation",
+        "printedName": "Foundation",
+        "declKind": "Import",
+        "moduleName": "AmigoFaceSwapSDK"
+      },
+      {
+        "kind": "TypeDecl",
+        "name": "LipMode",
+        "printedName": "LipMode",
+        "children": [
+          {
+            "kind": "Var",
+            "name": "none",
+            "printedName": "none",
+            "children": [
+              {
+                "kind": "TypeFunc",
+                "name": "Function",
+                "printedName": "(AmigoFaceSwapSDK.LipMode.Type) -> AmigoFaceSwapSDK.LipMode",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "LipMode",
+                    "printedName": "AmigoFaceSwapSDK.LipMode",
+                    "usr": "s:16AmigoFaceSwapSDK7LipModeO"
+                  },
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Metatype",
+                    "printedName": "AmigoFaceSwapSDK.LipMode.Type",
+                    "children": [
+                      {
+                        "kind": "TypeNominal",
+                        "name": "LipMode",
+                        "printedName": "AmigoFaceSwapSDK.LipMode",
+                        "usr": "s:16AmigoFaceSwapSDK7LipModeO"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "declKind": "EnumElement",
+            "usr": "s:16AmigoFaceSwapSDK7LipModeO4noneyA2CmF",
+            "mangledName": "$s16AmigoFaceSwapSDK7LipModeO4noneyA2CmF",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "RawDocComment"
+            ]
+          },
+          {
+            "kind": "Var",
+            "name": "outerLips",
+            "printedName": "outerLips",
+            "children": [
+              {
+                "kind": "TypeFunc",
+                "name": "Function",
+                "printedName": "(AmigoFaceSwapSDK.LipMode.Type) -> AmigoFaceSwapSDK.LipMode",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "LipMode",
+                    "printedName": "AmigoFaceSwapSDK.LipMode",
+                    "usr": "s:16AmigoFaceSwapSDK7LipModeO"
+                  },
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Metatype",
+                    "printedName": "AmigoFaceSwapSDK.LipMode.Type",
+                    "children": [
+                      {
+                        "kind": "TypeNominal",
+                        "name": "LipMode",
+                        "printedName": "AmigoFaceSwapSDK.LipMode",
+                        "usr": "s:16AmigoFaceSwapSDK7LipModeO"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "declKind": "EnumElement",
+            "usr": "s:16AmigoFaceSwapSDK7LipModeO9outerLipsyA2CmF",
+            "mangledName": "$s16AmigoFaceSwapSDK7LipModeO9outerLipsyA2CmF",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "RawDocComment"
+            ]
+          },
+          {
+            "kind": "Var",
+            "name": "innerLips",
+            "printedName": "innerLips",
+            "children": [
+              {
+                "kind": "TypeFunc",
+                "name": "Function",
+                "printedName": "(AmigoFaceSwapSDK.LipMode.Type) -> AmigoFaceSwapSDK.LipMode",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "LipMode",
+                    "printedName": "AmigoFaceSwapSDK.LipMode",
+                    "usr": "s:16AmigoFaceSwapSDK7LipModeO"
+                  },
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Metatype",
+                    "printedName": "AmigoFaceSwapSDK.LipMode.Type",
+                    "children": [
+                      {
+                        "kind": "TypeNominal",
+                        "name": "LipMode",
+                        "printedName": "AmigoFaceSwapSDK.LipMode",
+                        "usr": "s:16AmigoFaceSwapSDK7LipModeO"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "declKind": "EnumElement",
+            "usr": "s:16AmigoFaceSwapSDK7LipModeO9innerLipsyA2CmF",
+            "mangledName": "$s16AmigoFaceSwapSDK7LipModeO9innerLipsyA2CmF",
+            "moduleName": "AmigoFaceSwapSDK",
+            "declAttributes": [
+              "RawDocComment"
+            ]
+          },
+          {
+            "kind": "Constructor",
+            "name": "init",
+            "printedName": "init(rawValue:)",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "Optional",
+                "printedName": "AmigoFaceSwapSDK.LipMode?",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "LipMode",
+                    "printedName": "AmigoFaceSwapSDK.LipMode",
+                    "usr": "s:16AmigoFaceSwapSDK7LipModeO"
+                  }
+                ],
+                "usr": "s:Sq"
+              },
+              {
+                "kind": "TypeNominal",
+                "name": "Int",
+                "printedName": "Swift.Int",
+                "usr": "s:Si"
+              }
+            ],
+            "declKind": "Constructor",
+            "usr": "s:16AmigoFaceSwapSDK7LipModeO8rawValueACSgSi_tcfc",
+            "mangledName": "$s16AmigoFaceSwapSDK7LipModeO8rawValueACSgSi_tcfc",
+            "moduleName": "AmigoFaceSwapSDK",
+            "implicit": true,
+            "init_kind": "Designated"
+          },
+          {
+            "kind": "Var",
+            "name": "rawValue",
+            "printedName": "rawValue",
+            "children": [
+              {
+                "kind": "TypeNominal",
+                "name": "Int",
+                "printedName": "Swift.Int",
+                "usr": "s:Si"
+              }
+            ],
+            "declKind": "Var",
+            "usr": "s:16AmigoFaceSwapSDK7LipModeO8rawValueSivp",
+            "mangledName": "$s16AmigoFaceSwapSDK7LipModeO8rawValueSivp",
+            "moduleName": "AmigoFaceSwapSDK",
+            "implicit": true,
+            "accessors": [
+              {
+                "kind": "Accessor",
+                "name": "Get",
+                "printedName": "Get()",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Int",
+                    "printedName": "Swift.Int",
+                    "usr": "s:Si"
+                  }
+                ],
+                "declKind": "Accessor",
+                "usr": "s:16AmigoFaceSwapSDK7LipModeO8rawValueSivg",
+                "mangledName": "$s16AmigoFaceSwapSDK7LipModeO8rawValueSivg",
+                "moduleName": "AmigoFaceSwapSDK",
+                "implicit": true,
+                "accessorKind": "get"
+              }
+            ]
+          }
+        ],
+        "declKind": "Enum",
+        "usr": "s:16AmigoFaceSwapSDK7LipModeO",
+        "mangledName": "$s16AmigoFaceSwapSDK7LipModeO",
+        "moduleName": "AmigoFaceSwapSDK",
+        "declAttributes": [
+          "AccessControl",
+          "RawDocComment"
+        ],
+        "enumRawTypeName": "Int",
+        "conformances": [
+          {
+            "kind": "Conformance",
+            "name": "Copyable",
+            "printedName": "Copyable",
+            "usr": "s:s8CopyableP",
+            "mangledName": "$ss8CopyableP"
+          },
+          {
+            "kind": "Conformance",
+            "name": "Escapable",
+            "printedName": "Escapable",
+            "usr": "s:s9EscapableP",
+            "mangledName": "$ss9EscapableP"
+          },
+          {
+            "kind": "Conformance",
+            "name": "Equatable",
+            "printedName": "Equatable",
+            "usr": "s:SQ",
+            "mangledName": "$sSQ"
+          },
+          {
+            "kind": "Conformance",
+            "name": "Hashable",
+            "printedName": "Hashable",
+            "usr": "s:SH",
+            "mangledName": "$sSH"
+          },
+          {
+            "kind": "Conformance",
+            "name": "RawRepresentable",
+            "printedName": "RawRepresentable",
+            "children": [
+              {
+                "kind": "TypeWitness",
+                "name": "RawValue",
+                "printedName": "RawValue",
+                "children": [
+                  {
+                    "kind": "TypeNominal",
+                    "name": "Int",
+                    "printedName": "Swift.Int",
+                    "usr": "s:Si"
+                  }
+                ]
+              }
+            ],
+            "usr": "s:SY",
+            "mangledName": "$sSY"
+          },
+          {
+            "kind": "Conformance",
+            "name": "Sendable",
+            "printedName": "Sendable",
+            "usr": "s:s8SendableP",
+            "mangledName": "$ss8SendableP"
+          }
+        ]
+      }
+    ],
+    "json_format_version": 8
+  },
+  "ConstValues": [
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/.build\/xcframework\/DerivedData\/Build\/Intermediates.noindex\/AmigoFaceSwapSDK.build\/Release-iphoneos\/AmigoFaceSwapSDK.build\/DerivedSources\/resource_bundle_accessor.swift",
+      "kind": "StringLiteral",
+      "offset": 295,
+      "length": 35,
+      "value": "\"AmigoFaceSwapSDK_AmigoFaceSwapSDK\""
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/.build\/xcframework\/DerivedData\/Build\/Intermediates.noindex\/AmigoFaceSwapSDK.build\/Release-iphoneos\/AmigoFaceSwapSDK.build\/DerivedSources\/resource_bundle_accessor.swift",
+      "kind": "Array",
+      "offset": 977,
+      "length": 2,
+      "value": "[]"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/.build\/xcframework\/DerivedData\/Build\/Intermediates.noindex\/AmigoFaceSwapSDK.build\/Release-iphoneos\/AmigoFaceSwapSDK.build\/DerivedSources\/resource_bundle_accessor.swift",
+      "kind": "StringLiteral",
+      "offset": 1504,
+      "length": 9,
+      "value": "\".bundle\""
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/.build\/xcframework\/DerivedData\/Build\/Intermediates.noindex\/AmigoFaceSwapSDK.build\/Release-iphoneos\/AmigoFaceSwapSDK.build\/DerivedSources\/resource_bundle_accessor.swift",
+      "kind": "StringLiteral",
+      "offset": 1656,
+      "length": 63,
+      "value": "\"unable to find bundle named AmigoFaceSwapSDK_AmigoFaceSwapSDK\""
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/AmigoFaceSwap.swift",
+      "kind": "BooleanLiteral",
+      "offset": 1471,
+      "length": 5,
+      "value": "false"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/BundleFinder.swift",
+      "kind": "StringLiteral",
+      "offset": 414,
+      "length": 35,
+      "value": "\"AmigoFaceSwapSDK_AmigoFaceSwapSDK\""
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/BundleFinder.swift",
+      "kind": "StringLiteral",
+      "offset": 1095,
+      "length": 28,
+      "value": "\"AmigoFaceSwapSDK.framework\""
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/BundleFinder.swift",
+      "kind": "IntegerLiteral",
+      "offset": 1230,
+      "length": 1,
+      "value": "0"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/BundleFinder.swift",
+      "kind": "StringLiteral",
+      "offset": 1531,
+      "length": 8,
+      "value": "\"bundle\""
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Camera\/AmigoLiveSession.swift",
+      "kind": "BooleanLiteral",
+      "offset": 994,
+      "length": 4,
+      "value": "true"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Camera\/AmigoLiveSession.swift",
+      "kind": "BooleanLiteral",
+      "offset": 1384,
+      "length": 4,
+      "value": "true"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Camera\/AmigoLiveSession.swift",
+      "kind": "StringLiteral",
+      "offset": 2109,
+      "length": 28,
+      "value": "\"com.amigo.sdk.videocapture\""
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Camera\/AmigoLiveSession.swift",
+      "kind": "Array",
+      "offset": 2188,
+      "length": 2,
+      "value": "[]"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Camera\/AmigoLiveSession.swift",
+      "kind": "BooleanLiteral",
+      "offset": 2755,
+      "length": 5,
+      "value": "false"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Camera\/AmigoLiveSession.swift",
+      "kind": "IntegerLiteral",
+      "offset": 3085,
+      "length": 1,
+      "value": "3"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Camera\/AmigoLiveSession.swift",
+      "kind": "IntegerLiteral",
+      "offset": 3122,
+      "length": 1,
+      "value": "0"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Camera\/AmigoLiveSession.swift",
+      "kind": "FloatLiteral",
+      "offset": 3477,
+      "length": 3,
+      "value": "2.0"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Core\/FaceSwapEngine.swift",
+      "kind": "StringLiteral",
+      "offset": 464,
+      "length": 22,
+      "value": "\"com.amigo.sdk.engine\""
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Core\/FaceSwapEngine.swift",
+      "kind": "BooleanLiteral",
+      "offset": 535,
+      "length": 4,
+      "value": "true"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Core\/FaceSwapEngine.swift",
+      "kind": "BooleanLiteral",
+      "offset": 958,
+      "length": 5,
+      "value": "false"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Core\/FaceSwapEngine.swift",
+      "kind": "Dictionary",
+      "offset": 1374,
+      "length": 3,
+      "value": "[]"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Core\/FaceSwapEngine.swift",
+      "kind": "BooleanLiteral",
+      "offset": 1455,
+      "length": 4,
+      "value": "true"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Core\/FaceSwapEngine.swift",
+      "kind": "BooleanLiteral",
+      "offset": 1521,
+      "length": 4,
+      "value": "true"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Core\/FaceSwapEngine.swift",
+      "kind": "BooleanLiteral",
+      "offset": 1587,
+      "length": 4,
+      "value": "true"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Core\/FaceSwapEngine.swift",
+      "kind": "IntegerLiteral",
+      "offset": 1651,
+      "length": 3,
+      "value": "512"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Core\/FaceSwapEngine.swift",
+      "kind": "IntegerLiteral",
+      "offset": 1656,
+      "length": 3,
+      "value": "512"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Core\/FaceSwapUtils.swift",
+      "kind": "Array",
+      "offset": 4175,
+      "length": 122,
+      "value": "[[38.2946, 76.3037], [73.5318, 76.4986], [56.0252, 56.2634], [41.5493, 35.6345], [70.7299, 35.7959]]"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Core\/FaceSwapUtils.swift",
+      "kind": "IntegerLiteral",
+      "offset": 4462,
+      "length": 3,
+      "value": "128"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Core\/FaceSwapUtils.swift",
+      "kind": "FloatLiteral",
+      "offset": 13770,
+      "length": 3,
+      "value": "2.0"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Download\/ModelCrypto.swift",
+      "kind": "IntegerLiteral",
+      "offset": 4435,
+      "length": 2,
+      "value": "20"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Download\/ModelDownloader.swift",
+      "kind": "BooleanLiteral",
+      "offset": 926,
+      "length": 5,
+      "value": "false"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Download\/ModelKey.swift",
+      "kind": "Array",
+      "offset": 467,
+      "length": 118,
+      "value": "[0x1b, 0x35, 0x95, 0x2c, 0x8a, 0x3e, 0xf9, 0x8f, 0x2c, 0x91, 0x0d, 0xc8, 0x5c, 0x83, 0xea, 0xf5]"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Download\/ModelKey.swift",
+      "kind": "Array",
+      "offset": 668,
+      "length": 118,
+      "value": "[0xdb, 0x33, 0x81, 0x33, 0xba, 0xbd, 0xe4, 0xbb, 0x6a, 0xaf, 0x78, 0xe2, 0x85, 0xd2, 0x87, 0x34]"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Download\/ModelKey.swift",
+      "kind": "Array",
+      "offset": 879,
+      "length": 230,
+      "value": "[0xe3, 0xad, 0x6b, 0x92, 0xae, 0xef, 0xed, 0xad, 0x10, 0x08, 0xa5, 0x57, 0x24, 0x82, 0x38, 0x91, 0x0b, 0xab, 0x95, 0xbf, 0xcc, 0x30, 0xa8, 0x28, 0xa2, 0x38, 0x5f, 0xa1, 0x82, 0x7f, 0x67, 0x85]"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Download\/ModelManifest.swift",
+      "kind": "StringLiteral",
+      "offset": 698,
+      "length": 7,
+      "value": "\"1.0.0\""
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Download\/ModelManifest.swift",
+      "kind": "StringLiteral",
+      "offset": 900,
+      "length": 13,
+      "value": "\"model512_v6\""
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Download\/ModelManifest.swift",
+      "kind": "StringLiteral",
+      "offset": 940,
+      "length": 11,
+      "value": "\"face-swap\""
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Download\/ModelManifest.swift",
+      "kind": "StringLiteral",
+      "offset": 984,
+      "length": 17,
+      "value": "\"model512_v6.enc\""
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Download\/ModelManifest.swift",
+      "kind": "IntegerLiteral",
+      "offset": 1026,
+      "length": 10,
+      "value": "22398879"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Download\/ModelManifest.swift",
+      "kind": "StringLiteral",
+      "offset": 1108,
+      "length": 11,
+      "value": "\"w600k_r50\""
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Download\/ModelManifest.swift",
+      "kind": "StringLiteral",
+      "offset": 1146,
+      "length": 13,
+      "value": "\"recognition\""
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Download\/ModelManifest.swift",
+      "kind": "StringLiteral",
+      "offset": 1192,
+      "length": 15,
+      "value": "\"w600k_r50.enc\""
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Download\/ModelManifest.swift",
+      "kind": "IntegerLiteral",
+      "offset": 1232,
+      "length": 11,
+      "value": "160308119"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Enrollment\/ArcFaceModel.swift",
+      "kind": "BooleanLiteral",
+      "offset": 874,
+      "length": 5,
+      "value": "false"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Enrollment\/ArcFaceModel.swift",
+      "kind": "Dictionary",
+      "offset": 1211,
+      "length": 3,
+      "value": "[]"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Enrollment\/ArcFaceModel.swift",
+      "kind": "BooleanLiteral",
+      "offset": 1291,
+      "length": 4,
+      "value": "true"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Enrollment\/ArcFaceModel.swift",
+      "kind": "BooleanLiteral",
+      "offset": 1356,
+      "length": 4,
+      "value": "true"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Enrollment\/ArcFaceModel.swift",
+      "kind": "BooleanLiteral",
+      "offset": 1421,
+      "length": 4,
+      "value": "true"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Enrollment\/ArcFaceModel.swift",
+      "kind": "IntegerLiteral",
+      "offset": 1485,
+      "length": 3,
+      "value": "112"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Enrollment\/ArcFaceModel.swift",
+      "kind": "IntegerLiteral",
+      "offset": 1490,
+      "length": 3,
+      "value": "112"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Enrollment\/FaceEnroller.swift",
+      "kind": "BooleanLiteral",
+      "offset": 983,
+      "length": 5,
+      "value": "false"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/Enrollment\/FaceEnroller.swift",
+      "kind": "Array",
+      "offset": 5738,
+      "length": 312,
+      "value": "[[38.2946, 60.3037], [73.5318, 60.4986], [56.0252, 40.2634], [41.5493, 19.6345], [70.7299, 19.7959]]"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/License\/LicenseManager.swift",
+      "kind": "StringLiteral",
+      "offset": 416,
+      "length": 24,
+      "value": "\"https:\/\/sdk.amigoai.io\""
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/License\/LicenseManager.swift",
+      "kind": "IntegerLiteral",
+      "offset": 477,
+      "length": 1,
+      "value": "3"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/LipMode.swift",
+      "kind": "IntegerLiteral",
+      "offset": 192,
+      "length": 1,
+      "value": "0"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/LipMode.swift",
+      "kind": "IntegerLiteral",
+      "offset": 273,
+      "length": 1,
+      "value": "1"
+    },
+    {
+      "filePath": "\/Users\/dinglunfu\/Desktop\/claude_workspace\/amigo_sdk_all\/amigo_sdk\/ios\/AmigoFaceSwapSDK\/Sources\/AmigoFaceSwapSDK\/LipMode.swift",
+      "kind": "IntegerLiteral",
+      "offset": 378,
+      "length": 1,
+      "value": "2"
+    }
+  ]
+}

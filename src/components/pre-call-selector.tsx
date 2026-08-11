@@ -53,7 +53,7 @@ export function PreCallSelector({
       aria-modal="true"
       aria-label="选择通话方式"
     >
-      <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#101827] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl">
+      <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#101827] p-5 pb-[max(1.25rem,var(--app-safe-area-bottom))] shadow-2xl">
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold text-white">选择通话来源</h2>

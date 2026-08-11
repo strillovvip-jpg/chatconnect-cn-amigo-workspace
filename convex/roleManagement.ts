@@ -319,6 +319,33 @@ export const setEnabled = mutation({
   },
 });
 
+export const setCompanyScope = mutation({
+  args: {
+    ...credentialArgs,
+    targetCode: v.string(),
+    companyId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const auth = await requireSuperAdmin(ctx, args.password);
+    const targetCode = normalize(args.targetCode);
+    const target = await ctx.db
+      .query("allowed_codes")
+      .withIndex("by_code", (q) => q.eq("code", targetCode))
+      .unique();
+    if (!target)
+      throw new ConvexError({ code: "NOT_FOUND", message: "找不到授权码。" });
+    const normalizedCompanyId = args.companyId?.trim() || undefined;
+    await ctx.db.patch(target._id, {
+      companyId: normalizedCompanyId,
+      updatedAt: Date.now(),
+    });
+    await audit(ctx, auth.code, "company_scope.update", targetCode, {
+      companyId: normalizedCompanyId ?? null,
+    });
+    return { code: targetCode, companyId: normalizedCompanyId ?? null };
+  },
+});
+
 export const deleteCode = mutation({
   args: { ...credentialArgs, targetCode: v.string() },
   handler: async (ctx, args) => {

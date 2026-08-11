@@ -1,0 +1,60 @@
+# Logs
+/logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Dependencies and build artifacts
+node_modules
+/dist
+/dist-ssr
+.convex
+outputs
+.venv
+venv
+__pycache__
+*.py[cod]
+*.tar.gz
+*.tgz
+*.local
+.eslintcache
+tsconfig.tsbuildinfo
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Environment variables
+.env*
+!.env.example
+
+# Credentials and private keys
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+credentials.json
+secrets.json
+AUTH_CODES*.txt
+
+# Xcode / iOS local state
+ios/App/App.xcodeproj/xcuserdata
+ios/App/App.xcodeproj/project.xcworkspace/xcuserdata
+ios/App/App.xcworkspace/xcuserdata
+ios/App/CapApp-SPM/.swiftpm/xcode/xcuserdata
+ios/App/App/public
+ios/App/App/capacitor.config.json
+ios/App/App/config.xml
+ios/App/CapApp-SPM/Sources/CapApp-SPM/*.bak-*

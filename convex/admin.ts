@@ -2,7 +2,12 @@ import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { requireAdmin, requireSuperAdmin } from "./roles";
+import {
+  assertAdminCanAccessCode,
+  listVisibleAllowedCodes,
+  requireAdmin,
+  requireSuperAdmin,
+} from "./roles";
 
 export const verifyAdmin = query({
   args: { password: v.string() },
@@ -19,13 +24,19 @@ export const verifyAdmin = query({
 export const getAllCodes = query({
   args: { password: v.string() },
   handler: async (ctx: QueryCtx, args) => {
-    await requireAdmin(ctx, args.password);
+    const auth = await requireAdmin(ctx, args.password);
     const users = await ctx.db.query("auth_codes").order("desc").collect();
+    const access = await listVisibleAllowedCodes(ctx, auth);
+    const scopedAccess =
+      auth.role === "admin" && auth.allowed?.companyId
+        ? access.filter((item) => item.role === "user")
+        : access;
     const presence = await ctx.db.query("user_presence").collect();
-    const access = await ctx.db.query("allowed_codes").collect();
     const presenceByUser = new Map(presence.map((item) => [item.userId, item]));
-    const accessByCode = new Map(access.map((item) => [item.code, item]));
-    return users.map((item) => {
+    const accessByCode = new Map(scopedAccess.map((item) => [item.code, item]));
+    return users
+      .filter((item) => accessByCode.has(item.code))
+      .map((item) => {
       const state = presenceByUser.get(item.code);
       const grant = accessByCode.get(item.code);
       return {
@@ -39,16 +50,18 @@ export const getAllCodes = query({
         lastOnlineAt: state?.lastOnlineAt,
         lastOfflineAt: state?.lastOfflineAt,
       };
-    });
+      });
   },
 });
 
 export const getAllowedCodes = query({
   args: { password: v.string() },
   handler: async (ctx: QueryCtx, args) => {
-    await requireAdmin(ctx, args.password);
-    const records = await ctx.db.query("allowed_codes").collect();
-    return records;
+    const auth = await requireAdmin(ctx, args.password);
+    const access = await listVisibleAllowedCodes(ctx, auth);
+    if (auth.role === "admin" && auth.allowed?.companyId)
+      return access.filter((item) => item.role === "user");
+    return access;
   },
 });
 
@@ -57,7 +70,16 @@ export const getAllUsers = query({
   handler: async (ctx: QueryCtx, args) => {
     const auth = await requireAdmin(ctx, args.password);
     const users = await ctx.db.query("auth_codes").collect();
+    const visibleAllowedCodes = await listVisibleAllowedCodes(ctx, auth);
+    const visibleCodeSet = new Set(
+      (auth.role === "admin" && auth.allowed?.companyId
+        ? visibleAllowedCodes.filter((item) => item.role === "user")
+        : visibleAllowedCodes
+      ).map((item) => item.code),
+    );
     if (auth.role === "super_admin") return users;
+    if (auth.allowed?.companyId)
+      return users.filter((item) => visibleCodeSet.has(item.code));
     const superCodes = new Set(
       (await ctx.db.query("allowed_codes").collect())
         .filter((item) => item.role === "super_admin")
@@ -245,6 +267,7 @@ export const resetCode = mutation({
   args: { password: v.string(), code: v.string() },
   handler: async (ctx: MutationCtx, args) => {
     const auth = await requireAdmin(ctx, args.password);
+    await assertAdminCanAccessCode(ctx, auth, args.code);
     const record = await ctx.db
       .query("auth_codes")
       .withIndex("by_code", (q) => q.eq("code", args.code))
@@ -350,8 +373,15 @@ export const endGroupCallAdmin = mutation({
 export const getStats = query({
   args: { password: v.string() },
   handler: async (ctx: QueryCtx, args) => {
-    await requireAdmin(ctx, args.password);
+    const auth = await requireAdmin(ctx, args.password);
     const users = await ctx.db.query("auth_codes").collect();
+    const visibleAllowedCodes = await listVisibleAllowedCodes(ctx, auth);
+    const visibleCodeSet = new Set(
+      (auth.role === "admin" && auth.allowed?.companyId
+        ? visibleAllowedCodes.filter((item) => item.role === "user")
+        : visibleAllowedCodes
+      ).map((item) => item.code),
+    );
     const contacts = await ctx.db.query("contacts").collect();
     const messages = await ctx.db.query("messages").collect();
     const cases = await ctx.db.query("cases").collect();
@@ -362,7 +392,9 @@ export const getStats = query({
       (c) => c.status === "in_progress",
     ).length;
     return {
-      totalUsers: users.length,
+      totalUsers: auth.allowed?.companyId
+        ? users.filter((item) => visibleCodeSet.has(item.code)).length
+        : users.length,
       totalContacts: contacts.length,
       totalMessages: messages.length,
       totalCases: cases.length,

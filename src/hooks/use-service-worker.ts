@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { Capacitor } from "@capacitor/core";
 import { toast } from "sonner";
 
 export function useServiceWorker() {
@@ -7,11 +8,37 @@ export function useServiceWorker() {
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
 
+    // Native iOS bundles serve local assets. Persisted service workers and caches
+    // can outlive a previous build and point the WebView at stale hashed files,
+    // which presents as a black screen on launch.
+    if (Capacitor.isNativePlatform()) {
+      void navigator.serviceWorker
+        .getRegistrations()
+        .then((registrations) =>
+          Promise.allSettled(
+            registrations.map((registration) => registration.unregister()),
+          ),
+        )
+        .then(() =>
+          "caches" in window
+            ? caches
+                .keys()
+                .then((keys) =>
+                  Promise.allSettled(keys.map((key) => caches.delete(key))),
+                )
+            : undefined,
+        )
+        .catch((err) =>
+          console.warn("Service Worker cleanup failed:", err),
+        );
+      return;
+    }
+
     const showUpdateToast = () => {
       if (toastShown.current) return;
       toastShown.current = true;
 
-      toast("发现新版本", {
+      toast("Song Jin has a new version available", {
         duration: Infinity,
         action: {
           label: "立即更新",

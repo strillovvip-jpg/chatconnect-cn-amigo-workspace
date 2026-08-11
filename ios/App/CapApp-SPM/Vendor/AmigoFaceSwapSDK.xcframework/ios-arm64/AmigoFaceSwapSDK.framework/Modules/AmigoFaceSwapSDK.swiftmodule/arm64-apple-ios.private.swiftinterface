@@ -1,0 +1,121 @@
+// swift-interface-format-version: 1.0
+// swift-compiler-version: Apple Swift version 6.0.3 effective-5.10 (swiftlang-6.0.3.1.10 clang-1600.0.30.1)
+// swift-module-flags: -target arm64-apple-ios16.0 -enable-objc-interop -enable-library-evolution -swift-version 5 -enforce-exclusivity=checked -O -module-name AmigoFaceSwapSDK -package-name amigofaceswapsdk
+// swift-module-flags-ignorable: -no-verify-emitted-module-interface
+import AVFoundation
+import Accelerate
+import CoreImage.CIFilterBuiltins
+import CommonCrypto
+import Compression
+import CoreGraphics
+import CoreImage
+import CoreML
+import CryptoKit
+import Foundation
+import Foundation/*.Bundle*/
+import Foundation/*.ProcessInfo*/
+import Foundation/*.URL*/
+import Swift
+import SwiftUI
+import UIKit
+import Vision
+import _Concurrency
+import _StringProcessing
+import _SwiftConcurrencyShims
+public enum AmigoError : Foundation.LocalizedError {
+  case notInitialized
+  case invalidAPIKey(Swift.String)
+  case noFaceDetected
+  case modelLoadFailed
+  case inferenceFailure(Swift.String)
+  case invalidInput(Swift.String)
+  case modelDownloadFailed(Swift.String)
+  case modelDecryptionFailed
+  case networkRequired
+  case revokedAPIKey
+  case quotaExceeded(limit: Swift.Int, used: Swift.Int)
+  case serverError(Swift.String)
+  public var errorDescription: Swift.String? {
+    get
+  }
+}
+@_hasMissingDesignatedInitializers final public class AmigoFaceSwap {
+  public static func initialize(apiKey: Swift.String, onProgress: ((Swift.Float) -> Swift.Void)? = nil) async throws
+  public static func enrollFace(from image: UIKit.UIImage) async throws -> AmigoFaceSwapSDK.FaceLatent
+  public static func swapFace(in inputImage: UIKit.UIImage, using latent: AmigoFaceSwapSDK.FaceLatent, lipMode: AmigoFaceSwapSDK.LipMode = .innerLips) async throws -> UIKit.UIImage
+  public static func processFrame(_ pixelBuffer: CoreVideo.CVPixelBuffer, using latent: AmigoFaceSwapSDK.FaceLatent, lipMode: AmigoFaceSwapSDK.LipMode = .innerLips) throws -> CoreImage.CIImage?
+  public static func clearModelCache()
+  @objc deinit
+}
+@_Concurrency.MainActor @preconcurrency public struct AmigoLiveCameraView : SwiftUI.UIViewRepresentable {
+  @_Concurrency.MainActor @preconcurrency public init(targetLatent: AmigoFaceSwapSDK.FaceLatent, lipMode: AmigoFaceSwapSDK.LipMode = .innerLips, cameraPosition: AVFoundation.AVCaptureDevice.Position = .front, onFrame: ((UIKit.UIImage) -> Swift.Void)? = nil)
+  @_Concurrency.MainActor @preconcurrency public func makeCoordinator() -> AmigoFaceSwapSDK.AmigoLiveCameraView.Coordinator
+  @_Concurrency.MainActor @preconcurrency public func makeUIView(context: AmigoFaceSwapSDK.AmigoLiveCameraView.Context) -> UIKit.UIView
+  @_Concurrency.MainActor @preconcurrency public func updateUIView(_ uiView: UIKit.UIView, context: AmigoFaceSwapSDK.AmigoLiveCameraView.Context)
+  @_Concurrency.MainActor @preconcurrency public static func dismantleUIView(_ uiView: UIKit.UIView, coordinator: AmigoFaceSwapSDK.AmigoLiveCameraView.Coordinator)
+  @objc @_hasMissingDesignatedInitializers final public class Coordinator : ObjectiveC.NSObject, AmigoFaceSwapSDK.AmigoLiveSessionDelegate {
+    final public func session(_ session: AmigoFaceSwapSDK.AmigoLiveSession, didOutput frame: UIKit.UIImage)
+    @objc deinit
+  }
+  public typealias Body = Swift.Never
+  public typealias UIViewType = UIKit.UIView
+}
+@objc final public class AmigoLiveSession : ObjectiveC.NSObject {
+  final public let previewView: UIKit.UIView
+  final public var targetLatent: AmigoFaceSwapSDK.FaceLatent
+  final public var lipMode: AmigoFaceSwapSDK.LipMode
+  final public var isFaceSwapEnabled: Swift.Bool
+  final public var backgroundImage: UIKit.UIImage?
+  weak final public var delegate: (any AmigoFaceSwapSDK.AmigoLiveSessionDelegate)?
+  public init(targetLatent: AmigoFaceSwapSDK.FaceLatent, cameraPosition: AVFoundation.AVCaptureDevice.Position = .front)
+  final public func start()
+  final public func stop()
+  final public func switchCamera()
+  @objc deinit
+}
+extension AmigoFaceSwapSDK.AmigoLiveSession : AVFoundation.AVCaptureVideoDataOutputSampleBufferDelegate {
+  @objc final public func captureOutput(_ output: AVFoundation.AVCaptureOutput, didOutput sampleBuffer: CoreMedia.CMSampleBuffer, from connection: AVFoundation.AVCaptureConnection)
+}
+public protocol AmigoLiveSessionDelegate : AnyObject {
+  func session(_ session: AmigoFaceSwapSDK.AmigoLiveSession, didOutput frame: UIKit.UIImage)
+  func session(_ session: AmigoFaceSwapSDK.AmigoLiveSession, didEncounterError error: any Swift.Error)
+}
+extension AmigoFaceSwapSDK.AmigoLiveSessionDelegate {
+  public func session(_ session: AmigoFaceSwapSDK.AmigoLiveSession, didEncounterError error: any Swift.Error)
+}
+@objc @_hasMissingDesignatedInitializers @_Concurrency.MainActor @preconcurrency final public class AmigoLiveViewController : UIKit.UIViewController {
+  @_Concurrency.MainActor @preconcurrency final public let session: AmigoFaceSwapSDK.AmigoLiveSession
+  @_Concurrency.MainActor @preconcurrency final public var onFrame: ((UIKit.UIImage) -> Swift.Void)?
+  @_Concurrency.MainActor @preconcurrency public init(targetLatent: AmigoFaceSwapSDK.FaceLatent, lipMode: AmigoFaceSwapSDK.LipMode = .innerLips, cameraPosition: AVFoundation.AVCaptureDevice.Position = .front)
+  @_Concurrency.MainActor @preconcurrency @objc override final public func viewDidLoad()
+  @_Concurrency.MainActor @preconcurrency @objc override final public func viewWillAppear(_ animated: Swift.Bool)
+  @_Concurrency.MainActor @preconcurrency @objc override final public func viewWillDisappear(_ animated: Swift.Bool)
+  @objc deinit
+}
+extension AmigoFaceSwapSDK.AmigoLiveViewController : AmigoFaceSwapSDK.AmigoLiveSessionDelegate {
+  @_Concurrency.MainActor @preconcurrency final public func session(_ session: AmigoFaceSwapSDK.AmigoLiveSession, didOutput frame: UIKit.UIImage)
+  @_Concurrency.MainActor @preconcurrency final public func session(_ session: AmigoFaceSwapSDK.AmigoLiveSession, didEncounterError error: any Swift.Error)
+}
+public struct FaceLatent : Swift.Sendable, Swift.Hashable {
+  public init?(embedding: [Swift.Float])
+  public init?(embedding: [Swift.Double])
+  public func hash(into hasher: inout Swift.Hasher)
+  public static func == (a: AmigoFaceSwapSDK.FaceLatent, b: AmigoFaceSwapSDK.FaceLatent) -> Swift.Bool
+  public var hashValue: Swift.Int {
+    get
+  }
+}
+public enum LipMode : Swift.Int, Swift.Sendable {
+  case none
+  case outerLips
+  case innerLips
+  public init?(rawValue: Swift.Int)
+  public typealias RawValue = Swift.Int
+  public var rawValue: Swift.Int {
+    get
+  }
+}
+extension AmigoFaceSwapSDK.AmigoLiveCameraView : Swift.Sendable {}
+extension AmigoFaceSwapSDK.LipMode : Swift.Equatable {}
+extension AmigoFaceSwapSDK.LipMode : Swift.Hashable {}
+extension AmigoFaceSwapSDK.LipMode : Swift.RawRepresentable {}

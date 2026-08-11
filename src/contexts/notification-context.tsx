@@ -512,9 +512,9 @@ export function GlobalNotificationProvider({
         callState === "idle" &&
         location.pathname !== "/consultation" && (
           <button
-            aria-label="打开通知中心"
+            aria-label="通知センターを開く"
             onClick={() => setCenterOpen(true)}
-            className={`fixed top-[max(1rem,env(safe-area-inset-top))] z-[22000] flex h-11 w-11 items-center justify-center rounded-full border border-white/15 bg-[#16233b] text-white shadow-xl ${location.pathname.startsWith("/consultation/chat/") ? "right-[5.5rem]" : "right-4"}`}
+            className={`fixed top-[max(1rem,var(--app-safe-area-top))] z-[22000] flex h-11 w-11 items-center justify-center rounded-full border border-white/15 bg-[#16233b] text-white shadow-xl ${location.pathname.startsWith("/consultation/chat/") ? "right-[5.5rem]" : "right-4"}`}
           >
             <Bell size={19} />
             {(unread?.length ?? 0) > 0 && (
@@ -533,30 +533,30 @@ export function GlobalNotificationProvider({
             className="absolute right-0 top-0 flex h-full w-full max-w-md flex-col bg-[#101b30] text-white shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
-            <header className="flex items-center justify-between border-b border-white/10 px-5 pb-4 pt-[max(1.25rem,env(safe-area-inset-top))]">
+            <header className="flex items-center justify-between border-b border-white/10 px-5 pb-4 pt-[max(1.25rem,var(--app-safe-area-top))]">
               <div>
-                <h2 className="text-lg font-bold">通知中心</h2>
+                <h2 className="text-lg font-bold">通知センター</h2>
                 <p className="text-xs text-white/45">
-                  {unread?.length ?? 0} 条未读
+                  未読 {unread?.length ?? 0} 件
                 </p>
               </div>
               <div className="flex gap-2">
                 <button
-                  title="铃声设置"
+                  title="着信設定"
                   onClick={() => setSettingsOpen(true)}
                   className="rounded-lg bg-white/10 p-2"
                 >
                   <Settings size={18} />
                 </button>
                 <button
-                  title="全部标为已读"
+                  title="すべて既読にする"
                   onClick={() => void markAllRead(credentials)}
                   className="rounded-lg bg-white/10 p-2"
                 >
                   <CheckCheck size={18} />
                 </button>
                 <button
-                  title="关闭"
+                  title="閉じる"
                   onClick={() => setCenterOpen(false)}
                   className="rounded-lg bg-white/10 p-2"
                 >
@@ -567,7 +567,7 @@ export function GlobalNotificationProvider({
             <div className="flex-1 overflow-auto">
               {notifications?.length === 0 && (
                 <div className="py-20 text-center text-sm text-white/35">
-                  暂无通知
+                  通知はありません
                 </div>
               )}
               {notifications?.map((item) => (
@@ -600,13 +600,13 @@ export function GlobalNotificationProvider({
                     </p>
                     {item.readAt && (
                       <p className="mt-1 text-[10px] text-white/30">
-                        已读：{timeLabel(item.readAt)}
+                        既読：{timeLabel(item.readAt)}
                       </p>
                     )}
                   </div>
                   <span
                     role="button"
-                    aria-label="删除通知"
+                    aria-label="通知を削除"
                     onClick={(event) => {
                       event.stopPropagation();
                       void dismiss({
@@ -636,7 +636,7 @@ export function GlobalNotificationProvider({
             <div className="mb-5 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Volume2 size={19} />
-                <h2 className="font-bold">通知与铃声</h2>
+                <h2 className="font-bold">通知と着信音</h2>
               </div>
               <button onClick={() => setSettingsOpen(false)}>
                 <X size={18} />
@@ -645,20 +645,20 @@ export function GlobalNotificationProvider({
             <button
               onClick={() =>
                 void configurePush().catch((error) =>
-                  toast.error(uiErrorMessage(error, "后台通知设置失败")),
+                  toast.error(uiErrorMessage(error, "バックグラウンド通知の設定に失敗しました")),
                 )
               }
               className="mb-3 flex w-full items-center justify-between rounded-xl bg-white/5 px-4 py-3 text-sm"
             >
-              <span>后台通知</span>
+              <span>バックグラウンド通知</span>
               <span
                 className={pushEnabled ? "text-green-400" : "text-white/45"}
               >
-                {pushEnabled ? "已开启" : "已关闭"}
+                {pushEnabled ? "有効" : "無効"}
               </span>
             </button>
             <label className="flex items-center justify-between rounded-xl bg-white/5 px-4 py-3">
-              <span className="text-sm">来电铃声</span>
+              <span className="text-sm">着信音</span>
               <input
                 type="checkbox"
                 checked={ringtoneEnabled}
@@ -673,7 +673,7 @@ export function GlobalNotificationProvider({
               />
             </label>
             <label className="mt-3 flex items-center justify-between rounded-xl bg-white/5 px-4 py-3">
-              <span className="text-sm">消息提示音</span>
+              <span className="text-sm">メッセージ通知音</span>
               <input
                 type="checkbox"
                 checked={notificationSoundEnabled}
@@ -693,7 +693,7 @@ export function GlobalNotificationProvider({
                 <span>{Math.round(ringtoneVolume * 100)}%</span>
               </div>
               <input
-                aria-label="铃声音量"
+                aria-label="着信音の音量"
                 type="range"
                 min="0"
                 max="1"
@@ -708,16 +708,16 @@ export function GlobalNotificationProvider({
               />
             </div>
             <div className="mt-4 rounded-xl bg-white/5 px-4 py-3">
-              <label className="text-sm">自定义铃声</label>
+              <label className="text-sm">カスタム着信音</label>
               <input
-                aria-label="上传自定义铃声"
+                aria-label="カスタム着信音をアップロード"
                 type="file"
                 accept="audio/*,.mp3,.m4a,.wav,.ogg"
                 onChange={(event) => {
                   const file = event.target.files?.[0];
                   if (!file) return;
                   if (file.size > 2 * 1024 * 1024) {
-                    toast.error("自定义铃声必须小于 2 MB");
+                    toast.error("カスタム着信音は 2 MB 未満にしてください");
                     return;
                   }
                   const reader = new FileReader();
@@ -726,9 +726,9 @@ export function GlobalNotificationProvider({
                     try {
                       localStorage.setItem(RINGTONE_CUSTOM_KEY, source);
                       setCustomRingtone(source);
-                      toast.success("自定义铃声已保存");
+                      toast.success("カスタム着信音を保存しました");
                     } catch {
-                      toast.error("浏览器存储空间不足，请选择较小的音频文件");
+                      toast.error("保存容量が不足しています。より小さい音声ファイルを選択してください");
                     }
                   };
                   reader.readAsDataURL(file);
@@ -746,7 +746,7 @@ export function GlobalNotificationProvider({
                   }}
                   className="flex-1 rounded-lg bg-blue-600 py-2 text-xs font-semibold"
                 >
-                  试听
+                  試聴
                 </button>
                 <button
                   disabled={!customRingtone}
@@ -756,12 +756,12 @@ export function GlobalNotificationProvider({
                   }}
                   className="flex-1 rounded-lg bg-white/10 py-2 text-xs disabled:opacity-30"
                 >
-                  使用默认铃声
+                  標準着信音に戻す
                 </button>
               </div>
             </div>
             <p className="mt-4 text-[11px] leading-5 text-white/40">
-              部分苹果手机和移动浏览器在自动播放前需要先与页面互动；登录操作会启用声音播放。
+              一部の iPhone とモバイルブラウザでは、自動再生の前に画面操作が必要です。ログイン操作後に音声再生が有効になります。
             </p>
           </div>
         </div>
@@ -789,7 +789,7 @@ export function GlobalNotificationProvider({
                 >
                   <PhoneOff size={26} />
                 </button>
-                <span className="text-xs">拒绝</span>
+                <span className="text-xs">拒否</span>
               </div>
               <div className="flex flex-col items-center gap-2">
                 <button
@@ -803,7 +803,7 @@ export function GlobalNotificationProvider({
                     <Phone size={26} />
                   )}
                 </button>
-                <span className="text-xs">接听</span>
+                <span className="text-xs">応答</span>
               </div>
             </div>
           </div>

@@ -32,8 +32,8 @@ export const send = internalAction({
             title: args.title,
             options: {
               body: args.message,
-              icon: "/icon/usa-192.png?v=8",
-              badge: "/icon/usa-192.png?v=8",
+              icon: "/icon/shojin-192.png?v=1",
+              badge: "/icon/shojin-192.png?v=1",
               vibrate: [400, 180, 400],
               renotify: true,
               tag: `chatconnect-${args.userId}`,

@@ -12,7 +12,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/ionic-team/capacitor-swift-pm.git", exact: "8.5.0"),
-        .package(url: "https://github.com/AmigoAIAdmin/AmigoSDK_iOS.git", branch: "main")
+        .package(name: "LiveKit", url: "https://github.com/livekit/client-sdk-swift.git", .upToNextMajor(from: "2.16.0"))
     ],
     targets: [
         .target(
@@ -20,8 +20,13 @@ let package = Package(
             dependencies: [
                 .product(name: "Capacitor", package: "capacitor-swift-pm"),
                 .product(name: "Cordova", package: "capacitor-swift-pm"),
-                .product(name: "AmigoFaceSwapSDK", package: "AmigoSDK_iOS")
+                "AmigoFaceSwapSDK",
+                .product(name: "LiveKit", package: "LiveKit")
             ]
+        ),
+        .binaryTarget(
+            name: "AmigoFaceSwapSDK",
+            path: "Vendor/AmigoFaceSwapSDK.xcframework"
         )
     ]
 )

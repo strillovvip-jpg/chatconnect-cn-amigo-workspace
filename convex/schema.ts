@@ -50,6 +50,7 @@ export default defineSchema({
       v.literal("admin"),
       v.literal("user"),
     ),
+    companyId: v.optional(v.string()),
     enabled: v.optional(v.boolean()),
     unlimitedDevices: v.optional(v.boolean()),
     licenseProfileId: v.optional(v.id("license_profiles")),
@@ -253,6 +254,31 @@ export default defineSchema({
     .index("by_callee_status", ["calleeUserId", "status"])
     .index("by_caller", ["callerUserId"]),
 
+  external_video_invites: defineTable({
+    inviteId: v.string(),
+    roomName: v.string(),
+    operatorCode: v.string(),
+    operatorName: v.string(),
+    operatorIdentity: v.string(),
+    passwordHash: v.string(),
+    passwordSalt: v.string(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("active"),
+      v.literal("ended"),
+      v.literal("expired"),
+    ),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+    endedAt: v.optional(v.number()),
+    guestJoinedAt: v.optional(v.number()),
+    guestIdentity: v.optional(v.string()),
+  })
+    .index("by_invite_id", ["inviteId"])
+    .index("by_room_name", ["roomName"])
+    .index("by_operator_code", ["operatorCode"])
+    .index("by_status", ["status"]),
+
   call_compliance: defineTable({
     callId: v.string(),
     participantCodes: v.array(v.string()),
@@ -408,10 +434,20 @@ export default defineSchema({
     ownerCode: v.string(),
     name: v.string(),
     storageId: v.id("_storage"),
+    consentConfirmedAt: v.optional(v.number()),
+    consentVersion: v.optional(v.string()),
+    subjectIsAdult: v.optional(v.boolean()),
     createdAt: v.number(),
   })
     .index("by_owner", ["ownerCode"])
     .index("by_face_id", ["faceId"]),
+
+  face_upload_requests: defineTable({
+    ownerCode: v.string(),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+    consumedAt: v.optional(v.number()),
+  }).index("by_owner_created", ["ownerCode", "createdAt"]),
 
   messages: defineTable({
     // Canonical chat room ID: alphabetically sorted pair e.g. "ACODE:BCODE"

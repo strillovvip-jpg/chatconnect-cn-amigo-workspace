@@ -26,9 +26,9 @@ import { uiErrorMessage } from "@/lib/utils.ts";
 type Props = { userCode: string; userName: string };
 const deviceId = () => localStorage.getItem("ksc_device_id") ?? "";
 const ROLE_LABEL: Record<string, string> = {
-  owner: "群主",
-  admin: "管理员",
-  member: "成员",
+  owner: "オーナー",
+  admin: "管理者",
+  member: "メンバー",
 };
 
 export default function GroupCallPage({ userCode, userName }: Props) {
@@ -64,7 +64,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
   const uploadAttachment = async (file: File) => {
     if (!selectedGroup) return;
     if (file.size > 50 * 1024 * 1024)
-      throw new Error("附件大小不能超过 50 MB。");
+      throw new Error("添付ファイルは 50 MB 以下にしてください。");
     const uploadUrl = await generateUploadUrl({
       ...creds,
       groupId: selectedGroup,
@@ -74,7 +74,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
       headers: { "Content-Type": file.type || "application/octet-stream" },
       body: file,
     });
-    if (!response.ok) throw new Error("附件上传失败。");
+    if (!response.ok) throw new Error("添付ファイルのアップロードに失敗しました。");
     const { storageId } = (await response.json()) as {
       storageId: Id<"_storage">;
     };
@@ -92,13 +92,16 @@ export default function GroupCallPage({ userCode, userName }: Props) {
     });
   };
 
-  const run = async (task: () => Promise<unknown>, success = "操作已完成") => {
+  const run = async (
+    task: () => Promise<unknown>,
+    success = "操作が完了しました",
+  ) => {
     setBusy(true);
     try {
       await task();
       toast.success(success);
     } catch (error) {
-      toast.error(uiErrorMessage(error, "操作失败。"));
+      toast.error(uiErrorMessage(error, "操作に失敗しました。"));
     } finally {
       setBusy(false);
     }
@@ -107,12 +110,12 @@ export default function GroupCallPage({ userCode, userName }: Props) {
     run(async () => {
       const info = await createCall({ ...creds, groupId, type });
       await startCall({ ...info, myName: userName, mode: "group" });
-    }, "群组通话已开始");
+    }, "グループ通話を開始しました");
   const join = (activeCall: Doc<"chat_group_calls">) =>
     run(async () => {
       const info = await joinCall({ ...creds, groupCallId: activeCall._id });
       await startCall({ ...info, myName: userName, mode: "group" });
-    }, "已加入群组通话");
+    }, "グループ通話に参加しました");
 
   return (
     <div className="flex h-full flex-col text-white">
@@ -122,7 +125,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
           className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 py-3 text-sm font-semibold"
         >
           <Plus size={16} />
-          创建群组
+          グループを作成
         </button>
       </div>
       <div className="flex-1 space-y-3 overflow-auto p-4">
@@ -133,7 +136,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
         )}
         {groups?.length === 0 && (
           <div className="py-14 text-center text-sm text-white/40">
-            您尚未加入任何群组
+            まだ参加しているグループがありません
           </div>
         )}
         {groups?.map((group) => (
@@ -151,7 +154,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
               <div className="min-w-0 flex-1">
                 <div className="truncate font-semibold">{group.name}</div>
                 <div className="text-xs text-white/45">
-                  {group.memberCount}/{group.maxMembers} 人 ·{" "}
+                  {group.memberCount}/{group.maxMembers} 名 ·{" "}
                   {ROLE_LABEL[group.myRole] ?? group.myRole}
                 </div>
               </div>
@@ -164,8 +167,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
                   onClick={() => void join(group.activeCall!)}
                   className="col-span-2 rounded-xl bg-green-600 py-2.5 text-sm font-semibold"
                 >
-                  加入正在进行的
-                  {group.activeCall.type === "video" ? "视频" : "语音"}通话
+                  進行中の{group.activeCall.type === "video" ? "ビデオ" : "音声"}通話に参加
                 </button>
               ) : (
                 <>
@@ -175,7 +177,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
                     className="flex items-center justify-center gap-2 rounded-xl bg-white/10 py-2.5 text-sm"
                   >
                     <Video size={15} />
-                    群组视频通话
+                    グループビデオ通話
                   </button>
                   <button
                     disabled={busy}
@@ -183,7 +185,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
                     className="flex items-center justify-center gap-2 rounded-xl bg-white/10 py-2.5 text-sm"
                   >
                     <Phone size={15} />
-                    群组语音通话
+                    グループ音声通話
                   </button>
                 </>
               )}
@@ -205,7 +207,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
               <div className="min-w-0 flex-1">
                 <h2 className="truncate font-bold">{details.group.name}</h2>
                 <p className="text-xs text-white/45">
-                  {details.members.length} 位成员
+                  {details.members.length} 名のメンバー
                 </p>
               </div>
               {details.members.find((item) => item.userId === userCode)
@@ -213,7 +215,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
                 <button
                   onClick={() => setModal("member")}
                   className="rounded-lg bg-blue-600 p-2"
-                  title="添加成员"
+                  title="メンバーを追加"
                 >
                   <UserPlus size={18} />
                 </button>
@@ -251,8 +253,8 @@ export default function GroupCallPage({ userCode, userName }: Props) {
                           <button
                             title={
                               member.role === "admin"
-                                ? "取消管理员"
-                                : "设为管理员"
+                                ? "管理者を解除"
+                                : "管理者に設定"
                             }
                             onClick={() =>
                               void run(() =>
@@ -272,7 +274,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
                             <Shield size={12} className="mx-auto" />
                           </button>
                           <button
-                            title="移除成员"
+                            title="メンバーを削除"
                             onClick={() =>
                               void run(() =>
                                 updateMember({
@@ -308,12 +310,12 @@ export default function GroupCallPage({ userCode, userName }: Props) {
                                     targetCode: member.userId,
                                     action: "cohost",
                                   }),
-                                "已设为联合主持人",
+                                "共同ホストに設定しました",
                               )
                             }
                             className="flex-1 rounded bg-blue-500/15 p-1 text-[10px]"
                           >
-                            联合主持人
+                            共同ホスト
                           </button>
                           <button
                             onClick={() =>
@@ -325,12 +327,12 @@ export default function GroupCallPage({ userCode, userName }: Props) {
                                     targetCode: member.userId,
                                     action: "remove",
                                   }),
-                                "已将该成员移出通话",
+                                "このメンバーを通話から退出させました",
                               )
                             }
                             className="flex-1 rounded bg-red-500/15 p-1 text-[10px] text-red-300"
                           >
-                            移出通话
+                            通話から退出
                           </button>
                         </div>
                       )}
@@ -356,7 +358,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
                     {item.url && item.type === "image" && (
                       <img
                         src={item.url}
-                        alt={item.text ?? "群组图片"}
+                        alt={item.text ?? "グループ画像"}
                         className="mt-2 max-h-64 rounded-lg object-contain"
                       />
                     )}
@@ -375,7 +377,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
                         rel="noopener noreferrer"
                         className="mt-2 block text-xs underline"
                       >
-                        打开附件
+                        添付資料を開く
                       </a>
                     )}
                   </div>
@@ -383,7 +385,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
               ))}
             </div>
             <form
-              className="flex gap-2 border-t border-white/10 p-3 pb-[max(.75rem,env(safe-area-inset-bottom))]"
+              className="flex gap-2 border-t border-white/10 p-3 pb-[max(.75rem,var(--app-safe-area-bottom))]"
               onSubmit={(event) => {
                 event.preventDefault();
                 const text = message.trim();
@@ -397,13 +399,13 @@ export default function GroupCallPage({ userCode, userName }: Props) {
                       type: "text",
                       text,
                     }),
-                  "消息已发送",
+                  "メッセージを送信しました",
                 );
               }}
             >
               <label
                 className="flex cursor-pointer items-center justify-center rounded-xl bg-white/10 px-3"
-                title="发送图片、视频或文件"
+                title="画像・動画・ファイルを送信"
               >
                 <Paperclip size={17} />
                 <input
@@ -415,7 +417,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
                     const file = event.target.files?.[0];
                     event.target.value = "";
                     if (file)
-                      void run(() => uploadAttachment(file), "附件已发送");
+                      void run(() => uploadAttachment(file), "添付ファイルを送信しました");
                   }}
                 />
               </label>
@@ -423,7 +425,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
                 value={message}
                 maxLength={5000}
                 onChange={(event) => setMessage(event.target.value)}
-                placeholder="输入群组消息"
+                placeholder="グループメッセージを入力"
                 className="min-w-0 flex-1 rounded-xl bg-white/10 px-4 py-3 text-sm outline-none"
               />
               <button
@@ -447,12 +449,12 @@ export default function GroupCallPage({ userCode, userName }: Props) {
                             groupCallId: details.activeCall!._id,
                             action: "end",
                           }),
-                        "群组通话已结束",
+                        "グループ通話を終了しました",
                       )
                     }
                     className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-600 py-2 text-xs"
                   >
-                    结束所有人的通话
+                    全員の通話を終了
                   </button>
                 )}
               {details.members.find((item) => item.userId === userCode)
@@ -466,12 +468,12 @@ export default function GroupCallPage({ userCode, userName }: Props) {
                         dissolve: true,
                       });
                       setSelectedGroup(null);
-                    }, "群组已解散")
+                    }, "グループを解散しました")
                   }
                   className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-600/20 py-2 text-xs text-red-300"
                 >
                   <Trash2 size={14} />
-                  解散群组
+                  グループを解散
                 </button>
               ) : (
                 <button
@@ -483,12 +485,12 @@ export default function GroupCallPage({ userCode, userName }: Props) {
                         dissolve: false,
                       });
                       setSelectedGroup(null);
-                    }, "已退出群组")
+                    }, "グループから退出しました")
                   }
                   className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-white/10 py-2 text-xs"
                 >
                   <LogOut size={14} />
-                  退出群组
+                  グループを退出
                 </button>
               )}
             </div>
@@ -507,7 +509,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
           >
             <div className="mb-4 flex items-center justify-between">
               <h2 className="font-semibold">
-                {modal === "group" ? "创建群组" : "添加群组成员"}
+                {modal === "group" ? "グループを作成" : "グループメンバーを追加"}
               </h2>
               <button onClick={() => setModal(null)}>
                 <X size={18} />
@@ -518,7 +520,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
                 value={name}
                 maxLength={80}
                 onChange={(event) => setName(event.target.value)}
-                placeholder="群组名称"
+                placeholder="グループ名"
                 className="mb-3 w-full rounded-xl bg-white/10 px-4 py-3 outline-none"
               />
             )}
@@ -527,8 +529,8 @@ export default function GroupCallPage({ userCode, userName }: Props) {
               onChange={(event) => setCodes(event.target.value.toUpperCase())}
               placeholder={
                 modal === "group"
-                  ? "成员授权码（用逗号分隔，可选）"
-                  : "成员授权码"
+                  ? "メンバー認証コード（カンマ区切り・任意）"
+                  : "メンバー認証コード"
               }
               className="w-full rounded-xl bg-white/10 px-4 py-3 outline-none"
             />
@@ -557,7 +559,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
               }
               className="mt-4 w-full rounded-xl bg-blue-600 py-3 font-semibold disabled:opacity-40"
             >
-              {busy ? "处理中..." : "确认"}
+              {busy ? "処理中..." : "確認"}
             </button>
           </div>
         </div>

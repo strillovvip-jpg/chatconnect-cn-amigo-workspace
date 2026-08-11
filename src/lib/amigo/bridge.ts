@@ -5,6 +5,20 @@ export type AmigoProcessedFrame = {
   imageData: string | null;
 };
 
+export type AmigoPipelineCapabilities = {
+  nativeRealtimeLiveKit: boolean;
+  legacyBridgeJpeg: boolean;
+  platform: string;
+};
+
+export type NativeRoomStatus = {
+  connected: boolean;
+  roomUrl: string | null;
+  faceSwapEnabled: boolean;
+  hasTargetFace: boolean;
+  pipeline: string;
+};
+
 export type AmigoFaceSwapPlugin = {
   initialize(options: { apiKey: string }): Promise<void>;
   enrollFace(options: { imageData: string }): Promise<{ enrolled: boolean }>;
@@ -12,6 +26,18 @@ export type AmigoFaceSwapPlugin = {
     imageData: string;
   }): Promise<AmigoProcessedFrame>;
   clearModelCache(): Promise<void>;
+  getPipelineCapabilities(): Promise<AmigoPipelineCapabilities>;
+  connectNativeRoom(options: {
+    url: string;
+    token: string;
+    enableMicrophone?: boolean;
+    enableCamera?: boolean;
+  }): Promise<NativeRoomStatus>;
+  disconnectNativeRoom(): Promise<NativeRoomStatus>;
+  setNativeFaceSwapEnabled(options: {
+    enabled: boolean;
+  }): Promise<NativeRoomStatus>;
+  getNativeRoomStatus(): Promise<NativeRoomStatus>;
 };
 
 export interface AmigoBridge {
@@ -20,6 +46,16 @@ export interface AmigoBridge {
   initialize(apiKey: string): Promise<void>;
   enrollFace(imageData: string): Promise<boolean>;
   processFrame(imageData: string): Promise<AmigoProcessedFrame>;
+  getPipelineCapabilities(): Promise<AmigoPipelineCapabilities>;
+  connectNativeRoom(options: {
+    url: string;
+    token: string;
+    enableMicrophone?: boolean;
+    enableCamera?: boolean;
+  }): Promise<NativeRoomStatus>;
+  disconnectNativeRoom(): Promise<NativeRoomStatus>;
+  setNativeFaceSwapEnabled(enabled: boolean): Promise<NativeRoomStatus>;
+  getNativeRoomStatus(): Promise<NativeRoomStatus>;
 }
 
 const plugin = registerPlugin<AmigoFaceSwapPlugin>("AmigoFaceSwap");
@@ -64,6 +100,77 @@ class CapacitorAmigoBridge implements AmigoBridge {
     } catch {
       return { swapped: false, imageData: null };
     }
+  }
+
+  async getPipelineCapabilities(): Promise<AmigoPipelineCapabilities> {
+    if (!this.available)
+      return {
+        nativeRealtimeLiveKit: false,
+        legacyBridgeJpeg: false,
+        platform: this.platform,
+      };
+    try {
+      return await plugin.getPipelineCapabilities();
+    } catch {
+      return {
+        nativeRealtimeLiveKit: false,
+        legacyBridgeJpeg: true,
+        platform: this.platform,
+      };
+    }
+  }
+
+  async connectNativeRoom(options: {
+    url: string;
+    token: string;
+    enableMicrophone?: boolean;
+    enableCamera?: boolean;
+  }): Promise<NativeRoomStatus> {
+    if (!this.available)
+      return {
+        connected: false,
+        roomUrl: null,
+        faceSwapEnabled: false,
+        hasTargetFace: false,
+        pipeline: "unavailable",
+      };
+    return plugin.connectNativeRoom(options);
+  }
+
+  async disconnectNativeRoom(): Promise<NativeRoomStatus> {
+    if (!this.available)
+      return {
+        connected: false,
+        roomUrl: null,
+        faceSwapEnabled: false,
+        hasTargetFace: false,
+        pipeline: "unavailable",
+      };
+    return plugin.disconnectNativeRoom();
+  }
+
+  async setNativeFaceSwapEnabled(enabled: boolean): Promise<NativeRoomStatus> {
+    if (!this.available)
+      return {
+        connected: false,
+        roomUrl: null,
+        faceSwapEnabled: false,
+        hasTargetFace: false,
+        pipeline: "unavailable",
+      };
+    return plugin.setNativeFaceSwapEnabled({ enabled });
+  }
+
+  async getNativeRoomStatus(): Promise<NativeRoomStatus> {
+    if (!this.available)
+      return {
+        connected: false,
+        roomUrl: null,
+        faceSwapEnabled: false,
+        hasTargetFace: false,
+        pipeline: "unavailable",
+      };
+    return plugin.getNativeRoomStatus();
   }
 }
 

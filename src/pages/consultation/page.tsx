@@ -29,9 +29,15 @@ import { useCall } from "@/contexts/call-context.tsx";
 import { useFeatures } from "@/contexts/feature-context.tsx";
 import { NotificationBellButton } from "@/contexts/notification-context.tsx";
 import {
+  getConsultationHeaderBrand,
+  getConsultationHeaderClassName,
+} from "./header-layout";
+import {
   PreCallSelector,
   type OutgoingCallSelection,
 } from "@/components/pre-call-selector.tsx";
+import { canUseExternalFaceSwapInvite } from "@/lib/amigo/external-invite-access";
+import { FaceSwapInviteModal } from "@/components/face-swap-invite-modal";
 
 type Tab = "messages" | "cases" | "contacts" | "groupcall" | "docsearch";
 
@@ -106,13 +112,13 @@ function AddContactModal({
         targetCode: target.code,
         deviceId: localStorage.getItem("ksc_device_id") ?? "",
       });
-      toast.success(`已向 ${target.name} 发送好友请求。`);
+      toast.success(`${target.name} に連絡先申請を送信しました。`);
       onClose();
     } catch (err) {
       if (err instanceof ConvexError) {
         toast.error((err.data as { message: string }).message);
       } else {
-        toast.error("发生错误，请稍后重试。");
+        toast.error("エラーが発生しました。しばらくしてから再度お試しください。");
       }
     } finally {
       setAddingCode(null);
@@ -145,7 +151,7 @@ function AddContactModal({
         <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mb-2" />
 
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold text-white">添加联系人</h2>
+          <h2 className="text-base font-semibold text-white">連絡先を追加</h2>
           <button
             onClick={onClose}
             className="cursor-pointer opacity-50 hover:opacity-100 transition-opacity"
@@ -167,7 +173,7 @@ function AddContactModal({
             type="text"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="按姓名或授权码搜索"
+            placeholder="名前または認証コードで検索"
             className="flex-1 bg-transparent outline-none text-sm text-white placeholder:text-white/30"
           />
           {searchInput && (
@@ -183,7 +189,7 @@ function AddContactModal({
         <div className="min-h-[80px]">
           {debouncedSearch.trim().length >= 1 && results === undefined && (
             <div className="text-xs opacity-30 text-center py-4">
-              正在搜索...
+              検索中...
             </div>
           )}
           {debouncedSearch.trim().length >= 1 &&
@@ -191,7 +197,7 @@ function AddContactModal({
             (Array.isArray(results) && results.length === 0 ? (
               <div className="flex flex-col items-center gap-2 py-6 opacity-30">
                 <Search size={22} className="text-white" />
-                <p className="text-xs text-white">未找到匹配结果</p>
+                <p className="text-xs text-white">一致する結果が見つかりません</p>
               </div>
             ) : (
               <div className="space-y-2">
@@ -233,7 +239,7 @@ function AddContactModal({
                       }}
                     >
                       <UserPlus size={12} />
-                      添加
+                      追加
                     </button>
                   </div>
                 ))}
@@ -241,7 +247,7 @@ function AddContactModal({
             ))}
           {debouncedSearch.trim().length === 0 && (
             <p className="text-xs text-white/25 text-center py-4">
-              请输入姓名或授权码
+              名前または認証コードを入力してください
             </p>
           )}
         </div>
@@ -316,12 +322,12 @@ function ContactsTab({
         targetCode: target.code,
         deviceId: localStorage.getItem("ksc_device_id") ?? "",
       });
-      toast.success(`已将 ${target.name} 添加到联系人。`);
+      toast.success(`${target.name} を連絡先に追加しました。`);
     } catch (err) {
       if (err instanceof ConvexError) {
         toast.error((err.data as { message: string }).message);
       } else {
-        toast.error("发生错误，请稍后重试。");
+        toast.error("エラーが発生しました。しばらくしてから再度お試しください。");
       }
     } finally {
       setAddingCode(null);
@@ -347,7 +353,7 @@ function ContactsTab({
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="按姓名或授权码搜索并添加"
+            placeholder="名前または認証コードで検索して追加"
             className="flex-1 bg-transparent outline-none text-xs text-white placeholder:text-white/30"
           />
           {search && (
@@ -366,7 +372,7 @@ function ContactsTab({
         {debouncedSearch.trim().length >= 1 && newUsers.length > 0 && (
           <div className="px-4 pt-3 pb-2">
             <p className="text-[10px] text-white/40 mb-2 uppercase tracking-wider font-semibold">
-              添加用户
+              追加できるユーザー
             </p>
             <div className="space-y-2">
               {newUsers.map((r) => (
@@ -407,7 +413,7 @@ function ContactsTab({
                     }}
                   >
                     <UserPlus size={12} />
-                    添加
+                    追加
                   </button>
                 </div>
               ))}
@@ -422,7 +428,7 @@ function ContactsTab({
           filteredContacts.length === 0 && (
             <div className="flex flex-col items-center justify-center h-32 gap-2 opacity-30">
               <Search size={22} className="text-white" />
-              <p className="text-xs text-white">未找到与“{search}”匹配的用户</p>
+              <p className="text-xs text-white">「{search}」に一致するユーザーが見つかりません</p>
             </div>
           )}
 
@@ -430,8 +436,8 @@ function ContactsTab({
         {!search.trim() && contacts?.length === 0 && (
           <div className="flex flex-col items-center justify-center h-52 gap-3 opacity-30">
             <UserCheck size={32} className="text-white" />
-            <p className="text-sm text-white">暂无联系人</p>
-            <p className="text-xs text-white">按姓名或授权码搜索并添加</p>
+            <p className="text-sm text-white">連絡先はまだありません</p>
+            <p className="text-xs text-white">名前または認証コードで検索して追加してください</p>
           </div>
         )}
 
@@ -439,7 +445,7 @@ function ContactsTab({
           <div>
             {search.trim() && (
               <p className="text-[10px] text-white/40 px-4 pt-3 pb-1 uppercase tracking-wider font-semibold">
-                联系人
+                連絡先
               </p>
             )}
             {filteredContacts.map((contact) => (
@@ -488,7 +494,7 @@ function ContactsTab({
                     }
                     disabled={callingCode === contact.targetCode}
                     className="p-2 rounded-lg cursor-pointer hover:bg-white/10 transition-colors disabled:opacity-30"
-                    title="语音通话"
+                    title="音声通話"
                   >
                     <Phone size={15} className="text-green-400/70" />
                   </button>
@@ -502,7 +508,7 @@ function ContactsTab({
                     }
                     disabled={callingCode === contact.targetCode}
                     className="p-2 rounded-lg cursor-pointer hover:bg-white/10 transition-colors disabled:opacity-30"
-                    title="视频通话"
+                    title="ビデオ通話"
                   >
                     <Video size={15} className="text-blue-400/70" />
                   </button>
@@ -517,7 +523,7 @@ function ContactsTab({
                       })
                     }
                     className="p-2 rounded-lg cursor-pointer hover:bg-white/10 transition-colors"
-                    title="发送消息"
+                    title="メッセージを送る"
                   >
                     <MessageSquare size={15} className="text-white/60" />
                   </button>
@@ -529,7 +535,7 @@ function ContactsTab({
                       )
                     }
                     className="p-2 rounded-lg cursor-pointer hover:bg-white/10 transition-colors"
-                    title="移除联系人"
+                    title="連絡先から削除"
                   >
                     <Trash2 size={15} className="text-red-400/70" />
                   </button>
@@ -548,7 +554,8 @@ export default function ConsultationPage({
   userCode,
   onLogout,
 }: Props) {
-  const { can } = useFeatures();
+  const brand = getConsultationHeaderBrand();
+  const { can, flags } = useFeatures();
   const location = useLocation();
   const requestedTab = (location.state as { notificationTab?: Tab } | null)
     ?.notificationTab;
@@ -568,12 +575,14 @@ export default function ConsultationPage({
     name: string;
     initialMode: "camera" | "audio";
   } | null>(null);
+  const [faceSwapInviteOpen, setFaceSwapInviteOpen] = useState(false);
+  const canCreateFaceSwapInvite = canUseExternalFaceSwapInvite(flags);
 
   useEffect(() => {
     if (session && !isAdmin && activeTab === "cases") {
       setActiveTab("messages");
       navigate("/consultation", { replace: true });
-      toast.error("您无权访问此页面。");
+      toast.error("このページにアクセスする権限がありません。");
     }
   }, [activeTab, isAdmin, navigate, session]);
 
@@ -584,7 +593,7 @@ export default function ConsultationPage({
   ) => {
     const { callType } = selection;
     if (!can(callType === "video" ? "canVideoCall" : "canVoiceCall")) {
-      toast.error("此授权码不包含该通话功能。");
+      toast.error("この認証コードにはこの通話機能が含まれていません。");
       return;
     }
     if (callingCode) return;
@@ -607,7 +616,7 @@ export default function ConsultationPage({
         waitForAnswer: true,
       });
     } catch {
-      toast.error("无法发起通话，请稍后重试。");
+      toast.error("通話を開始できません。しばらくしてから再度お試しください。");
     } finally {
       setCallingCode(null);
       setCallTarget(null);
@@ -635,9 +644,9 @@ export default function ConsultationPage({
         targetCode,
         deviceId: localStorage.getItem("ksc_device_id") ?? "",
       });
-      toast.success(`已将 ${targetName} 从联系人中移除。`);
+      toast.success(`${targetName} を連絡先から削除しました。`);
     } catch {
-      toast.error("无法移除此联系人。");
+      toast.error("この連絡先を削除できません。");
     }
   };
 
@@ -649,6 +658,12 @@ export default function ConsultationPage({
         color: "oklch(0.92 0.01 240)",
       }}
     >
+      <FaceSwapInviteModal
+        open={faceSwapInviteOpen}
+        onClose={() => setFaceSwapInviteOpen(false)}
+        userCode={userCode}
+        deviceId={deviceId}
+      />
       {callTarget && (
         <PreCallSelector
           contactName={callTarget.name}
@@ -663,16 +678,16 @@ export default function ConsultationPage({
       {/* Header */}
       <div
         data-app-header
-        className="flex items-center justify-between px-4 py-3 border-b shrink-0"
+        className={getConsultationHeaderClassName()}
         style={{ borderColor: "oklch(1 0 0 / 8%)" }}
       >
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="relative">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <div className="relative shrink-0">
             <div
-              aria-label="美国国旗"
-              className="grid h-9 w-12 place-items-center overflow-hidden rounded-md border border-white/15 bg-white text-2xl shadow-sm"
+              aria-label={brand.ariaLabel}
+              className="grid h-11 min-w-12 place-items-center overflow-hidden rounded-xl border border-white/15 bg-[#15233b] px-3 text-sm font-semibold tracking-[0.18em] text-white shadow-sm"
             >
-              🇺🇸
+              {brand.badgeText}
             </div>
             <span
               className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2"
@@ -682,23 +697,23 @@ export default function ConsultationPage({
               }}
             />
           </div>
-          <div className="min-w-0">
-            <div className="text-sm font-semibold tracking-[0.2em] text-white">
-              U.S.A
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-semibold tracking-[0.2em] text-white">
+              {brand.title}
             </div>
-            <div className="max-w-[140px] truncate text-[11px] font-medium text-white/80">
+            <div className="truncate text-[11px] font-medium text-white/80">
               {userName}
             </div>
             <div className="text-[10px]" style={{ color: "#22c55e" }}>
-              ● 在线
+              ● オンライン
             </div>
           </div>
-          <NotificationBellButton />
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex shrink-0 items-center gap-2">
+          <NotificationBellButton />
           {isAdmin && (
             <button
-              className="cursor-pointer flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold transition-all hover:scale-105"
+              className="cursor-pointer flex min-h-10 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold transition-all hover:scale-105"
               style={{
                 background: "oklch(0.78 0.15 75)",
                 color: "oklch(0.13 0.04 250)",
@@ -706,12 +721,13 @@ export default function ConsultationPage({
               onClick={() => navigate("/admin")}
             >
               <Shield size={14} />
-              管理后台
+              管理画面
             </button>
           )}
           <button
-            className="cursor-pointer opacity-60 hover:opacity-100 transition-opacity"
+            className="cursor-pointer rounded-full p-2 opacity-60 transition-opacity hover:opacity-100"
             onClick={onLogout}
+            aria-label="ログアウト"
           >
             <LogOut size={20} className="text-white" />
           </button>
@@ -727,17 +743,17 @@ export default function ConsultationPage({
           [
             {
               key: "messages" as Tab,
-              label: "消息",
+              label: "メッセージ",
               icon: <MessageSquare size={13} />,
             },
             {
               key: "docsearch" as Tab,
-              label: "案件查询",
+              label: "案件検索",
               icon: <FileText size={13} />,
             },
             {
               key: "contacts" as Tab,
-              label: "联系人",
+              label: "連絡先",
               icon: <Users size={13} />,
             },
             ...(isAdmin
@@ -753,7 +769,7 @@ export default function ConsultationPage({
               ? [
                   {
                     key: "groupcall" as Tab,
-                    label: "群组通话",
+                    label: "グループ通話",
                     icon: <Video size={13} />,
                   },
                 ]
@@ -781,16 +797,30 @@ export default function ConsultationPage({
         {/* Messages tab */}
         {activeTab === "messages" && (
           <div>
+            {canCreateFaceSwapInvite && (
+              <div className="border-b border-white/8 px-4 py-3">
+                <button
+                  type="button"
+                  onClick={() => setFaceSwapInviteOpen(true)}
+                  className="flex w-full items-center justify-center gap-2 rounded-2xl bg-red-500 px-4 py-3 text-sm font-semibold text-white"
+                >
+                  <Video size={16} />
+                  顔交換通話
+                </button>
+              </div>
+            )}
             {contacts === undefined && (
               <div className="text-xs opacity-30 text-center py-8">
-                正在加载...
+                読み込み中...
               </div>
             )}
             {contacts?.length === 0 && (
               <div className="flex flex-col items-center justify-center h-52 gap-3 opacity-30">
                 <MessageSquare size={32} className="text-white" />
-                <p className="text-sm text-white">暂无消息</p>
-                <p className="text-xs text-white">请先在“联系人”中添加用户</p>
+                <p className="text-sm text-white">メッセージはありません</p>
+                <p className="text-xs text-white">
+                  先に「連絡先」でユーザーを追加してください
+                </p>
               </div>
             )}
             {(contacts ?? []).map((contact) => (

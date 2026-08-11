@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "convex/react";
+import { useLocation } from "react-router-dom";
 import { api } from "@/convex/_generated/api.js";
 import { amigoFaceSwap } from "./face-swap.ts";
 
@@ -9,6 +10,7 @@ import { amigoFaceSwap } from "./face-swap.ts";
  * so the AI video source has a target FaceLatent.
  */
 export function AmigoFaceSwapBoot() {
+  const location = useLocation();
   const [credentials, setCredentials] = useState(() => ({
     code: localStorage.getItem("ksc_session_code") ?? "",
     deviceId: localStorage.getItem("ksc_device_id") ?? "",
@@ -28,8 +30,13 @@ export function AmigoFaceSwapBoot() {
   }, []);
 
   useEffect(() => {
-    void amigoFaceSwap.initialize();
-  }, []);
+    if (!credentials.code || !credentials.deviceId) return;
+    if (location.pathname === "/") return;
+    const timer = window.setTimeout(() => {
+      void amigoFaceSwap.initialize();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [credentials.code, credentials.deviceId, location.pathname]);
 
   const faces = useQuery(
     api.faceLibrary.listMine,

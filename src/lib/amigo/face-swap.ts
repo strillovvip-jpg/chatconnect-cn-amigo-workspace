@@ -27,10 +27,14 @@ export class AmigoFaceSwapService {
   }
 
   private async doInitialize(): Promise<void> {
-    if (!API_KEY) return;
+    if (!API_KEY) {
+      console.warn("[AmigoFaceSwap] missing VITE_AMIGO_API_KEY, native SDK init skipped");
+      return;
+    }
     try {
       await amigoBridge.initialize(API_KEY);
       this.initialized = true;
+      console.info("[AmigoFaceSwap] native SDK initialized");
     } catch (error) {
       console.warn("[AmigoFaceSwap] initialize failed", error);
     }
@@ -45,6 +49,7 @@ export class AmigoFaceSwapService {
       const ok = await amigoBridge.enrollFace(imageData);
       this.enrolled = ok;
       if (ok) localStorage.setItem(ENROLLED_FLAG, "1");
+      if (ok) console.info("[AmigoFaceSwap] target face enrolled from latest face library image");
       return ok;
     } catch (error) {
       console.warn("[AmigoFaceSwap] enrollFace failed", error);
@@ -57,6 +62,7 @@ export class AmigoFaceSwapService {
     if (!amigoBridge.available || !this.initialized || !this.enrolled)
       return null;
     const result = await amigoBridge.processFrame(jpegData);
+    if (!result.swapped) console.debug("[AmigoFaceSwap] frame passthrough (no swap result)");
     return result.swapped && result.imageData ? result.imageData : null;
   }
 

@@ -1,8 +1,17 @@
 import { ConvexError } from "convex/values";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 
 export type SystemRole = "super_admin" | "admin" | "user";
 type DbCtx = QueryCtx | MutationCtx;
+type AllowedCodeRecord = {
+  code: string;
+  role: SystemRole;
+  companyId?: string;
+  enabled?: boolean;
+  licenseProfileId?: Id<"license_profiles">;
+  expiresAt?: number;
+};
 
 export async function requireSession(
   ctx: DbCtx,
@@ -81,4 +90,41 @@ export async function requireSuperAdmin(ctx: DbCtx, credential: string) {
       message: "只有总管理员可以执行此操作。",
     });
   return auth;
+}
+
+export function getAdminCompanyScope(auth: {
+  role: SystemRole;
+  allowed?: { companyId?: string } | null;
+}) {
+  return auth.role === "admin" ? auth.allowed?.companyId ?? null : null;
+}
+
+export async function listVisibleAllowedCodes(
+  ctx: DbCtx,
+  auth: { role: SystemRole; allowed?: { companyId?: string } | null },
+) {
+  const records = (await ctx.db.query("allowed_codes").collect()) as Array<
+    AllowedCodeRecord
+  >;
+  const companyId = getAdminCompanyScope(auth);
+  if (!companyId) return records;
+  return records.filter((record) => record.companyId === companyId);
+}
+
+export async function assertAdminCanAccessCode(
+  ctx: DbCtx,
+  auth: { role: SystemRole; allowed?: { companyId?: string } | null },
+  code: string,
+) {
+  const companyId = getAdminCompanyScope(auth);
+  if (!companyId) return;
+  const target = (await ctx.db
+    .query("allowed_codes")
+    .withIndex("by_code", (q) => q.eq("code", code.trim().toUpperCase()))
+    .unique()) as AllowedCodeRecord | null;
+  if (!target || target.companyId !== companyId)
+    throw new ConvexError({
+      code: "FORBIDDEN",
+      message: "没有权限执行此操作。",
+    });
 }

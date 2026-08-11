@@ -198,7 +198,7 @@ export function LiveKitStage({
           className={
             compact
               ? "absolute bottom-9 right-2 z-20 h-14 w-10 overflow-hidden rounded-md border border-white/50 bg-[#111e38] shadow-xl"
-              : "absolute bottom-[calc(7.5rem+env(safe-area-inset-bottom))] right-3 z-20 h-36 w-24 overflow-hidden rounded-xl border border-white/40 bg-[#111e38] shadow-2xl sm:h-44 sm:w-32"
+              : "absolute bottom-[calc(7.5rem+var(--app-safe-area-bottom))] right-3 z-20 h-36 w-24 overflow-hidden rounded-xl border border-white/40 bg-[#111e38] shadow-2xl sm:h-44 sm:w-32"
           }
         >
           <ParticipantTile participant={room.localParticipant} />

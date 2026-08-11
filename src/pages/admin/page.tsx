@@ -78,6 +78,10 @@ const DEFAULT_LICENSE_FLAGS: LicenseFlags = {
 
 const FULL_PROFILE_NAME = "高级授权码-全部功能";
 const LIMITED_PROFILE_NAME = "高级授权码-无6、9及11";
+const LEGACY_LIMITED_PROFILE_NAMES = [
+  LIMITED_PROFILE_NAME,
+  "高级授权码-无9及11",
+];
 const ADVANCED_LICENSE_FLAGS: LicenseFlags = {
   canVideoCall: true,
   canVoiceCall: true,
@@ -96,7 +100,7 @@ const LIMITED_LICENSE_FLAGS: LicenseFlags = {
   ...ADVANCED_LICENSE_FLAGS,
   canScreenShare: false,
   canTransferCall: false,
-  canVideoSource: false,
+  canVideoSource: true,
   canPlayVideo: false,
 };
 const ADVANCED_FEATURE_SUMMARY = [
@@ -861,7 +865,7 @@ export default function AdminPage() {
     (profile) => profile.name === FULL_PROFILE_NAME,
   )?._id;
   const limitedProfileId = licenseProfiles?.find(
-    (profile) => profile.name === LIMITED_PROFILE_NAME,
+    (profile) => LEGACY_LIMITED_PROFILE_NAMES.includes(profile.name),
   )?._id;
   const selectedProfileId =
     newCodeTier === "advanced" ? fullProfileId : limitedProfileId;
@@ -1074,7 +1078,7 @@ export default function AdminPage() {
                       : "border-white/10 bg-black/10 text-white/50",
                   )}
                 >
-                  受限功能授权码（不含第 9、11 项）
+                  受限功能授权码（不含第 6、9、11 项）
                 </button>
                 <button
                   type="button"
@@ -1136,7 +1140,7 @@ export default function AdminPage() {
                               : "border-white/10 bg-black/10 text-white/50",
                           )}
                         >
-                          受限功能授权码（不含第 9、11 项）（
+                          受限功能授权码（不含第 6、9、11 项）（
                           {
                             (allowedCodes ?? []).filter(
                               (item) =>

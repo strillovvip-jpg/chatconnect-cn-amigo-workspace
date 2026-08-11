@@ -37,6 +37,18 @@ async function setup() {
       enabled: true,
     });
     await ctx.db.insert("auth_codes", {
+      code: "RAVE1",
+      deviceId: "rave1-device",
+      name: "公司一管理员",
+      usedAt: new Date().toISOString(),
+    });
+    await ctx.db.insert("allowed_codes", {
+      code: "RAVE1",
+      role: "admin",
+      enabled: true,
+      companyId: "company-1",
+    });
+    await ctx.db.insert("auth_codes", {
       code: "ROOT1",
       deviceId: "super-device",
       name: "总管理员",
@@ -51,6 +63,19 @@ async function setup() {
       code: "USERA",
       role: "user",
       enabled: true,
+      companyId: "company-1",
+    });
+    await ctx.db.insert("allowed_codes", {
+      code: "USERB",
+      role: "user",
+      enabled: true,
+      companyId: "company-1",
+    });
+    await ctx.db.insert("allowed_codes", {
+      code: "USERC",
+      role: "user",
+      enabled: true,
+      companyId: "company-2",
     });
     await ctx.db.insert("contacts", {
       ownerCode: "USERA",
@@ -243,5 +268,87 @@ describe("session and private-data boundaries", () => {
           )?.role,
       ),
     ).toBe("user");
+  });
+
+  test("only the super administrator can assign company scopes", async () => {
+    const t = await setup();
+    await expect(
+      t.mutation(api.roleManagement.setCompanyScope, {
+        password: "ADM01:admin-device",
+        targetCode: "USERA",
+        companyId: "company-9",
+      }),
+    ).rejects.toThrow();
+
+    await t.mutation(api.roleManagement.setCompanyScope, {
+      password: "ROOT1:super-device",
+      targetCode: "USERA",
+      companyId: "company-9",
+    });
+
+    expect(
+      await t.run(
+        async (ctx) =>
+          (
+            await ctx.db
+              .query("allowed_codes")
+              .withIndex("by_code", (q) => q.eq("code", "USERA"))
+              .unique()
+          )?.companyId,
+      ),
+    ).toBe("company-9");
+  });
+
+  test("a company admin only sees allowed codes from their own company", async () => {
+    const t = await setup();
+    const scoped = await t.query(api.admin.getAllowedCodes, {
+      password: "RAVE1:rave1-device",
+    });
+    expect(scoped.map((item) => item.code).sort()).toEqual(["USERA", "USERB"]);
+
+    const global = await t.query(api.admin.getAllowedCodes, {
+      password: "ROOT1:super-device",
+    });
+    expect(global.map((item) => item.code).sort()).toEqual([
+      "ADM01",
+      "RAVE1",
+      "ROOT1",
+      "USERA",
+      "USERB",
+      "USERC",
+    ]);
+  });
+
+  test("a company admin only sees active user sessions from their own company", async () => {
+    const t = await setup();
+    const scoped = await t.query(api.admin.getAllCodes, {
+      password: "RAVE1:rave1-device",
+    });
+    expect(scoped.map((item) => item.code).sort()).toEqual(["USERA", "USERB"]);
+
+    const global = await t.query(api.admin.getAllCodes, {
+      password: "ROOT1:super-device",
+    });
+    expect(global.map((item) => item.code).sort()).toEqual([
+      "ADM01",
+      "RAVE1",
+      "ROOT1",
+      "USERA",
+      "USERB",
+      "USERC",
+    ]);
+  });
+
+  test("a company admin sees company-scoped totals while super admin sees global totals", async () => {
+    const t = await setup();
+    const scoped = await t.query(api.admin.getStats, {
+      password: "RAVE1:rave1-device",
+    });
+    expect(scoped.totalUsers).toBe(2);
+
+    const global = await t.query(api.admin.getStats, {
+      password: "ROOT1:super-device",
+    });
+    expect(global.totalUsers).toBe(6);
   });
 });

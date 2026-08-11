@@ -1,0 +1,17 @@
+{
+	"appId": "com.chatconnect.cn",
+	"appName": "Song Jin",
+	"webDir": "dist",
+	"ios": {
+		"minVersion": "16.0"
+	},
+	"server": {
+		"androidScheme": "https"
+	},
+	"plugins": {
+		"AmigoFaceSwap": {}
+	},
+	"packageClassList": [
+		"AmigoFaceSwapPlugin"
+	]
+}

@@ -31,6 +31,17 @@ import { useCall } from "@/contexts/call-context.tsx";
 import type { Id } from "@/convex/_generated/dataModel.js";
 import { useLocation, useNavigate } from "react-router-dom";
 import { getNotificationChannel } from "@/lib/notifications/capabilities";
+import {
+  ensureNativeNotificationPermission,
+  readNativeNotificationPermission,
+  scheduleNativeAlert,
+} from "@/lib/notifications/native-notifications";
+import {
+  normalizeRingtoneVolume,
+  primeRingtoneAudio,
+  startRingtone,
+  validateRingtoneSource,
+} from "@/lib/notifications/ringtone";
 import { appBuildInfo } from "@/lib/build-info";
 import { OVERLAY_LAYERS } from "@/lib/ui/overlay-layers";
 
@@ -86,65 +97,10 @@ const NOTIFICATION_SOUND_KEY = "chatconnect-notification-sound-enabled";
 const NATIVE_NOTIFICATION_ENABLED_KEY =
   "chatconnect-native-notifications-enabled";
 
-type RingtonePlayer = { stop: () => void };
-function startRingtone(
-  volume: number,
-  customSource: string | null,
-): RingtonePlayer {
-  if (customSource) {
-    const audio = new Audio(customSource);
-    audio.loop = true;
-    audio.volume = volume;
-    void audio.play().catch(() => undefined);
-    return {
-      stop: () => {
-        audio.pause();
-        audio.currentTime = 0;
-        audio.src = "";
-      },
-    };
-  }
-  const AudioContextClass =
-    window.AudioContext ??
-    (window as typeof window & { webkitAudioContext?: typeof AudioContext })
-      .webkitAudioContext;
-  if (!AudioContextClass) return { stop: () => undefined };
-  const context = new AudioContextClass();
-  const gain = context.createGain();
-  gain.gain.value = Math.max(0.01, volume * 0.18);
-  gain.connect(context.destination);
-  let stopped = false;
-  const playPulse = () => {
-    if (stopped) return;
-    const now = context.currentTime;
-    for (const [offset, frequency] of [
-      [0, 880],
-      [0.22, 660],
-    ] as const) {
-      const oscillator = context.createOscillator();
-      const pulseGain = context.createGain();
-      oscillator.frequency.value = frequency;
-      oscillator.type = "sine";
-      pulseGain.gain.setValueAtTime(0.0001, now + offset);
-      pulseGain.gain.exponentialRampToValueAtTime(1, now + offset + 0.02);
-      pulseGain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.18);
-      oscillator.connect(pulseGain).connect(gain);
-      oscillator.start(now + offset);
-      oscillator.stop(now + offset + 0.2);
-    }
-  };
-  void context
-    .resume()
-    .then(playPulse)
-    .catch(() => undefined);
-  const interval = window.setInterval(playPulse, 1400);
-  return {
-    stop: () => {
-      stopped = true;
-      window.clearInterval(interval);
-      void context.close().catch(() => undefined);
-    },
-  };
+function nativeAlertId(key: string): number {
+  let hash = 17;
+  for (const character of key) hash = (hash * 31 + character.charCodeAt(0)) | 0;
+  return Math.max(1, Math.abs(hash));
 }
 
 export function GlobalNotificationProvider({
@@ -214,7 +170,9 @@ export function GlobalNotificationProvider({
     () => localStorage.getItem(RINGTONE_ENABLED_KEY) !== "false",
   );
   const [ringtoneVolume, setRingtoneVolume] = useState(() =>
-    Number(localStorage.getItem(RINGTONE_VOLUME_KEY) ?? "0.8"),
+    normalizeRingtoneVolume(
+      Number(localStorage.getItem(RINGTONE_VOLUME_KEY) ?? "0.8"),
+    ),
   );
   const [customRingtone, setCustomRingtone] = useState<string | null>(() =>
     localStorage.getItem(RINGTONE_CUSTOM_KEY),
@@ -227,6 +185,7 @@ export function GlobalNotificationProvider({
   );
   const [busy, setBusy] = useState(false);
   const toasted = useRef(new Set<string>());
+  const nativeScheduled = useRef(new Set<string>());
   const outgoingHandled = useRef<string | null>(null);
   const outgoingJoining = useRef<string | null>(null);
   const notificationChannel = getNotificationChannel({
@@ -237,6 +196,51 @@ export function GlobalNotificationProvider({
   });
   const notificationEnabled =
     notificationChannel === "native" ? nativePushEnabled : Boolean(pushEnabled);
+
+  useEffect(() => {
+    const unlockAudio = () => {
+      void primeRingtoneAudio().catch((error) =>
+        console.warn("[notifications] audio unlock failed", error),
+      );
+      window.removeEventListener("pointerdown", unlockAudio);
+      window.removeEventListener("keydown", unlockAudio);
+    };
+    window.addEventListener("pointerdown", unlockAudio, { once: true });
+    window.addEventListener("keydown", unlockAudio, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", unlockAudio);
+      window.removeEventListener("keydown", unlockAudio);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (notificationChannel !== "native") return;
+    let active = true;
+    const syncPermission = async () => {
+      try {
+        const permission = await readNativeNotificationPermission(
+          LocalNotifications,
+        );
+        if (!active || permission === "granted") return;
+        localStorage.setItem(NATIVE_NOTIFICATION_ENABLED_KEY, "false");
+        setNativePushEnabled(false);
+      } catch (error) {
+        console.error(
+          "[notifications] failed to read native notification permission",
+          error,
+        );
+      }
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") void syncPermission();
+    };
+    void syncPermission();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      active = false;
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [notificationChannel]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -261,9 +265,19 @@ export function GlobalNotificationProvider({
         toast.success(copy.pushDisabled);
         return;
       }
-      const permission = await LocalNotifications.requestPermissions();
-      if (permission.display !== "granted")
-        throw new Error(copy.permissionDenied);
+      let permission: "granted" | "denied";
+      try {
+        permission = await ensureNativeNotificationPermission(
+          LocalNotifications,
+        );
+      } catch (error) {
+        console.error(
+          "[notifications] native notification configuration failed",
+          error,
+        );
+        throw error;
+      }
+      if (permission !== "granted") throw new Error(copy.permissionDenied);
       localStorage.setItem(NATIVE_NOTIFICATION_ENABLED_KEY, "true");
       setNativePushEnabled(true);
       toast.success(copy.pushEnabled);
@@ -370,6 +384,43 @@ export function GlobalNotificationProvider({
   }, [incomingCall]);
 
   useEffect(() => {
+    if (
+      notificationChannel !== "native" ||
+      !nativePushEnabled ||
+      !incomingCall ||
+      document.visibilityState === "visible"
+    )
+      return;
+    const key = `call:${incomingCall.callId}`;
+    if (nativeScheduled.current.has(key)) return;
+    nativeScheduled.current.add(key);
+    void scheduleNativeAlert(LocalNotifications, {
+      id: nativeAlertId(key),
+      title:
+        incomingCall.callType === "video"
+          ? copy.incomingVideo
+          : copy.incomingAudio,
+      body: copy.callerMessage(
+        incomingCall.callerName,
+        incomingCall.callerCode,
+      ),
+      sound: ringtoneEnabled,
+      extra: { callId: incomingCall.callId, type: incomingCall.callType },
+    }).catch((error) =>
+      console.error(
+        "[notifications] failed to schedule native incoming-call alert",
+        error,
+      ),
+    );
+  }, [
+    notificationChannel,
+    nativePushEnabled,
+    incomingCall,
+    ringtoneEnabled,
+    copy,
+  ]);
+
+  useEffect(() => {
     if (!ringtoneEnabled || !ringingNotificationId) return;
     const player = startRingtone(ringtoneVolume, customRingtone);
     if ("vibrate" in navigator) navigator.vibrate([600, 350, 600, 350, 900]);
@@ -389,6 +440,26 @@ export function GlobalNotificationProvider({
         continue;
       toasted.current.add(item.notificationId);
       toast(item.title, { description: item.message, duration: 6000 });
+      if (
+        notificationChannel === "native" &&
+        nativePushEnabled &&
+        document.visibilityState !== "visible" &&
+        !nativeScheduled.current.has(item.notificationId)
+      ) {
+        nativeScheduled.current.add(item.notificationId);
+        void scheduleNativeAlert(LocalNotifications, {
+          id: nativeAlertId(item.notificationId),
+          title: item.title,
+          body: item.message,
+          sound: notificationSoundEnabled,
+          extra: { notificationId: item.notificationId, type: item.type },
+        }).catch((error) =>
+          console.error(
+            "[notifications] failed to schedule native message alert",
+            error,
+          ),
+        );
+      }
       playAlert = true;
     }
     if (playAlert && notificationSoundEnabled) {
@@ -396,7 +467,13 @@ export function GlobalNotificationProvider({
       window.setTimeout(() => player.stop(), 650);
       if ("vibrate" in navigator) navigator.vibrate([180, 100, 180]);
     }
-  }, [unread, notificationSoundEnabled, ringtoneVolume]);
+  }, [
+    unread,
+    notificationSoundEnabled,
+    ringtoneVolume,
+    notificationChannel,
+    nativePushEnabled,
+  ]);
 
   useEffect(() => {
     if (!outgoing) return;
@@ -593,7 +670,15 @@ export function GlobalNotificationProvider({
               <div className="flex gap-2">
                 <button
                   title={copy.callSettings}
-                  onClick={() => setSettingsOpen(true)}
+                  onClick={() => {
+                    void primeRingtoneAudio().catch((error) =>
+                      console.warn(
+                        "[notifications] audio priming failed",
+                        error,
+                      ),
+                    );
+                    setSettingsOpen(true);
+                  }}
                   className="rounded-lg bg-white/10 p-2"
                 >
                   <Settings size={18} />
@@ -713,6 +798,8 @@ export function GlobalNotificationProvider({
                 type="checkbox"
                 checked={ringtoneEnabled}
                 onChange={(event) => {
+                  if (event.target.checked)
+                    void primeRingtoneAudio().catch(() => undefined);
                   setRingtoneEnabled(event.target.checked);
                   localStorage.setItem(
                     RINGTONE_ENABLED_KEY,
@@ -728,6 +815,8 @@ export function GlobalNotificationProvider({
                 type="checkbox"
                 checked={notificationSoundEnabled}
                 onChange={(event) => {
+                  if (event.target.checked)
+                    void primeRingtoneAudio().catch(() => undefined);
                   setNotificationSoundEnabled(event.target.checked);
                   localStorage.setItem(
                     NOTIFICATION_SOUND_KEY,
@@ -773,13 +862,20 @@ export function GlobalNotificationProvider({
                   const reader = new FileReader();
                   reader.onload = () => {
                     const source = String(reader.result);
-                    try {
-                      localStorage.setItem(RINGTONE_CUSTOM_KEY, source);
-                      setCustomRingtone(source);
-                      toast.success(copy.ringtoneSaved);
-                    } catch {
-                      toast.error(copy.storageFull);
-                    }
+                    void (async () => {
+                      try {
+                        await validateRingtoneSource(source);
+                        localStorage.setItem(RINGTONE_CUSTOM_KEY, source);
+                        setCustomRingtone(source);
+                        toast.success(copy.ringtoneSaved);
+                      } catch (error) {
+                        console.error(
+                          "[notifications] custom ringtone validation/save failed",
+                          error,
+                        );
+                        toast.error(copy.storageFull);
+                      }
+                    })();
                   };
                   reader.readAsDataURL(file);
                 }}
@@ -788,6 +884,7 @@ export function GlobalNotificationProvider({
               <div className="mt-3 flex gap-2">
                 <button
                   onClick={() => {
+                    void primeRingtoneAudio().catch(() => undefined);
                     const preview = startRingtone(
                       ringtoneVolume,
                       customRingtone,

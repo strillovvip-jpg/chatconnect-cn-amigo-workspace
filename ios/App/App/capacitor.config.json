@@ -9,7 +9,14 @@
 		"androidScheme": "https"
 	},
 	"plugins": {
-		"AmigoFaceSwap": {}
+		"AmigoFaceSwap": {},
+		"LocalNotifications": {
+			"presentationOptions": [
+				"badge",
+				"sound",
+				"alert"
+			]
+		}
 	},
 	"packageClassList": [
 		"LocalNotificationsPlugin",

@@ -13,6 +13,9 @@ const config: CapacitorConfig = {
   },
   plugins: {
     AmigoFaceSwap: {},
+    LocalNotifications: {
+      presentationOptions: ["badge", "sound", "alert"],
+    },
   },
 };
 

@@ -17,7 +17,6 @@ import { FeatureProvider } from "./contexts/feature-context.tsx";
 import ChinesePortal from "./pages/ChinesePortal.tsx";
 import { AmigoFaceSwapBoot } from "./lib/amigo/amigo-boot.tsx";
 import { I18nProvider, useI18n } from "./lib/i18n";
-import { appBuildInfo } from "./lib/build-info";
 
 const ConsultationRoute = lazy(() => import("./pages/consultation/index.tsx"));
 const ChatPage = lazy(() => import("./pages/consultation/chat.tsx"));
@@ -51,22 +50,12 @@ function AuthenticatedApp({ children }: { children: React.ReactNode }) {
   );
 }
 
-function BundleDiagnosticBadge() {
-  if (!appBuildInfo.diagnostic) return null;
-  return (
-    <div className="pointer-events-none fixed bottom-[max(0.75rem,var(--app-safe-area-bottom))] right-3 z-[99999] rounded-lg bg-fuchsia-600 px-3 py-2 font-mono text-xs font-bold text-white shadow-2xl">
-      BUNDLE {appBuildInfo.buildNumber} · {appBuildInfo.gitCommit}
-    </div>
-  );
-}
-
 export default function App() {
   useServiceWorker();
   return (
     <DefaultProviders>
       <I18nProvider>
         <AppErrorBoundary>
-          <BundleDiagnosticBadge />
           <BrowserRouter>
             <Suspense fallback={<RouteFallback />}>
               <Routes>

@@ -45,3 +45,27 @@ test("TestFlight export compliance is declared in the iOS bundle", () => {
     /<key>ITSAppUsesNonExemptEncryption<\/key>\s*<false\s*\/>/,
   );
 });
+
+test("iOS sync preserves native local notifications and hides bundle diagnostics", () => {
+  const patchScript = read("scripts/patch-ios-spm.mjs");
+  const packageSwift = read("ios/App/CapApp-SPM/Package.swift");
+  const app = read("src/App.tsx");
+  const cloudScript = read("ci_scripts/ci_post_clone.sh");
+  const capacitorConfig = read("capacitor.config.ts");
+
+  for (const source of [patchScript, packageSwift]) {
+    assert.match(source, /CapacitorLocalNotifications/);
+    assert.match(source, /@capacitor\/local-notifications/);
+  }
+  assert.doesNotMatch(app, /BundleDiagnosticBadge/);
+  assert.doesNotMatch(app, /BUNDLE /);
+  assert.match(
+    cloudScript,
+    /VITE_BUNDLE_DIAGNOSTIC="\$\{VITE_BUNDLE_DIAGNOSTIC:-0\}"/,
+  );
+  assert.match(capacitorConfig, /LocalNotifications:\s*\{/);
+  assert.match(
+    capacitorConfig,
+    /presentationOptions:\s*\["badge",\s*"sound",\s*"alert"\]/,
+  );
+});

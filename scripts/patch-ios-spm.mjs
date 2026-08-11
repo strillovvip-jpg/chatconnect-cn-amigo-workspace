@@ -11,6 +11,8 @@ const AMIGO_BINARY_NAME = "AmigoFaceSwapSDK";
 const AMIGO_BINARY_PATH = "Vendor/AmigoFaceSwapSDK.xcframework";
 const LIVEKIT_DEP = '.package(name: "LiveKit", url: "https://github.com/livekit/client-sdk-swift.git", .upToNextMajor(from: "2.16.0"))';
 const LIVEKIT_PRODUCT = '.product(name: "LiveKit", package: "LiveKit")';
+const LOCAL_NOTIFICATIONS_DEP = '.package(name: "CapacitorLocalNotifications", path: "../../../node_modules/@capacitor/local-notifications")';
+const LOCAL_NOTIFICATIONS_PRODUCT = '.product(name: "CapacitorLocalNotifications", package: "CapacitorLocalNotifications")';
 
 let changed = false;
 
@@ -50,6 +52,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/ionic-team/capacitor-swift-pm.git", exact: "${capacitorVersion}"),
+        ${LOCAL_NOTIFICATIONS_DEP},
         ${LIVEKIT_DEP}
     ],
     targets: [
@@ -58,6 +61,7 @@ let package = Package(
             dependencies: [
                 .product(name: "Capacitor", package: "capacitor-swift-pm"),
                 .product(name: "Cordova", package: "capacitor-swift-pm"),
+                ${LOCAL_NOTIFICATIONS_PRODUCT},
                 "${AMIGO_BINARY_NAME}",
                 ${LIVEKIT_PRODUCT}
             ]

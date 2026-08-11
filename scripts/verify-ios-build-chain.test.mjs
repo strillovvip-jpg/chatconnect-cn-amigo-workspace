@@ -16,6 +16,10 @@ test("Xcode Cloud rebuilds and syncs web assets from repository source", () => {
   );
   assert.match(cloudScript, /npm ci/);
   assert.match(cloudScript, /npm run build:ios/);
+  assert.match(cloudScript, /command -v node/);
+  assert.match(cloudScript, /command -v npm/);
+  assert.match(cloudScript, /brew install node/);
+  assert.match(cloudScript, /brew --prefix node/);
   assert.match(xcodeCloudEntry, /ci_scripts\/ci_post_clone\.sh/);
   assert.match(xcodeCloudEntry, /git .*rev-parse --show-toplevel/);
 });

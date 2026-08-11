@@ -9,6 +9,25 @@ echo "[ci_post_clone] repository: $REPO_ROOT"
 xcodebuild -version
 
 echo "[ci_post_clone] source commit: $(git rev-parse HEAD)"
+
+if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+  echo "[ci_post_clone] Node.js is not preinstalled; installing it with Xcode Cloud Homebrew"
+  if ! command -v brew >/dev/null 2>&1; then
+    echo "[ci_post_clone] Homebrew is unavailable, so Node.js cannot be installed" >&2
+    exit 1
+  fi
+
+  export HOMEBREW_NO_AUTO_UPDATE=1
+  brew install node
+  NODE_PREFIX="$(brew --prefix node)"
+  export PATH="$NODE_PREFIX/bin:$PATH"
+fi
+
+if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+  echo "[ci_post_clone] Node.js installation completed but node/npm are still unavailable" >&2
+  exit 1
+fi
+
 node --version
 npm --version
 

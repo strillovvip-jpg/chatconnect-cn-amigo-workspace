@@ -33,7 +33,9 @@ export function AmigoFaceSwapBoot() {
     if (!credentials.code || !credentials.deviceId) return;
     if (location.pathname === "/") return;
     const timer = window.setTimeout(() => {
-      void amigoFaceSwap.initialize();
+      void amigoFaceSwap.initialize().catch((error) => {
+        console.error("[FaceSwap:boot] initialization failed", error);
+      });
     }, 0);
     return () => window.clearTimeout(timer);
   }, [credentials.code, credentials.deviceId, location.pathname]);
@@ -49,7 +51,9 @@ export function AmigoFaceSwapBoot() {
     if (!latest.imageUrl) return;
     // enrollFace awaits initialization itself. The previous early return raced
     // the async SDK startup and left an already-saved photo unenrolled forever.
-    void amigoFaceSwap.enrollFace(latest.imageUrl);
+    void amigoFaceSwap.enrollFace(latest.imageUrl).catch((error) => {
+      console.error("[FaceSwap:boot] saved face enrollment failed", error);
+    });
   }, [faces]);
 
   return null;

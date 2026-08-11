@@ -84,12 +84,8 @@ class CapacitorAmigoBridge implements AmigoBridge {
 
   async enrollFace(imageData: string): Promise<boolean> {
     if (!this.available) return false;
-    try {
-      const result = await plugin.enrollFace({ imageData });
-      return result.enrolled;
-    } catch {
-      return false;
-    }
+    const result = await plugin.enrollFace({ imageData });
+    return result.enrolled;
   }
 
   async processFrame(imageData: string): Promise<AmigoProcessedFrame> {

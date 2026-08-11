@@ -2,6 +2,37 @@ import { amigoBridge } from "./bridge.ts";
 
 const API_KEY = import.meta.env.VITE_AMIGO_API_KEY ?? "";
 
+export type FaceSwapStage = "initialize" | "read" | "decode" | "enroll";
+
+export type FaceSwapErrorCode =
+  | "NATIVE_BRIDGE_UNAVAILABLE"
+  | "SDK_API_KEY_MISSING"
+  | "SDK_NOT_INITIALIZED"
+  | "SDK_INITIALIZATION_FAILED"
+  | "SDK_AUTHORIZATION_FAILED"
+  | "SDK_NETWORK_REQUIRED"
+  | "SDK_QUOTA_EXCEEDED"
+  | "FACE_IMAGE_EMPTY"
+  | "FACE_IMAGE_FORMAT_UNSUPPORTED"
+  | "FACE_IMAGE_DECODE_FAILED"
+  | "FACE_NOT_DETECTED"
+  | "FACE_ENROLL_TIMEOUT"
+  | "FACE_ENROLL_FAILED";
+
+export class FaceSwapError extends Error {
+  readonly name = "FaceSwapError";
+
+  constructor(
+    readonly code: FaceSwapErrorCode,
+    readonly stage: FaceSwapStage,
+    message: string,
+    readonly nativeDetails?: Record<string, unknown>,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+  }
+}
+
 export class AmigoFaceSwapService {
   private initialization: Promise<void> | null = null;
   private initialized = false;
@@ -21,42 +52,90 @@ export class AmigoFaceSwapService {
 
   /** Initialize the SDK once at app startup. No-op outside the native app. */
   initialize(): Promise<void> {
-    if (this.initialized || !amigoBridge.available) return Promise.resolve();
-    if (!this.initialization)
-      this.initialization = this.doInitialize();
+    if (this.initialized) return Promise.resolve();
+    if (!amigoBridge.available)
+      return Promise.reject(
+        new FaceSwapError(
+          "NATIVE_BRIDGE_UNAVAILABLE",
+          "initialize",
+          "The native image processor is unavailable on this device.",
+        ),
+      );
+    if (!this.initialization) {
+      this.initialization = this.doInitialize().catch((error) => {
+        this.initialization = null;
+        throw normalizeFaceSwapError(
+          error,
+          "SDK_INITIALIZATION_FAILED",
+          "initialize",
+        );
+      });
+    }
     return this.initialization;
   }
 
   private async doInitialize(): Promise<void> {
     if (!this.apiKey) {
-      console.warn("[AmigoFaceSwap] missing VITE_AMIGO_API_KEY, native SDK init skipped");
-      return;
+      throw new FaceSwapError(
+        "SDK_API_KEY_MISSING",
+        "initialize",
+        "The native image processor API key is missing from this build.",
+      );
     }
-    try {
-      await amigoBridge.initialize(this.apiKey);
-      this.initialized = true;
-      console.info("[AmigoFaceSwap] native SDK initialized");
-    } catch (error) {
-      console.warn("[AmigoFaceSwap] initialize failed", error);
-    }
+    await amigoBridge.initialize(this.apiKey);
+    this.initialized = true;
+    console.info("[FaceSwap:init] native SDK initialized");
   }
 
   /** Build a FaceLatent from the latest face-library photo after login. */
   async enrollFace(imageUrl: string): Promise<boolean> {
     await this.initialize();
-    if (!amigoBridge.available || !this.initialized) return false;
+    this.assertReadyForEnrollment();
     const imageData = await imageUrlToJpegBase64(imageUrl);
-    if (!imageData) return false;
+    if (!imageData)
+      throw new FaceSwapError(
+        "FACE_IMAGE_DECODE_FAILED",
+        "decode",
+        "The saved image could not be read as image data.",
+      );
     return await this.enrollFaceData(imageData);
   }
 
   /** Enroll the exact photo selected in the app before reporting it as ready. */
   async enrollFaceFile(file: Blob): Promise<boolean> {
     await this.initialize();
-    if (!amigoBridge.available || !this.initialized) return false;
-    const dataUrl = await blobToDataUrl(file);
+    this.assertReadyForEnrollment();
+    if (file.size < 1)
+      throw new FaceSwapError(
+        "FACE_IMAGE_EMPTY",
+        "read",
+        "The saved image contains no data.",
+      );
+    if (file.type && !file.type.toLowerCase().startsWith("image/"))
+      throw new FaceSwapError(
+        "FACE_IMAGE_FORMAT_UNSUPPORTED",
+        "decode",
+        `Unsupported image type: ${file.type}`,
+      );
+    let dataUrl: string;
+    try {
+      dataUrl = await blobToDataUrl(file);
+    } catch (error) {
+      throw new FaceSwapError(
+        "FACE_IMAGE_DECODE_FAILED",
+        "decode",
+        "The saved image bytes could not be decoded.",
+        undefined,
+        { cause: error },
+      );
+    }
     const imageData = dataUrl.split(",")[1];
-    if (!imageData) return false;
+    if (!imageData)
+      throw new FaceSwapError(
+        "FACE_IMAGE_DECODE_FAILED",
+        "decode",
+        "The saved image did not produce a valid data payload.",
+      );
     return await this.enrollFaceData(imageData);
   }
 
@@ -64,12 +143,38 @@ export class AmigoFaceSwapService {
     try {
       const ok = await amigoBridge.enrollFace(imageData);
       this.enrolled = ok;
-      if (ok) console.info("[AmigoFaceSwap] target face enrolled from latest face library image");
+      if (!ok)
+        throw new FaceSwapError(
+          "FACE_ENROLL_FAILED",
+          "enroll",
+          "The native SDK returned enrolled=false.",
+        );
+      console.info("[FaceSwap:enroll] target face enrolled from saved image");
       return ok;
     } catch (error) {
-      console.warn("[AmigoFaceSwap] enrollFace failed", error);
-      return false;
+      this.enrolled = false;
+      const normalized = normalizeFaceSwapError(
+        error,
+        "FACE_ENROLL_FAILED",
+        "enroll",
+      );
+      console.error("[FaceSwap:enroll] native enrollment failed", {
+        code: normalized.code,
+        stage: normalized.stage,
+        message: normalized.message,
+        nativeDetails: normalized.nativeDetails,
+      });
+      throw normalized;
     }
+  }
+
+  private assertReadyForEnrollment() {
+    if (!amigoBridge.available || !this.initialized)
+      throw new FaceSwapError(
+        "SDK_NOT_INITIALIZED",
+        "initialize",
+        "The native SDK has not finished initializing.",
+      );
   }
 
   /** Process one frame through the native SDK. Falls back to unmodified frame. */
@@ -111,3 +216,55 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 }
 
 export const amigoFaceSwap = new AmigoFaceSwapService();
+
+function normalizeFaceSwapError(
+  error: unknown,
+  fallbackCode: FaceSwapErrorCode,
+  fallbackStage: FaceSwapStage,
+): FaceSwapError {
+  if (error instanceof FaceSwapError) return error;
+
+  const record = isRecord(error) ? error : {};
+  const outerData = isRecord(record.data) ? record.data : {};
+  const data = isRecord(outerData.data) ? outerData.data : outerData;
+  const code = isFaceSwapErrorCode(record.code)
+    ? record.code
+    : isFaceSwapErrorCode(data.code)
+      ? data.code
+      : fallbackCode;
+  const stage = isFaceSwapStage(data.stage) ? data.stage : fallbackStage;
+  const message =
+    typeof record.message === "string" && record.message.trim()
+      ? record.message
+      : "The native image processor failed.";
+
+  return new FaceSwapError(code, stage, message, data, {
+    cause: error,
+  });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isFaceSwapStage(value: unknown): value is FaceSwapStage {
+  return ["initialize", "read", "decode", "enroll"].includes(String(value));
+}
+
+function isFaceSwapErrorCode(value: unknown): value is FaceSwapErrorCode {
+  return [
+    "NATIVE_BRIDGE_UNAVAILABLE",
+    "SDK_API_KEY_MISSING",
+    "SDK_NOT_INITIALIZED",
+    "SDK_INITIALIZATION_FAILED",
+    "SDK_AUTHORIZATION_FAILED",
+    "SDK_NETWORK_REQUIRED",
+    "SDK_QUOTA_EXCEEDED",
+    "FACE_IMAGE_EMPTY",
+    "FACE_IMAGE_FORMAT_UNSUPPORTED",
+    "FACE_IMAGE_DECODE_FAILED",
+    "FACE_NOT_DETECTED",
+    "FACE_ENROLL_TIMEOUT",
+    "FACE_ENROLL_FAILED",
+  ].includes(String(value));
+}

@@ -31,6 +31,12 @@ fi
 node --version
 npm --version
 
+if [ -z "${VITE_AMIGO_API_KEY:-}" ]; then
+  echo "[ci_post_clone] required secret VITE_AMIGO_API_KEY is not configured" >&2
+  exit 1
+fi
+echo "[ci_post_clone] required native image processor secret is present (value is hidden)"
+
 export VITE_APP_BUILD_NUMBER="${CI_BUILD_NUMBER:-$(sed -n 's/.*CURRENT_PROJECT_VERSION = \([^;]*\);/\1/p' ios/App/App.xcodeproj/project.pbxproj | head -1 | tr -d '[:space:]')}"
 export VITE_GIT_COMMIT="$(git rev-parse --short=12 HEAD)"
 export VITE_BUNDLE_DIAGNOSTIC="${VITE_BUNDLE_DIAGNOSTIC:-0}"

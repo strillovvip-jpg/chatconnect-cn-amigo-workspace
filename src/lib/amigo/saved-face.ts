@@ -16,7 +16,22 @@ export type SavedFaceDebug = {
   updatedAt: number | null;
 };
 
-export class SavedFaceValidationError extends Error {}
+export class SavedFaceValidationError extends Error {
+  constructor(
+    readonly code:
+      | "FACE_IMAGE_NOT_FOUND"
+      | "FACE_IMAGE_READ_FAILED"
+      | "FACE_IMAGE_EMPTY"
+      | "FACE_IMAGE_FORMAT_UNSUPPORTED"
+      | "FACE_IMAGE_DECODE_FAILED"
+      | "NATIVE_FACE_STATE_MISSING",
+    message: string,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = "SavedFaceValidationError";
+  }
+}
 
 export async function prepareLatestSavedFace(
   faces: readonly PersistedFace[],
@@ -47,26 +62,37 @@ export async function prepareLatestSavedFace(
     });
     if (!response.ok)
       throw new SavedFaceValidationError(
+        "FACE_IMAGE_READ_FAILED",
         `Saved face download failed (${response.status}).`,
       );
 
     const blob = await response.blob();
     byteLength = blob.size;
     if (byteLength === 0)
-      throw new SavedFaceValidationError("Saved face is empty.");
+      throw new SavedFaceValidationError(
+        "FACE_IMAGE_EMPTY",
+        "Saved face is empty.",
+      );
     if (blob.type && !blob.type.toLowerCase().startsWith("image/"))
-      throw new SavedFaceValidationError("Saved face is not an image.");
+      throw new SavedFaceValidationError(
+        "FACE_IMAGE_FORMAT_UNSUPPORTED",
+        "Saved face is not an image.",
+      );
 
     await verifyImageDecodes(blob);
     exists = true;
 
     const enrolled = await amigoFaceSwap.enrollFaceFile(blob);
     if (!enrolled)
-      throw new SavedFaceValidationError("Saved face could not be enrolled.");
+      throw new SavedFaceValidationError(
+        "NATIVE_FACE_STATE_MISSING",
+        "Saved face could not be enrolled.",
+      );
 
     const nativeStatus = await nativeAmigoRoom.getStatus();
     if (!nativeStatus.hasTargetFace)
       throw new SavedFaceValidationError(
+        "NATIVE_FACE_STATE_MISSING",
         "Native processor did not retain the saved face.",
       );
 
@@ -85,17 +111,53 @@ export async function prepareLatestSavedFace(
       byteLength,
       updatedAt,
     });
-    if (error instanceof SavedFaceValidationError) throw error;
-    throw new SavedFaceValidationError("Saved face validation failed.");
+    console.error(`[savedFace:${stage}:failure]`, {
+      code: readErrorField(error, "code"),
+      message: error instanceof Error ? error.message : String(error),
+      stage: readErrorField(error, "stage"),
+      nativeDetails: readErrorField(error, "nativeDetails"),
+      "savedFace.exists": exists,
+      "savedFace.path/key": pathKey,
+      "savedFace.byteLength": byteLength,
+      "savedFace.updatedAt": updatedAt,
+    });
+    if (
+      error instanceof SavedFaceValidationError ||
+      hasNativeFaceErrorCode(error)
+    )
+      throw error;
+    throw new SavedFaceValidationError(
+      "FACE_IMAGE_READ_FAILED",
+      "Saved face validation failed.",
+      { cause: error },
+    );
   }
+}
+
+function readErrorField(error: unknown, key: string): unknown {
+  if (typeof error !== "object" || error === null || !(key in error))
+    return undefined;
+  return (error as Record<string, unknown>)[key];
 }
 
 async function verifyImageDecodes(blob: Blob): Promise<void> {
   if (typeof createImageBitmap === "function") {
-    const bitmap = await createImageBitmap(blob);
+    let bitmap: ImageBitmap;
+    try {
+      bitmap = await createImageBitmap(blob);
+    } catch (error) {
+      throw new SavedFaceValidationError(
+        "FACE_IMAGE_DECODE_FAILED",
+        "Saved face could not be decoded.",
+        { cause: error },
+      );
+    }
     try {
       if (bitmap.width < 1 || bitmap.height < 1)
-        throw new SavedFaceValidationError("Saved face has invalid dimensions.");
+        throw new SavedFaceValidationError(
+          "FACE_IMAGE_DECODE_FAILED",
+          "Saved face has invalid dimensions.",
+        );
     } finally {
       bitmap.close();
     }
@@ -108,17 +170,38 @@ async function verifyImageDecodes(blob: Blob): Promise<void> {
     image.onload = () => {
       URL.revokeObjectURL(objectUrl);
       if (image.naturalWidth < 1 || image.naturalHeight < 1) {
-        reject(new SavedFaceValidationError("Saved face has invalid dimensions."));
+        reject(
+          new SavedFaceValidationError(
+            "FACE_IMAGE_DECODE_FAILED",
+            "Saved face has invalid dimensions.",
+          ),
+        );
         return;
       }
       resolve();
     };
     image.onerror = () => {
       URL.revokeObjectURL(objectUrl);
-      reject(new SavedFaceValidationError("Saved face could not be decoded."));
+      reject(
+        new SavedFaceValidationError(
+          "FACE_IMAGE_DECODE_FAILED",
+          "Saved face could not be decoded.",
+        ),
+      );
     };
     image.src = objectUrl;
   });
+}
+
+function hasNativeFaceErrorCode(
+  error: unknown,
+): error is Error & { code: string } {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof error.code === "string"
+  );
 }
 
 function logSavedFace(stage: "save" | "create", debug: SavedFaceDebug) {

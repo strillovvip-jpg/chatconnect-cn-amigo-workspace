@@ -56,8 +56,7 @@ ios/App/App.xcworkspace/xcuserdata
 ios/App/CapApp-SPM/.swiftpm/xcode/xcuserdata
 ios/App/CapApp-SPM/Sources/CapApp-SPM/*.bak-*
 
-# Commit generated Capacitor iOS inputs so Xcode Cloud can archive from Git alone.
-!ios/App/App/public
-!ios/App/App/public/**
+# Generated from the current source by `npm run build:ios` locally and in Xcode Cloud.
+/ios/App/App/public
 !ios/App/App/capacitor.config.json
 !ios/App/App/config.xml

@@ -29,8 +29,11 @@ import { useCall } from "@/contexts/call-context.tsx";
 import { useFeatures } from "@/contexts/feature-context.tsx";
 import { NotificationBellButton } from "@/contexts/notification-context.tsx";
 import {
+  getConsultationHeaderActionClassName,
   getConsultationHeaderBrand,
   getConsultationHeaderClassName,
+  getConsultationHeaderSecondaryClassName,
+  getConsultationTabBarClassName,
 } from "./header-layout";
 import {
   PreCallSelector,
@@ -722,9 +725,18 @@ export default function ConsultationPage({
             </div>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <LanguageSelector className="max-w-[9rem]" />
+        <div className={getConsultationHeaderActionClassName()}>
           <NotificationBellButton />
+          <button
+            className="cursor-pointer flex h-9 w-9 shrink-0 items-center justify-center rounded-full opacity-60 transition-opacity hover:opacity-100"
+            onClick={onLogout}
+            aria-label={copy.logout}
+          >
+            <LogOut size={20} className="text-white" />
+          </button>
+        </div>
+        <div className={getConsultationHeaderSecondaryClassName()}>
+          <LanguageSelector className="min-w-0 max-w-full" />
           {isAdmin && (
             <button
               className="cursor-pointer flex min-h-10 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold transition-all hover:scale-105"
@@ -738,19 +750,12 @@ export default function ConsultationPage({
               {copy.adminPanel}
             </button>
           )}
-          <button
-            className="cursor-pointer rounded-full p-2 opacity-60 transition-opacity hover:opacity-100"
-            onClick={onLogout}
-            aria-label={copy.logout}
-          >
-            <LogOut size={20} className="text-white" />
-          </button>
         </div>
       </div>
 
       {/* Tabs */}
       <div
-        className="flex border-b shrink-0"
+        className={getConsultationTabBarClassName()}
         style={{ borderColor: "oklch(1 0 0 / 8%)" }}
       >
         {(
@@ -794,7 +799,7 @@ export default function ConsultationPage({
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
             className={cn(
-              "flex-1 flex items-center justify-center gap-1.5 py-3 text-sm transition-all cursor-pointer border-b-2",
+              "flex min-w-[7.25rem] flex-1 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-3 text-sm transition-all",
               activeTab === tab.key
                 ? "border-red-500 text-red-400"
                 : "border-transparent opacity-50 hover:opacity-80",

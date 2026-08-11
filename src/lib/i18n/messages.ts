@@ -1287,6 +1287,10 @@ const notificationMessages = {
     resetDefault: "標準着信音に戻す",
     autoplayNote:
       "一部の iPhone とモバイルブラウザでは、自動再生の前に画面操作が必要です。ログイン操作後に音声再生が有効になります。",
+    about: "このアプリについて",
+    appVersion: "アプリバージョン",
+    buildNumber: "ビルド番号",
+    gitCommit: "Git コミット",
     decline: "拒否",
     answer: "応答",
   },
@@ -1331,6 +1335,10 @@ const notificationMessages = {
     resetDefault: "恢复默认铃声",
     autoplayNote:
       "部分 iPhone 和移动浏览器需要先进行一次屏幕操作，之后才能自动播放提示音。",
+    about: "关于",
+    appVersion: "App 版本",
+    buildNumber: "构建编号",
+    gitCommit: "Git 提交",
     decline: "拒绝",
     answer: "接听",
   },
@@ -1375,6 +1383,10 @@ const notificationMessages = {
     resetDefault: "恢復預設鈴聲",
     autoplayNote:
       "部分 iPhone 與行動瀏覽器需要先進行一次畫面操作，之後才能自動播放提示音。",
+    about: "關於",
+    appVersion: "App 版本",
+    buildNumber: "建置編號",
+    gitCommit: "Git 提交",
     decline: "拒絕",
     answer: "接聽",
   },
@@ -1419,6 +1431,10 @@ const notificationMessages = {
     resetDefault: "Use default ringtone",
     autoplayNote:
       "Some iPhones and mobile browsers require one screen interaction before audio can autoplay after login.",
+    about: "About",
+    appVersion: "App version",
+    buildNumber: "Build number",
+    gitCommit: "Git commit",
     decline: "Decline",
     answer: "Answer",
   },

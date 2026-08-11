@@ -31,6 +31,7 @@ import { useCall } from "@/contexts/call-context.tsx";
 import type { Id } from "@/convex/_generated/dataModel.js";
 import { useLocation, useNavigate } from "react-router-dom";
 import { getNotificationChannel } from "@/lib/notifications/capabilities";
+import { appBuildInfo } from "@/lib/build-info";
 
 type NotificationContextValue = { unreadCount: number; openCenter: () => void };
 const NotificationContext = createContext<NotificationContextValue>({
@@ -811,6 +812,25 @@ export function GlobalNotificationProvider({
             <p className="mt-4 text-[11px] leading-5 text-white/40">
               {copy.autoplayNote}
             </p>
+            <section className="mt-4 rounded-xl border border-white/10 bg-black/15 px-4 py-3">
+              <h3 className="mb-2 text-xs font-semibold text-white/80">
+                {copy.about}
+              </h3>
+              <dl className="space-y-1 font-mono text-[11px] text-white/55">
+                <div className="flex justify-between gap-4">
+                  <dt>{copy.appVersion}</dt>
+                  <dd>{appBuildInfo.version}</dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt>{copy.buildNumber}</dt>
+                  <dd>{appBuildInfo.buildNumber}</dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt>{copy.gitCommit}</dt>
+                  <dd>{appBuildInfo.gitCommit}</dd>
+                </div>
+              </dl>
+            </section>
           </div>
         </div>
       )}

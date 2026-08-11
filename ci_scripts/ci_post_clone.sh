@@ -7,6 +7,21 @@ cd "$REPO_ROOT"
 echo "[ci_post_clone] repository: $REPO_ROOT"
 xcodebuild -version
 
+echo "[ci_post_clone] source commit: $(git rev-parse HEAD)"
+node --version
+npm --version
+
+export VITE_APP_BUILD_NUMBER="${CI_BUILD_NUMBER:-$(sed -n 's/.*CURRENT_PROJECT_VERSION = \([^;]*\);/\1/p' ios/App/App.xcodeproj/project.pbxproj | head -1 | tr -d '[:space:]')}"
+export VITE_GIT_COMMIT="$(git rev-parse --short=12 HEAD)"
+export VITE_BUNDLE_DIAGNOSTIC="${VITE_BUNDLE_DIAGNOSTIC:-1}"
+echo "[ci_post_clone] bundle fingerprint: build=${VITE_APP_BUILD_NUMBER} commit=${VITE_GIT_COMMIT} diagnostic=${VITE_BUNDLE_DIAGNOSTIC}"
+
+echo "[ci_post_clone] installing JavaScript dependencies"
+npm ci
+
+echo "[ci_post_clone] building and syncing the current source into iOS"
+npm run build:ios
+
 required_paths="
 ios/App/App.xcworkspace
 ios/App/App.xcodeproj
@@ -23,6 +38,8 @@ for path in $required_paths; do
     exit 1
   fi
 done
+
+echo "[ci_post_clone] synced index: $(shasum -a 256 ios/App/App/public/index.html | awk '{print $1}')"
 
 echo "[ci_post_clone] resolving Swift packages"
 xcodebuild -resolvePackageDependencies \

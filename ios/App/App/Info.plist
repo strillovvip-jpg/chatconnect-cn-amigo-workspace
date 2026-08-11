@@ -25,13 +25,13 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>Song Jin 需要访问摄像头以进行视频通话和换脸预览。</string>
+	<string>Song Jin needs camera access for video calls and face-swap preview.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Song Jin 需要访问麦克风以进行语音和视频通话。</string>
+	<string>Song Jin needs microphone access for voice and video calls.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Song Jin 需要访问相册以上传人脸照片和通话素材。</string>
+	<string>Song Jin needs photo library access to upload face photos and call media.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Song Jin 需要保存通话截图或导出素材到相册。</string>
+	<string>Song Jin needs photo library access to save screenshots or exported media.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

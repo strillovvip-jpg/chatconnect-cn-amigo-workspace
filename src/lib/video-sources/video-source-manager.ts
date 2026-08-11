@@ -17,6 +17,7 @@ import type {
   VideoSourceSnapshot,
 } from "./types.ts";
 import type { VideoSource } from "./types.ts";
+import { getRuntimeMessages } from "@/lib/i18n";
 import { uiErrorMessage } from "@/lib/utils.ts";
 
 const initialSnapshot: VideoSourceSnapshot = {
@@ -69,10 +70,11 @@ export class VideoSourceManager {
   }
 
   private cameraTrack(): LocalVideoTrack {
+    const copy = getRuntimeMessages().videoSources;
     const track = this.room.localParticipant.getTrackPublication(
       Track.Source.Camera,
     )?.videoTrack;
-    if (!track) throw new Error("未找到用于发送的摄像头轨道。");
+    if (!track) throw new Error(copy.cameraTrackMissing);
     return track;
   }
 
@@ -87,12 +89,13 @@ export class VideoSourceManager {
     options?: { automatic?: boolean },
   ) {
     return this.enqueue(async () => {
-      if (this.disposed) throw new Error("通话已结束。");
+      const copy = getRuntimeMessages().videoSources;
+      if (this.disposed) throw new Error(copy.callEnded);
       if (this.room.state !== ConnectionState.Connected)
-        throw new Error("请在通话连接后切换视频来源。");
+        throw new Error(copy.switchAfterConnected);
       if (this.snapshot.active === kind && !options?.automatic) return;
       const source = this.sources.get(kind);
-      if (!source) throw new Error("指定的视频来源尚未注册。");
+      if (!source) throw new Error(copy.sourceNotRegistered);
       await this.replaceWith(source);
     });
   }
@@ -104,11 +107,10 @@ export class VideoSourceManager {
   }
 
   private async replaceWith(source: VideoSource) {
+    const copy = getRuntimeMessages().videoSources;
     if (!source.isSupported())
       throw new Error(
-        source.kind === "ai"
-          ? "人工智能视频来源目前尚未开放。"
-          : "此设备无法使用所选视频来源。",
+        source.kind === "ai" ? copy.aiUnavailable : copy.sourceUnavailable,
       );
     this.update({ switching: true, error: null });
     const started = performance.now();
@@ -145,7 +147,7 @@ export class VideoSourceManager {
       }
     } catch (error) {
       await next?.dispose();
-      const message = uiErrorMessage(error, "无法切换视频来源。");
+      const message = uiErrorMessage(error, copy.switchFailed);
       this.update({ switching: false, error: message });
       throw error;
     }

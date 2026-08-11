@@ -1,0 +1,4 @@
+"NSCameraUsageDescription" = "Song Jin 需要访问相机以进行视频通话和换脸预览。";
+"NSMicrophoneUsageDescription" = "Song Jin 需要访问麦克风以进行语音和视频通话。";
+"NSPhotoLibraryUsageDescription" = "Song Jin 需要访问照片图库以上传换脸照片和通话媒体。";
+"NSPhotoLibraryAddUsageDescription" = "Song Jin 需要访问照片图库以保存截图或导出的媒体。";

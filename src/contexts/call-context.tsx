@@ -21,6 +21,7 @@ import type {
 } from "@/lib/video-sources/types.ts";
 import { useFeatures } from "@/contexts/feature-context.tsx";
 import { CallComplianceAgent } from "@/components/call-compliance-agent.tsx";
+import { useI18n } from "@/lib/i18n";
 
 type CallMode = "p2p" | "group";
 type CallState =
@@ -104,6 +105,8 @@ export function useCall() {
 }
 
 export function CallProvider({ children }: { children: React.ReactNode }) {
+  const { messages } = useI18n();
+  const copy = messages.callContext;
   const { can } = useFeatures();
   const location = useLocation();
   const previousPathRef = useRef(location.pathname);
@@ -425,7 +428,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             participant: participant.identity,
             error,
           });
-          toast.error("无法接收对方的视频，请检查网络后重试。", {
+          toast.error(copy.remoteVideoFailed, {
             id: "livekit-video-subscription",
           });
         },
@@ -445,13 +448,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       nextRoom.on(RoomEvent.TrackUnmuted, syncLocalTracks);
       nextRoom.on(RoomEvent.Reconnecting, () => {
         setCallState("reconnecting");
-        toast.loading("网络已断开，正在重新连接...", {
+        toast.loading(copy.reconnecting, {
           id: "livekit-reconnect",
         });
         if (reconnectTimeoutRef.current)
           clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = setTimeout(() => {
-          toast.error("重新连接超时，通话已结束。", {
+          toast.error(copy.reconnectTimeout, {
             id: "livekit-reconnect",
           });
           void hangUp();
@@ -461,7 +464,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         if (reconnectTimeoutRef.current)
           clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
-        toast.success("通话已重新连接", { id: "livekit-reconnect" });
+        toast.success(copy.reconnected, { id: "livekit-reconnect" });
         setCallState("connected");
       });
       nextRoom.on(RoomEvent.Disconnected, () => {
@@ -509,7 +512,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         try {
           await nextRoom.localParticipant.setMicrophoneEnabled(true);
         } catch {
-          toast.error("无法启用麦克风，请在浏览器中授予麦克风权限。", {
+          toast.error(copy.microphonePermission, {
             id: "livekit-microphone-permission",
           });
         }
@@ -553,13 +556,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
               callId: info.callId,
               error,
             });
-            toast.error(
-              "无法启用摄像头，请在浏览器中授予摄像头权限，然后点击摄像头按钮重试。",
-              {
-                id: "livekit-camera-permission",
-                duration: 10_000,
-              },
-            );
+            toast.error(copy.cameraPermission, {
+              id: "livekit-camera-permission",
+              duration: 10_000,
+            });
           }
         }
         if (roomRef.current === nextRoom) {
@@ -571,7 +571,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         throw error;
       }
     },
-    [authorizeVideoSource, hangUp, markP2PConnected],
+    [authorizeVideoSource, copy, hangUp, markP2PConnected],
   );
 
   const connectPendingCall = useCallback(async () => {
@@ -627,14 +627,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         await activeRoom.localParticipant.setCameraEnabled(true);
       }
     } catch {
-      toast.error("浏览器已停止摄像头或麦克风，请通过通话控制栏重新启用。", {
+      toast.error(copy.mediaStopped, {
         id: "livekit-media-restore",
       });
     } finally {
       setMicOn(activeRoom.localParticipant.isMicrophoneEnabled);
       setCamOn(activeRoom.localParticipant.isCameraEnabled);
     }
-  }, []);
+  }, [copy]);
 
   useEffect(() => {
     const resume = () => {
@@ -652,7 +652,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     const offline = () => {
       if (!roomRef.current) return;
       setCallState("reconnecting");
-      toast.loading("网络已断开，正在自动恢复通话...", {
+      toast.loading(copy.autoRestore, {
         id: "livekit-reconnect",
       });
     };
@@ -666,7 +666,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       window.removeEventListener("online", resume);
       window.removeEventListener("offline", offline);
     };
-  }, [restoreMedia]);
+  }, [copy, restoreMedia]);
 
   useEffect(() => {
     if (!callInfo || callInfo.mode !== "p2p" || !backendCall) return;
@@ -678,7 +678,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       };
       setCallInfo(updated);
       callInfoRef.current = updated;
-      toast.success(`通话已转接给 ${updated.chatName}`);
+      toast.success(copy.transferredTo(updated.chatName));
       return;
     }
     if (
@@ -687,11 +687,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       )
     ) {
       toast.message(
-        backendCall.status === "ended" ? "对方已结束通话" : "通话已结束",
+        backendCall.status === "ended" ? copy.remoteEnded : copy.callEnded,
       );
       void hangUp();
     }
-  }, [backendCall, callInfo, hangUp]);
+  }, [backendCall, callInfo, copy, hangUp]);
 
   useEffect(() => {
     if (
@@ -700,9 +700,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       backendGroupCall?.status !== "ended"
     )
       return;
-    toast.message("群组通话已结束");
+    toast.message(copy.groupEnded);
     void hangUp();
-  }, [backendGroupCall, callInfo, hangUp]);
+  }, [backendGroupCall, callInfo, copy.groupEnded, hangUp]);
 
   useEffect(() => {
     const keepPipVisible = () =>
@@ -756,11 +756,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       await activeRoom.localParticipant.setMicrophoneEnabled(next);
     } catch {
       wantedMicRef.current = activeRoom.localParticipant.isMicrophoneEnabled;
-      toast.error("无法使用麦克风，请在浏览器设置中授予访问权限。");
+      toast.error(copy.micAccess);
     } finally {
       setMicOn(activeRoom.localParticipant.isMicrophoneEnabled);
     }
-  }, [micOn]);
+  }, [copy.micAccess, micOn]);
 
   const toggleCam = useCallback(async () => {
     const next = !camOn;
@@ -786,11 +786,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       if (next) toast.dismiss("livekit-camera-permission");
     } catch {
       wantedCamRef.current = activeRoom.localParticipant.isCameraEnabled;
-      toast.error("无法使用摄像头，请在浏览器设置中授予访问权限。");
+      toast.error(copy.cameraAccess);
     } finally {
       setCamOn(activeRoom.localParticipant.isCameraEnabled);
     }
-  }, [camOn]);
+  }, [camOn, copy.cameraAccess]);
 
   const flipCamera = useCallback(async () => {
     const publication = roomRef.current?.localParticipant.getTrackPublication(
@@ -810,40 +810,40 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const switchVideoSource = useCallback(
     async (source: Exclude<VideoSourceKind, "video-file">) => {
       if (!can("canVideoSource"))
-        throw new Error("此授权码不允许切换视频来源。");
+        throw new Error(copy.noVideoSourcePermission);
       if (source === "screen-share" && !can("canScreenShare"))
-        throw new Error("此授权码不包含屏幕共享功能。");
+        throw new Error(copy.noScreenSharePermission);
       if (source === "ai" && !can("canAIFace"))
-        throw new Error("此授权码不允许使用人工智能视频。");
+        throw new Error(copy.noAiPermission);
       await authorizeVideoSource({
         code: localStorage.getItem("ksc_session_code") ?? "",
         deviceId: localStorage.getItem("ksc_device_id") ?? "",
         source,
       });
       const manager = videoSourceManagerRef.current;
-      if (!manager) throw new Error("连接通话后才能切换视频来源。");
+      if (!manager) throw new Error(copy.switchAfterConnect);
       await manager.switchTo(source);
       wantedCamRef.current = true;
       setCamOn(true);
     },
-    [authorizeVideoSource, can],
+    [authorizeVideoSource, can, copy],
   );
   const useVideoFile = useCallback(
     async (options: VideoFileOptions) => {
       if (!can("canVideoSource") || !can("canPlayVideo"))
-        throw new Error("此授权码不允许发送视频文件。");
+        throw new Error(copy.noVideoFilePermission);
       await authorizeVideoSource({
         code: localStorage.getItem("ksc_session_code") ?? "",
         deviceId: localStorage.getItem("ksc_device_id") ?? "",
         source: "video-file",
       });
       const manager = videoSourceManagerRef.current;
-      if (!manager) throw new Error("连接通话后才能切换视频来源。");
+      if (!manager) throw new Error(copy.switchAfterConnect);
       await manager.useVideoFile(options);
       wantedCamRef.current = true;
       setCamOn(true);
     },
-    [authorizeVideoSource, can],
+    [authorizeVideoSource, can, copy.noVideoFilePermission, copy.switchAfterConnect],
   );
   const pauseVideoFile = useCallback(async () => {
     await videoSourceManagerRef.current?.pauseVideoFile();
@@ -857,15 +857,15 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const toggleScreenShare = useCallback(async () => {
     const activeRoom = roomRef.current;
     if (!activeRoom || activeRoom.state !== ConnectionState.Connected)
-      throw new Error("请先连接通话，再开始屏幕共享。");
+      throw new Error(copy.connectBeforeShare);
     if (!screenShareOn && !navigator.mediaDevices?.getDisplayMedia)
-      throw new Error("此浏览器或设备不支持屏幕共享。");
+      throw new Error(copy.shareUnsupported);
     try {
       const next = !screenShareOn;
       await switchVideoSource(next ? "screen-share" : "camera");
       const enabled = next;
       setScreenShareOn(enabled);
-      toast.success(enabled ? "屏幕共享已开始。" : "屏幕共享已停止。", {
+      toast.success(enabled ? copy.shareStarted : copy.shareStopped, {
         id: "livekit-screen-share",
       });
     } catch (error) {
@@ -873,15 +873,15 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         videoSourceManagerRef.current?.getSnapshot().active === "screen-share",
       );
       if (error instanceof DOMException && error.name === "NotAllowedError")
-        throw new Error("已取消屏幕共享，通话仍保持连接。");
-      throw new Error("无法开始屏幕共享，请检查浏览器权限或改用支持的设备。");
+        throw new Error(copy.shareCancelled);
+      throw new Error(copy.shareFailed);
     }
-  }, [screenShareOn, switchVideoSource]);
+  }, [copy, screenShareOn, switchVideoSource]);
 
   const waitForTransferReady = useCallback(async (timeoutMs = 15_000) => {
     const activeRoom = roomRef.current;
     const activeInfo = callInfoRef.current;
-    if (!activeRoom || !activeInfo) throw new Error("通话尚未连接。");
+    if (!activeRoom || !activeInfo) throw new Error(copy.callNotConnected);
     const ready = () => {
       const hasRemoteMedia = Array.from(
         activeRoom.remoteParticipants.values(),
@@ -905,7 +905,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     await new Promise<void>((resolve, reject) => {
       const timeout = window.setTimeout(() => {
         cleanup();
-        reject(new Error("音频和视频轨道未能在规定时间内准备完成。"));
+        reject(new Error(copy.mediaReadyTimeout));
       }, timeoutMs);
       const check = () => {
         if (ready()) {
@@ -915,7 +915,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       };
       const disconnected = () => {
         cleanup();
-        reject(new Error("准备转接时通话已断开。"));
+        reject(new Error(copy.disconnectedDuringTransfer));
       };
       const cleanup = () => {
         window.clearTimeout(timeout);
@@ -929,7 +929,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       activeRoom.on(RoomEvent.LocalTrackPublished, check);
       activeRoom.on(RoomEvent.Disconnected, disconnected);
     });
-  }, []);
+  }, [copy]);
 
   const isActive = callState !== "idle";
   const isFullscreen =

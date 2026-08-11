@@ -8,6 +8,8 @@ import { toast } from "sonner";
 import { api } from "@/convex/_generated/api.js";
 import { LiveKitStage } from "@/components/livekit-stage";
 import { uiErrorMessage } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n";
+import { LanguageSelector } from "@/components/language-selector";
 
 const getPublicInviteSession = makeFunctionReference<
   "query",
@@ -23,6 +25,8 @@ const getPublicInviteSession = makeFunctionReference<
 >("externalVideoInvites:getPublicInviteSession");
 
 export default function GuestVideoCallPage() {
+  const { messages } = useI18n();
+  const copy = messages.guest;
   const { id = "" } = useParams<{ id: string }>();
   const joinInvite = useAction(api.calls.joinFaceSwapInvite);
   const invite = useQuery(getPublicInviteSession, id ? { inviteId: id } : "skip");
@@ -66,7 +70,7 @@ export default function GuestVideoCallPage() {
       setConnected(true);
       setCallEnded(false);
     } catch (error) {
-      toast.error(uiErrorMessage(error, "ビデオ通話に参加できません。"));
+      toast.error(uiErrorMessage(error, copy.joinError));
     } finally {
       setJoining(false);
     }
@@ -83,7 +87,7 @@ export default function GuestVideoCallPage() {
   if (!id) {
     return (
       <main className="grid min-h-[100dvh] place-items-center bg-[#0d1525] px-6 text-white">
-        無効な通話リンクです。
+        {copy.invalidLink}
       </main>
     );
   }
@@ -93,14 +97,17 @@ export default function GuestVideoCallPage() {
       {!connected ? (
         <div className="mx-auto flex min-h-[100dvh] w-full max-w-md flex-col justify-center px-6 py-10">
           <div className="rounded-3xl border border-white/10 bg-[#101827] p-6 shadow-2xl">
+            <div className="mb-4 flex justify-end">
+              <LanguageSelector />
+            </div>
             <div className="flex items-center gap-3">
               <div className="rounded-2xl bg-red-500/15 p-3 text-red-300">
                 <Video size={20} />
               </div>
               <div>
-                <h1 className="text-xl font-semibold">通話パスワードを入力</h1>
+                <h1 className="text-xl font-semibold">{copy.enterPasswordTitle}</h1>
                 <p className="mt-1 text-sm text-white/55">
-                  正しいパスワードを入力すると、1 対 1 のビデオ通話に参加できます。
+                  {copy.enterPasswordBody}
                 </p>
               </div>
             </div>
@@ -112,7 +119,7 @@ export default function GuestVideoCallPage() {
                 autoComplete="one-time-code"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
-                placeholder="通話パスワード"
+                placeholder={copy.passwordPlaceholder}
                 className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-base outline-none"
               />
               <button
@@ -121,21 +128,21 @@ export default function GuestVideoCallPage() {
                 onClick={() => void handleJoin()}
                 className="w-full rounded-2xl bg-red-500 px-4 py-3 text-base font-semibold disabled:opacity-50"
               >
-                {joining ? "参加中..." : "通話に参加"}
+                {joining ? copy.joinBusy : copy.joinIdle}
               </button>
             </div>
 
             {invite && !invite.available && (
               <p className="mt-4 text-sm text-amber-300">
                 {invite.status === "ended" || invite.status === "expired"
-                  ? "この通話リンクは失効しています。"
+                  ? copy.unavailableEnded
                   : invite.guestJoined
-                    ? "この通話リンクはすでに使用されています。"
-                    : "現在この通話には参加できません。"}
+                    ? copy.unavailableUsed
+                    : copy.unavailableGeneric}
               </p>
             )}
             {callEnded && (
-              <p className="mt-4 text-sm text-white/60">通話は終了しました。</p>
+              <p className="mt-4 text-sm text-white/60">{copy.callEnded}</p>
             )}
           </div>
         </div>
@@ -143,8 +150,8 @@ export default function GuestVideoCallPage() {
         <div className="flex min-h-[100dvh] flex-col">
           <div className="flex items-center justify-between border-b border-white/10 px-4 py-4">
             <div>
-              <div className="text-sm font-semibold">1 対 1 ビデオ通話</div>
-              <div className="text-xs text-white/50">接続済み</div>
+              <div className="text-sm font-semibold">{copy.oneToOneTitle}</div>
+              <div className="text-xs text-white/50">{copy.connected}</div>
             </div>
             <button
               type="button"
@@ -152,7 +159,7 @@ export default function GuestVideoCallPage() {
               className="flex items-center gap-2 rounded-full bg-red-600 px-4 py-2 text-sm font-semibold"
             >
               <PhoneOff size={14} />
-              終了
+              {copy.end}
             </button>
           </div>
           <div className="min-h-0 flex-1">

@@ -3,6 +3,7 @@ import { useAction } from "convex/react";
 import { Copy, Share2, Video, X } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api.js";
+import { useI18n } from "@/lib/i18n";
 import { nativeAmigoRoom } from "@/lib/amigo/native-room";
 import { uiErrorMessage } from "@/lib/utils";
 
@@ -27,6 +28,8 @@ export function FaceSwapInviteModal({
   userCode: string;
   deviceId: string;
 }) {
+  const { messages } = useI18n();
+  const copy = messages.faceSwapInvite;
   const createInvite = useAction(api.calls.createFaceSwapInvite);
   const endInvite = useAction(api.calls.endFaceSwapInvite);
   const [creating, setCreating] = useState(false);
@@ -37,14 +40,13 @@ export function FaceSwapInviteModal({
 
   const handleCreate = async () => {
     if (!nativeAmigoRoom.isAvailable) {
-      toast.error("顔交換通話は iPhone App 内でのみ利用できます。");
+      toast.error(copy.nativeOnly);
       return;
     }
     setCreating(true);
     try {
       const status = await nativeAmigoRoom.getStatus();
-      if (!status.hasTargetFace)
-        throw new Error("先に App 内で顔写真をアップロードして保存してください。");
+      if (!status.hasTargetFace) throw new Error(copy.uploadFaceFirst);
       const created = await createInvite({
         code: userCode,
         deviceId,
@@ -69,9 +71,9 @@ export function FaceSwapInviteModal({
         throw error;
       }
       setInvite(created);
-      toast.success("顔交換通話を作成しました。");
+      toast.success(copy.created);
     } catch (error) {
-      toast.error(uiErrorMessage(error, "顔交換通話を作成できません。"));
+      toast.error(uiErrorMessage(error, copy.createFailed));
     } finally {
       setCreating(false);
     }
@@ -80,28 +82,28 @@ export function FaceSwapInviteModal({
   const handleCopy = async (value: string, label: string) => {
     try {
       await navigator.clipboard.writeText(value);
-      toast.success(`${label}をコピーしました。`);
+      toast.success(copy.copied.replace("{label}", label));
     } catch {
-      toast.error(`${label}をコピーできません。`);
+      toast.error(copy.copyFailed.replace("{label}", label));
     }
   };
 
   const handleShare = async () => {
     if (!invite) return;
-    const text = `通話リンク：${invite.inviteUrl}\n通話パスワード：${invite.password}`;
+    const text = `${copy.shareTextLink}: ${invite.inviteUrl}\n${copy.shareTextPassword}: ${invite.password}`;
     try {
       if (navigator.share) {
         await navigator.share({
-          title: "顔交換通話の招待",
+          title: copy.shareTitle,
           text,
           url: invite.inviteUrl,
         });
       } else {
         await navigator.clipboard.writeText(text);
       }
-      toast.success("招待情報を準備しました。");
+      toast.success(copy.shareReady);
     } catch {
-      toast.error("共有に失敗しました。");
+      toast.error(copy.shareFailed);
     }
   };
 
@@ -119,10 +121,10 @@ export function FaceSwapInviteModal({
       });
       await nativeAmigoRoom.disconnect().catch(() => undefined);
       setInvite(null);
-      toast.success("顔交換通話を終了しました。");
+      toast.success(copy.ended);
       onClose();
     } catch (error) {
-      toast.error(uiErrorMessage(error, "顔交換通話を終了できません。"));
+      toast.error(uiErrorMessage(error, copy.endFailed));
     } finally {
       setEnding(false);
     }
@@ -141,14 +143,14 @@ export function FaceSwapInviteModal({
       >
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold">顔交換通話</h2>
+            <h2 className="text-lg font-semibold">{copy.title}</h2>
             <p className="mt-1 text-xs text-white/55">
-              全機能認証コードのみ、外部向け 1 対 1 の顔交換通話招待を作成できます。
+              {copy.subtitle}
             </p>
           </div>
           <button
             type="button"
-            aria-label="閉じる"
+            aria-label={messages.common.close}
             onClick={() => void handleEnd()}
             className="rounded-full p-2 text-white/70"
           >
@@ -159,8 +161,7 @@ export function FaceSwapInviteModal({
         {!invite ? (
           <div className="mt-5 space-y-4">
             <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/75">
-              App に保存済みの顔写真を利用し、iPhone ネイティブ側から
-              Amigo 処理後の映像トラックを公開します。
+              {copy.body}
             </div>
             <button
               type="button"
@@ -169,24 +170,24 @@ export function FaceSwapInviteModal({
               className="flex w-full items-center justify-center gap-2 rounded-2xl bg-red-500 px-4 py-3 text-sm font-semibold disabled:opacity-50"
             >
               <Video size={16} />
-              {creating ? "作成中..." : "通話を作成"}
+              {creating ? copy.createBusy : copy.createIdle}
             </button>
           </div>
         ) : (
           <div className="mt-5 space-y-4">
             <div className="space-y-2 rounded-2xl border border-white/10 bg-white/5 p-4">
               <p className="text-[11px] uppercase tracking-[0.2em] text-white/40">
-                招待リンク
+                {copy.inviteLink}
               </p>
               <div className="break-all text-sm text-white">{invite.inviteUrl}</div>
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => void handleCopy(invite.inviteUrl, "リンク")}
+                  onClick={() => void handleCopy(invite.inviteUrl, copy.linkLabel)}
                   className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-sm font-medium"
                 >
                   <Copy size={14} />
-                  リンクをコピー
+                  {copy.copyLink}
                 </button>
                 <button
                   type="button"
@@ -194,25 +195,25 @@ export function FaceSwapInviteModal({
                   className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-sm font-medium"
                 >
                   <Share2 size={14} />
-                  共有
+                  {copy.share}
                 </button>
               </div>
             </div>
 
             <div className="space-y-2 rounded-2xl border border-white/10 bg-white/5 p-4">
               <p className="text-[11px] uppercase tracking-[0.2em] text-white/40">
-                通話パスワード
+                {copy.password}
               </p>
               <div className="text-2xl font-bold tracking-[0.3em] text-white">
                 {invite.password}
               </div>
               <button
                 type="button"
-                onClick={() => void handleCopy(invite.password, "パスワード")}
+                onClick={() => void handleCopy(invite.password, copy.passwordLabel)}
                 className="flex w-full items-center justify-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-sm font-medium"
               >
                 <Copy size={14} />
-                パスワードをコピー
+                {copy.copyPassword}
               </button>
             </div>
 
@@ -222,7 +223,7 @@ export function FaceSwapInviteModal({
               onClick={() => void handleEnd()}
               className="w-full rounded-2xl bg-red-600 px-4 py-3 text-sm font-semibold disabled:opacity-50"
             >
-              {ending ? "終了中..." : "通話を終了"}
+              {ending ? copy.endBusy : copy.endIdle}
             </button>
           </div>
         )}

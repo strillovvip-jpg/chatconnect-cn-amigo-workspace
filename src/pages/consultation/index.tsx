@@ -1,4 +1,5 @@
 import { useLocation, useNavigate } from "react-router-dom";
+import { useI18n } from "@/lib/i18n";
 import ConsultationPage from "./page.tsx";
 
 function getDeviceId(): string {
@@ -12,6 +13,7 @@ function getDeviceId(): string {
 }
 
 export default function ConsultationRoute() {
+  const { messages } = useI18n();
   const location = useLocation();
   const navigate = useNavigate();
   const state = location.state as {
@@ -19,7 +21,9 @@ export default function ConsultationRoute() {
     userCode?: string;
   } | null;
   const userName =
-    state?.userName ?? localStorage.getItem("ksc_session_name") ?? "访客";
+    state?.userName ??
+    localStorage.getItem("ksc_session_name") ??
+    messages.consultation.guestName;
   const userCode =
     state?.userCode ?? localStorage.getItem(`ksc_session_code`) ?? "";
 
@@ -40,12 +44,14 @@ export default function ConsultationRoute() {
         }}
       >
         <div className="text-center space-y-3">
-          <p className="text-sm opacity-60">未找到登录会话，请重新登录。</p>
+          <p className="text-sm opacity-60">
+            {messages.consultation.sessionMissing}
+          </p>
           <button
             onClick={() => navigate("/")}
             className="text-sm underline opacity-60 cursor-pointer"
           >
-            返回登录页面
+            {messages.consultation.backToLogin}
           </button>
         </div>
       </div>

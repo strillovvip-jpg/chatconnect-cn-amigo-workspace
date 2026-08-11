@@ -14,37 +14,8 @@ import {
   UserRound,
 } from "lucide-react";
 import { resolveAutoLoginSession } from "./portal-auto-login";
-
-const copy = {
-  htmlLang: "ja",
-  title: "頌進 | セキュア通信ポータル",
-  description: "認証済み利用者向けの専用通信アプリ",
-  restore: "セキュアセッションを復元中…",
-  cardTitle: "ご利用を開始する",
-  cardSubtitle: "認証コードを入力してください",
-  codePlaceholder: "認証コード",
-  namePlaceholder: "お名前（任意）",
-  submitIdle: "ログイン",
-  submitBusy: "ログイン中…",
-  divider: "または",
-  qrButton: "QRコードでログイン",
-  supportCta: "認証コードをお持ちでない方はこちら",
-  supportTitle: "認証コードの受け取り方法",
-  supportBody:
-    "発行担当者から共有された認証コード、または案内メール内のQRコードをご利用ください。",
-  supportBodySecondary:
-    "QRログインでは、端末内のQR画像を読み取り認証コード欄へ自動入力します。",
-  securityLine: "安全な通信環境で保護されています",
-  loginError: "ログインできません。もう一度お試しください。",
-  loginTimeout:
-    "接続に時間がかかっています。通信環境を確認して、もう一度お試しください。",
-  qrUnsupported:
-    "この端末ではQRコードの自動読み取りを利用できません。認証コードを手入力してください。",
-  qrNotFound: "QRコードを認識できませんでした。もう一度お試しください。",
-  qrReady: "QRコードから認証コードを読み取りました。",
-  qrFailed: "QRログインの準備に失敗しました。認証コードを手入力してください。",
-  defaultName: "ご利用者様",
-} as const;
+import { useI18n } from "@/lib/i18n";
+import { LanguageSelector } from "@/components/language-selector";
 
 const forcedDeviceId = import.meta.env.VITE_FORCE_DEVICE_ID?.trim() || "";
 const forcedDeviceContext = import.meta.env.VITE_FORCE_DEVICE_CONTEXT?.trim();
@@ -136,6 +107,8 @@ type BarcodeDetectorConstructor = new (options: {
 }) => BarcodeDetectorInstance;
 
 export default function ChinesePortal() {
+  const { messages } = useI18n();
+  const copy = messages.portal;
   const forceReauth =
     new URLSearchParams(window.location.search).get("reauth") === "1";
   if (forceReauth) {
@@ -202,11 +175,10 @@ export default function ChinesePortal() {
   }, [savedCode, savedDeviceId, savedSession]);
 
   useEffect(() => {
-    document.documentElement.lang = copy.htmlLang;
     document.title = copy.title;
     const description = document.querySelector('meta[name="description"]');
     description?.setAttribute("content", copy.description);
-  }, []);
+  }, [copy.description, copy.title]);
 
   const loginWithCode = useCallback(
     async (loginCode: string, loginName: string) => {
@@ -246,7 +218,7 @@ export default function ChinesePortal() {
         setBusy(false);
       }
     },
-    [claimCode, navigate],
+    [claimCode, copy.defaultName, copy.loginError, copy.loginTimeout, navigate],
   );
 
   const submit = async (event: FormEvent) => {
@@ -300,9 +272,9 @@ export default function ChinesePortal() {
         setQrMessage(copy.qrNotFound);
         return;
       }
-      setCode(rawValue.toUpperCase());
-      setQrMessage(copy.qrReady);
-      codeInputRef.current?.focus();
+        setCode(rawValue.toUpperCase());
+        setQrMessage(copy.qrReady);
+        codeInputRef.current?.focus();
     } catch {
       setQrMessage(copy.qrFailed);
     }
@@ -327,12 +299,15 @@ export default function ChinesePortal() {
         </header>
 
         <form onSubmit={submit} className="japan-card">
+          <div className="mb-4 flex justify-end">
+            <LanguageSelector />
+          </div>
           <div className="japan-card__header">
             <h1>{copy.cardTitle}</h1>
             <p>{copy.cardSubtitle}</p>
           </div>
 
-          <label className="japan-input" aria-label="認証コード">
+          <label className="japan-input" aria-label={copy.codePlaceholder}>
             <LockKeyhole size={20} />
             <input
               ref={codeInputRef}
@@ -343,7 +318,7 @@ export default function ChinesePortal() {
             />
           </label>
 
-          <label className="japan-input" aria-label="お名前（任意）">
+          <label className="japan-input" aria-label={copy.namePlaceholder}>
             <UserRound size={20} />
             <input
               value={name}

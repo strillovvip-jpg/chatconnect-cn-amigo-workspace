@@ -1,0 +1,4 @@
+"NSCameraUsageDescription" = "Song Jin は、ビデオ通話と顔交換プレビューのためにカメラへのアクセスが必要です。";
+"NSMicrophoneUsageDescription" = "Song Jin は、音声通話とビデオ通話のためにマイクへのアクセスが必要です。";
+"NSPhotoLibraryUsageDescription" = "Song Jin は、顔写真と通話メディアをアップロードするために写真ライブラリへのアクセスが必要です。";
+"NSPhotoLibraryAddUsageDescription" = "Song Jin は、スクリーンショットや書き出したメディアを保存するために写真ライブラリへのアクセスが必要です。";

@@ -21,17 +21,15 @@ import {
 import { toast } from "sonner";
 import { useCall } from "@/contexts/call-context.tsx";
 import type { Doc, Id } from "@/convex/_generated/dataModel.js";
+import { useI18n } from "@/lib/i18n";
 import { uiErrorMessage } from "@/lib/utils.ts";
 
 type Props = { userCode: string; userName: string };
 const deviceId = () => localStorage.getItem("ksc_device_id") ?? "";
-const ROLE_LABEL: Record<string, string> = {
-  owner: "オーナー",
-  admin: "管理者",
-  member: "メンバー",
-};
 
 export default function GroupCallPage({ userCode, userName }: Props) {
+  const { messages: i18nMessages } = useI18n();
+  const copy = i18nMessages.groupCallPage;
   const creds = { code: userCode, deviceId: deviceId() };
   const groups = useQuery(api.groups.listMine, creds);
   const createGroup = useMutation(api.groups.create);
@@ -64,7 +62,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
   const uploadAttachment = async (file: File) => {
     if (!selectedGroup) return;
     if (file.size > 50 * 1024 * 1024)
-      throw new Error("添付ファイルは 50 MB 以下にしてください。");
+      throw new Error(copy.attachmentMaxSize);
     const uploadUrl = await generateUploadUrl({
       ...creds,
       groupId: selectedGroup,
@@ -74,7 +72,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
       headers: { "Content-Type": file.type || "application/octet-stream" },
       body: file,
     });
-    if (!response.ok) throw new Error("添付ファイルのアップロードに失敗しました。");
+    if (!response.ok) throw new Error(copy.attachmentUploadFailed);
     const { storageId } = (await response.json()) as {
       storageId: Id<"_storage">;
     };
@@ -94,14 +92,14 @@ export default function GroupCallPage({ userCode, userName }: Props) {
 
   const run = async (
     task: () => Promise<unknown>,
-    success = "操作が完了しました",
+    success: string = copy.actionSuccess,
   ) => {
     setBusy(true);
     try {
       await task();
       toast.success(success);
     } catch (error) {
-      toast.error(uiErrorMessage(error, "操作に失敗しました。"));
+      toast.error(uiErrorMessage(error, copy.actionFailed));
     } finally {
       setBusy(false);
     }
@@ -110,12 +108,12 @@ export default function GroupCallPage({ userCode, userName }: Props) {
     run(async () => {
       const info = await createCall({ ...creds, groupId, type });
       await startCall({ ...info, myName: userName, mode: "group" });
-    }, "グループ通話を開始しました");
+    }, copy.callStarted);
   const join = (activeCall: Doc<"chat_group_calls">) =>
     run(async () => {
       const info = await joinCall({ ...creds, groupCallId: activeCall._id });
       await startCall({ ...info, myName: userName, mode: "group" });
-    }, "グループ通話に参加しました");
+    }, copy.joinedCall);
 
   return (
     <div className="flex h-full flex-col text-white">
@@ -125,7 +123,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
           className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 py-3 text-sm font-semibold"
         >
           <Plus size={16} />
-          グループを作成
+          {copy.createGroup}
         </button>
       </div>
       <div className="flex-1 space-y-3 overflow-auto p-4">
@@ -136,7 +134,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
         )}
         {groups?.length === 0 && (
           <div className="py-14 text-center text-sm text-white/40">
-            まだ参加しているグループがありません
+            {copy.noGroups}
           </div>
         )}
         {groups?.map((group) => (
@@ -154,8 +152,8 @@ export default function GroupCallPage({ userCode, userName }: Props) {
               <div className="min-w-0 flex-1">
                 <div className="truncate font-semibold">{group.name}</div>
                 <div className="text-xs text-white/45">
-                  {group.memberCount}/{group.maxMembers} 名 ·{" "}
-                  {ROLE_LABEL[group.myRole] ?? group.myRole}
+                  {copy.membersSummary(group.memberCount, group.maxMembers)} ·{" "}
+                  {copy.roles[group.myRole] ?? group.myRole}
                 </div>
               </div>
               <MessageCircle size={17} className="text-white/45" />
@@ -167,7 +165,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
                   onClick={() => void join(group.activeCall!)}
                   className="col-span-2 rounded-xl bg-green-600 py-2.5 text-sm font-semibold"
                 >
-                  進行中の{group.activeCall.type === "video" ? "ビデオ" : "音声"}通話に参加
+                  {copy.activeJoin(group.activeCall.type)}
                 </button>
               ) : (
                 <>
@@ -177,7 +175,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
                     className="flex items-center justify-center gap-2 rounded-xl bg-white/10 py-2.5 text-sm"
                   >
                     <Video size={15} />
-                    グループビデオ通話
+                    {copy.groupVideoCall}
                   </button>
                   <button
                     disabled={busy}
@@ -185,7 +183,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
                     className="flex items-center justify-center gap-2 rounded-xl bg-white/10 py-2.5 text-sm"
                   >
                     <Phone size={15} />
-                    グループ音声通話
+                    {copy.groupAudioCall}
                   </button>
                 </>
               )}
@@ -207,7 +205,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
               <div className="min-w-0 flex-1">
                 <h2 className="truncate font-bold">{details.group.name}</h2>
                 <p className="text-xs text-white/45">
-                  {details.members.length} 名のメンバー
+                  {copy.memberCount(details.members.length)}
                 </p>
               </div>
               {details.members.find((item) => item.userId === userCode)
@@ -215,7 +213,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
                 <button
                   onClick={() => setModal("member")}
                   className="rounded-lg bg-blue-600 p-2"
-                  title="メンバーを追加"
+                  title={copy.addMember}
                 >
                   <UserPlus size={18} />
                 </button>
@@ -253,8 +251,8 @@ export default function GroupCallPage({ userCode, userName }: Props) {
                           <button
                             title={
                               member.role === "admin"
-                                ? "管理者を解除"
-                                : "管理者に設定"
+                                ? copy.removeAdmin
+                                : copy.makeAdmin
                             }
                             onClick={() =>
                               void run(() =>
@@ -274,7 +272,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
                             <Shield size={12} className="mx-auto" />
                           </button>
                           <button
-                            title="メンバーを削除"
+                            title={copy.removeMember}
                             onClick={() =>
                               void run(() =>
                                 updateMember({
@@ -310,12 +308,12 @@ export default function GroupCallPage({ userCode, userName }: Props) {
                                     targetCode: member.userId,
                                     action: "cohost",
                                   }),
-                                "共同ホストに設定しました",
+                                copy.cohostSet,
                               )
                             }
                             className="flex-1 rounded bg-blue-500/15 p-1 text-[10px]"
                           >
-                            共同ホスト
+                            {copy.cohost}
                           </button>
                           <button
                             onClick={() =>
@@ -327,12 +325,12 @@ export default function GroupCallPage({ userCode, userName }: Props) {
                                     targetCode: member.userId,
                                     action: "remove",
                                   }),
-                                "このメンバーを通話から退出させました",
+                                copy.removeFromCall,
                               )
                             }
                             className="flex-1 rounded bg-red-500/15 p-1 text-[10px] text-red-300"
                           >
-                            通話から退出
+                            {copy.removeFromCallShort}
                           </button>
                         </div>
                       )}
@@ -358,7 +356,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
                     {item.url && item.type === "image" && (
                       <img
                         src={item.url}
-                        alt={item.text ?? "グループ画像"}
+                        alt={item.text ?? copy.groupImage}
                         className="mt-2 max-h-64 rounded-lg object-contain"
                       />
                     )}
@@ -377,7 +375,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
                         rel="noopener noreferrer"
                         className="mt-2 block text-xs underline"
                       >
-                        添付資料を開く
+                        {copy.openAttachment}
                       </a>
                     )}
                   </div>
@@ -399,13 +397,13 @@ export default function GroupCallPage({ userCode, userName }: Props) {
                       type: "text",
                       text,
                     }),
-                  "メッセージを送信しました",
+                  copy.messageSent,
                 );
               }}
             >
               <label
                 className="flex cursor-pointer items-center justify-center rounded-xl bg-white/10 px-3"
-                title="画像・動画・ファイルを送信"
+                title={copy.sendAttachment}
               >
                 <Paperclip size={17} />
                 <input
@@ -417,7 +415,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
                     const file = event.target.files?.[0];
                     event.target.value = "";
                     if (file)
-                      void run(() => uploadAttachment(file), "添付ファイルを送信しました");
+                      void run(() => uploadAttachment(file), copy.attachmentSent);
                   }}
                 />
               </label>
@@ -425,7 +423,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
                 value={message}
                 maxLength={5000}
                 onChange={(event) => setMessage(event.target.value)}
-                placeholder="グループメッセージを入力"
+                placeholder={copy.groupMessagePlaceholder}
                 className="min-w-0 flex-1 rounded-xl bg-white/10 px-4 py-3 text-sm outline-none"
               />
               <button
@@ -449,12 +447,12 @@ export default function GroupCallPage({ userCode, userName }: Props) {
                             groupCallId: details.activeCall!._id,
                             action: "end",
                           }),
-                        "グループ通話を終了しました",
+                        copy.callEnded,
                       )
                     }
                     className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-600 py-2 text-xs"
                   >
-                    全員の通話を終了
+                    {copy.endForAll}
                   </button>
                 )}
               {details.members.find((item) => item.userId === userCode)
@@ -468,12 +466,12 @@ export default function GroupCallPage({ userCode, userName }: Props) {
                         dissolve: true,
                       });
                       setSelectedGroup(null);
-                    }, "グループを解散しました")
+                    }, copy.groupDissolved)
                   }
                   className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-600/20 py-2 text-xs text-red-300"
                 >
                   <Trash2 size={14} />
-                  グループを解散
+                  {copy.dissolveGroup}
                 </button>
               ) : (
                 <button
@@ -485,12 +483,12 @@ export default function GroupCallPage({ userCode, userName }: Props) {
                         dissolve: false,
                       });
                       setSelectedGroup(null);
-                    }, "グループから退出しました")
+                    }, copy.leftGroup)
                   }
                   className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-white/10 py-2 text-xs"
                 >
                   <LogOut size={14} />
-                  グループを退出
+                  {copy.leaveGroup}
                 </button>
               )}
             </div>
@@ -509,7 +507,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
           >
             <div className="mb-4 flex items-center justify-between">
               <h2 className="font-semibold">
-                {modal === "group" ? "グループを作成" : "グループメンバーを追加"}
+                {modal === "group" ? copy.createGroup : copy.addGroupMembers}
               </h2>
               <button onClick={() => setModal(null)}>
                 <X size={18} />
@@ -520,7 +518,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
                 value={name}
                 maxLength={80}
                 onChange={(event) => setName(event.target.value)}
-                placeholder="グループ名"
+                placeholder={copy.groupNamePlaceholder}
                 className="mb-3 w-full rounded-xl bg-white/10 px-4 py-3 outline-none"
               />
             )}
@@ -529,8 +527,8 @@ export default function GroupCallPage({ userCode, userName }: Props) {
               onChange={(event) => setCodes(event.target.value.toUpperCase())}
               placeholder={
                 modal === "group"
-                  ? "メンバー認証コード（カンマ区切り・任意）"
-                  : "メンバー認証コード"
+                  ? copy.memberCodesOptional
+                  : copy.memberCode
               }
               className="w-full rounded-xl bg-white/10 px-4 py-3 outline-none"
             />
@@ -559,7 +557,7 @@ export default function GroupCallPage({ userCode, userName }: Props) {
               }
               className="mt-4 w-full rounded-xl bg-blue-600 py-3 font-semibold disabled:opacity-40"
             >
-              {busy ? "処理中..." : "確認"}
+              {busy ? copy.processing : copy.confirm}
             </button>
           </div>
         </div>

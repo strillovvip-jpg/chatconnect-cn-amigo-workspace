@@ -1,4 +1,5 @@
 import { Copy, FileText, ImageIcon, Video } from "lucide-react";
+import { useI18n } from "@/lib/i18n";
 
 type ChatMessage = {
   type: "text" | "image" | "video" | "file";
@@ -23,6 +24,8 @@ export function ChatMessageContent({
   isMe: boolean;
   onCopyCode?: (text: string) => void;
 }) {
+  const { messages } = useI18n();
+  const copy = messages.chatMessage;
   if (message.type === "text") {
     if (message.text && isAuthorizationCodeLikeText(message.text)) {
       return (
@@ -37,7 +40,7 @@ export function ChatMessageContent({
         >
           <div className="min-w-0">
             <div className="truncate font-medium">{message.text}</div>
-            <div className="mt-1 text-[11px] opacity-60">タップしてコピー</div>
+            <div className="mt-1 text-[11px] opacity-60">{copy.tapToCopy}</div>
           </div>
           <span className="shrink-0 rounded-full bg-black/20 p-2">
             <Copy size={14} />
@@ -69,16 +72,16 @@ export function ChatMessageContent({
       >
         <img
           src={message.mediaUrl}
-          alt={message.fileName || "画像"}
+          alt={message.fileName || copy.imageAlt}
           className="max-w-full object-cover"
           style={{ maxHeight: 280 }}
         />
         <div className="flex items-center justify-between gap-3 px-3 py-2 text-xs">
           <span className="flex min-w-0 items-center gap-2">
             <ImageIcon size={14} className="shrink-0" />
-            <span className="truncate">{message.fileName || "画像を開く"}</span>
+            <span className="truncate">{message.fileName || copy.imageOpen}</span>
           </span>
-          <span className="rounded-full bg-white/10 px-2 py-1">開く</span>
+          <span className="rounded-full bg-white/10 px-2 py-1">{copy.open}</span>
         </div>
       </a>
     );
@@ -101,9 +104,9 @@ export function ChatMessageContent({
         >
           <span className="flex min-w-0 items-center gap-2">
             <Video size={14} className="shrink-0" />
-            <span className="truncate">{message.fileName || "動画を開く"}</span>
+            <span className="truncate">{message.fileName || copy.videoOpen}</span>
           </span>
-          <span className="rounded-full bg-white/10 px-2 py-1">開く</span>
+          <span className="rounded-full bg-white/10 px-2 py-1">{copy.open}</span>
         </a>
       </div>
     );
@@ -120,10 +123,10 @@ export function ChatMessageContent({
       >
         <span className="flex min-w-0 items-center gap-2">
           <FileText size={18} className="shrink-0" />
-          <span className="truncate">{message.fileName || "添付ファイル"}</span>
+          <span className="truncate">{message.fileName || copy.attachment}</span>
         </span>
         <span className="shrink-0 rounded-full bg-white/10 px-2 py-1 text-xs">
-          開く
+          {copy.open}
         </span>
       </a>
     );

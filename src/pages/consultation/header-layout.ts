@@ -4,8 +4,8 @@ export function getConsultationHeaderClassName() {
 
 export function getConsultationHeaderBrand() {
   return {
-    ariaLabel: "颂进",
-    badgeText: "颂进",
-    title: "颂进",
+    ariaLabel: "Song Jin",
+    badgeText: "Song Jin",
+    title: "Song Jin",
   };
 }

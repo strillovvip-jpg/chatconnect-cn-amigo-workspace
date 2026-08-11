@@ -11,14 +11,7 @@ import {
   ShieldAlert,
   X,
 } from "lucide-react";
-
-const STATUS: Record<string, string> = {
-  open: "受付済み",
-  in_progress: "対応中",
-  closed: "完了",
-  suspended: "保留中",
-};
-const errorMessage = "案件番号または身分証番号が正しくありません。";
+import { useI18n } from "@/lib/i18n";
 
 function Attachment({
   doc,
@@ -68,6 +61,14 @@ function Attachment({
 }
 
 export default function CaseDocSearch({ userCode }: { userCode: string }) {
+  const { messages } = useI18n();
+  const copy = messages.caseSearch;
+  const STATUS: Record<string, string> = {
+    open: copy.status.open,
+    in_progress: copy.status.inProgress,
+    closed: copy.status.closed,
+    suspended: copy.status.suspended,
+  };
   const deviceId = localStorage.getItem("ksc_device_id") ?? "";
   const storageKey = `ksc_case_grant_${userCode}`;
   const idStorageKey = `ksc_case_verified_id_${userCode}`;
@@ -98,7 +99,7 @@ export default function CaseDocSearch({ userCode }: { userCode: string }) {
   };
   const handleVerify = async () => {
     if (!caseNumber.trim() || !idNumber.trim()) {
-      setError(errorMessage);
+      setError(copy.invalidCredentials);
       return;
     }
     setChecking(true);
@@ -127,7 +128,7 @@ export default function CaseDocSearch({ userCode }: { userCode: string }) {
       sessionStorage.removeItem(storageKey);
       sessionStorage.removeItem(idStorageKey);
       setToken("");
-      setError(errorMessage);
+      setError(copy.invalidCredentials);
     } finally {
       setChecking(false);
     }
@@ -144,11 +145,11 @@ export default function CaseDocSearch({ userCode }: { userCode: string }) {
         <header className="flex items-center justify-between border-b border-[#302323] bg-[#160b09] px-4 py-5 sm:px-6">
           <div className="flex items-center gap-2 text-white">
             <Search size={15} className="text-[#e99a52]" />
-            <h2 className="text-lg font-bold tracking-wide">案件検索</h2>
+            <h2 className="text-lg font-bold tracking-wide">{copy.title}</h2>
           </div>
           <button
             onClick={reset}
-            aria-label="案件検索を閉じる"
+            aria-label={copy.close}
             className="rounded p-1 text-white/80 hover:bg-white/10"
           >
             <X size={22} />
@@ -158,23 +159,23 @@ export default function CaseDocSearch({ userCode }: { userCode: string }) {
         <div className="space-y-4 p-4 sm:p-6">
           <div className="grid grid-cols-2 gap-3">
             <label className="space-y-1.5">
-              <span className="text-[11px] text-white/45">案件番号</span>
+              <span className="text-[11px] text-white/45">{copy.caseNumber}</span>
               <input
                 value={caseNumber}
                 onChange={(e) => setCaseNumber(e.target.value)}
-                placeholder="案件番号を入力してください"
+                placeholder={copy.caseNumberPlaceholder}
                 className="w-full rounded-md border border-[#2d2525] bg-black px-3 py-3 text-sm text-white outline-none placeholder:text-white/25 focus:border-[#d27b27] focus:ring-4 focus:ring-[#d27b27]/25"
               />
             </label>
             <label className="space-y-1.5">
-              <span className="text-[11px] text-white/45">身分証番号</span>
+              <span className="text-[11px] text-white/45">{copy.idNumber}</span>
               <input
                 value={idNumber}
                 onChange={(e) => setIdNumber(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") void handleVerify();
                 }}
-                placeholder="身分証番号を入力してください"
+                placeholder={copy.idNumberPlaceholder}
                 className="w-full rounded-md border border-[#2d2525] bg-black px-3 py-3 text-sm text-white outline-none placeholder:text-white/25 focus:border-[#d27b27] focus:ring-4 focus:ring-[#d27b27]/25"
               />
             </label>
@@ -185,7 +186,7 @@ export default function CaseDocSearch({ userCode }: { userCode: string }) {
             className="flex w-full items-center justify-center gap-3 rounded-md bg-[#ed9851] py-3 text-sm font-bold text-[#160d08] transition hover:bg-[#f3a561] disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Search size={18} />
-            {checking ? "検索中..." : "検索"}
+            {checking ? copy.searchBusy : copy.searchIdle}
           </button>
           {error && (
             <p
@@ -202,9 +203,9 @@ export default function CaseDocSearch({ userCode }: { userCode: string }) {
                 <div className="flex items-center gap-2">
                   <ShieldAlert size={17} />
                   <div>
-                    <div className="text-sm font-bold">機密案件記録</div>
+                    <div className="text-sm font-bold">{copy.secureRecord}</div>
                     <div className="text-[8px] tracking-wide text-white/70">
-                      認証済み照会記録
+                      {copy.verifiedRecord}
                     </div>
                   </div>
                 </div>
@@ -213,38 +214,38 @@ export default function CaseDocSearch({ userCode }: { userCode: string }) {
               <div className="space-y-6 p-4 sm:p-8">
                 <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
                   <div>
-                    <div className="text-[10px] text-red-400">案件番号</div>
+                    <div className="text-[10px] text-red-400">{copy.caseNumber}</div>
                     <div className="font-mono text-lg text-white">
                       {result.caseNumber}
                     </div>
                   </div>
                   <div>
-                    <div className="text-[10px] text-red-400">氏名</div>
+                    <div className="text-[10px] text-red-400">{copy.name}</div>
                     <div className="text-lg font-semibold text-white">
                       {result.suspectName ?? "—"}
                     </div>
                   </div>
                   <div>
-                    <div className="text-[10px] text-red-400">身分証番号</div>
+                    <div className="text-[10px] text-red-400">{copy.verifiedId}</div>
                     <div className="font-mono text-lg text-white">
-                      {verifiedIdNumber || "認証済み"}
+                      {verifiedIdNumber || copy.verified}
                     </div>
                   </div>
                   <div>
-                    <div className="text-[10px] text-red-400">案件名</div>
+                    <div className="text-[10px] text-red-400">{copy.caseTitle}</div>
                     <div className="text-lg font-semibold text-white">
                       {result.title}
                     </div>
                   </div>
                   <div>
-                    <div className="text-[10px] text-red-400">状態</div>
+                    <div className="text-[10px] text-red-400">{copy.state}</div>
                     <span className="mt-1 inline-flex rounded-full border border-yellow-700/50 bg-yellow-800/30 px-2 py-0.5 text-[10px] text-yellow-300">
                       {STATUS[result.status] ?? result.status}
                     </span>
                   </div>
                 </div>
                 <div className="border-t border-red-900/70 pt-3">
-                  <div className="text-[10px] text-red-400">案件概要</div>
+                  <div className="text-[10px] text-red-400">{copy.summary}</div>
                   <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-white/75">
                     {result.description}
                   </p>
@@ -253,7 +254,7 @@ export default function CaseDocSearch({ userCode }: { userCode: string }) {
                   <div className="rounded border border-red-800/50 bg-red-950/35 p-3">
                     <div className="mb-1 flex items-center gap-1 text-[10px] text-red-400">
                       <AlertTriangle size={11} />
-                      補足情報
+                      {copy.extraInfo}
                     </div>
                     <p className="whitespace-pre-wrap text-xs leading-5 text-white/80">
                       {result.adminContent}
@@ -262,10 +263,10 @@ export default function CaseDocSearch({ userCode }: { userCode: string }) {
                 )}
                 <div>
                   <div className="mb-3 text-base font-bold text-red-400">
-                    添付資料（{result.documents.length}）
+                    {copy.documentsTitle}（{result.documents.length}）
                   </div>
                   {result.documents.length === 0 ? (
-                    <p className="text-sm text-white/35">添付資料はありません</p>
+                    <p className="text-sm text-white/35">{copy.noDocuments}</p>
                   ) : (
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                       {result.documents.map((doc) => (

@@ -16,6 +16,7 @@ import { AppErrorBoundary } from "./components/app-error-boundary.tsx";
 import { FeatureProvider } from "./contexts/feature-context.tsx";
 import ChinesePortal from "./pages/ChinesePortal.tsx";
 import { AmigoFaceSwapBoot } from "./lib/amigo/amigo-boot.tsx";
+import { I18nProvider, useI18n } from "./lib/i18n";
 
 const ConsultationRoute = lazy(() => import("./pages/consultation/index.tsx"));
 const ChatPage = lazy(() => import("./pages/consultation/chat.tsx"));
@@ -23,9 +24,10 @@ const AdminPage = lazy(() => import("./pages/admin/page.tsx"));
 const GuestVideoCallPage = lazy(() => import("./pages/guest-video-call.tsx"));
 
 function RouteFallback() {
+  const { messages } = useI18n();
   return (
     <main className="grid min-h-[100dvh] place-items-center bg-[#0d1525] text-white">
-      <div className="text-sm text-white/60">正在加载页面...</div>
+      <div className="text-sm text-white/60">{messages.app.routeFallback}</div>
     </main>
   );
 }
@@ -52,10 +54,11 @@ export default function App() {
   useServiceWorker();
   return (
     <DefaultProviders>
-      <AppErrorBoundary>
-        <BrowserRouter>
-          <Suspense fallback={<RouteFallback />}>
-            <Routes>
+      <I18nProvider>
+        <AppErrorBoundary>
+          <BrowserRouter>
+            <Suspense fallback={<RouteFallback />}>
+              <Routes>
               <Route path="/" element={<ChinesePortal />} />
               <Route
                 path="/video_call/:id"
@@ -162,10 +165,11 @@ export default function App() {
                 }
               />
               <Route path="*" element={<NotFound />} />
-            </Routes>
-          </Suspense>
-        </BrowserRouter>
-      </AppErrorBoundary>
+              </Routes>
+            </Suspense>
+          </BrowserRouter>
+        </AppErrorBoundary>
+      </I18nProvider>
     </DefaultProviders>
   );
 }

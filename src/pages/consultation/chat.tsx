@@ -28,6 +28,7 @@ import {
   type OutgoingCallSelection,
 } from "@/components/pre-call-selector.tsx";
 import { uiErrorMessage } from "@/lib/utils.ts";
+import { useI18n } from "@/lib/i18n";
 import { ChatMessageContent } from "./chat-message-content";
 
 type LocationState = {
@@ -37,13 +38,15 @@ type LocationState = {
 };
 
 export default function ChatPage() {
+  const { messages } = useI18n();
+  const copy = messages.chatPage;
   const { theirCode } = useParams<{ theirCode: string }>();
   const location = useLocation();
   const navigate = useNavigate();
   const state = (location.state ?? {}) as LocationState;
-  const chatName = state.chatName ?? theirCode ?? "相手";
+  const chatName = state.chatName ?? theirCode ?? copy.remoteUser;
   const myCode = state.myCode ?? localStorage.getItem("ksc_session_code") ?? "";
-  const myName = state.myName ?? "自分";
+  const myName = state.myName ?? copy.selfUser;
   const deviceId = localStorage.getItem("ksc_device_id") ?? "";
 
   const [text, setText] = useState("");
@@ -100,7 +103,7 @@ export default function ChatPage() {
       });
       setCallSelectorMode(null);
     } catch {
-      toast.error("通話を開始できませんでした。");
+      toast.error(copy.startCallFailed);
     } finally {
       setCallLoading(false);
     }
@@ -109,11 +112,11 @@ export default function ChatPage() {
   const handleAddFace = async () => {
     if (!faceName.trim() || !faceFile) return;
     if (!faceFile.type.startsWith("image/")) {
-      toast.error("画像ファイルを選択してください。");
+      toast.error(copy.chooseImageFile);
       return;
     }
     if (faceFile.size > 10 * 1024 * 1024) {
-      toast.error("画像サイズは 10 MB 以下にしてください。");
+      toast.error(copy.imageMaxSize);
       return;
     }
     setFaceSaving(true);
@@ -134,13 +137,13 @@ export default function ChatPage() {
         body: faceFile,
       });
       if (!response.ok)
-        throw new Error(`画像のアップロードに失敗しました（${response.status}）。`);
+        throw new Error(copy.imageUploadFailed(response.status));
       const { storageId } = (await response.json()) as {
         storageId?: Id<"_storage">;
       };
-      if (!storageId) throw new Error("画像IDを取得できませんでした。");
+      if (!storageId) throw new Error(copy.imageIdMissing);
       if (!uploadRequestId)
-        throw new Error("アップロード要求IDを確認できませんでした。");
+        throw new Error(copy.uploadRequestMissing);
       await (
         addFace as unknown as (args: {
           code: string;
@@ -163,9 +166,9 @@ export default function ChatPage() {
       setFaceName("");
       setFaceFile(null);
       setAddFaceOpen(false);
-      toast.success("顔ライブラリに追加しました。");
+      toast.success(copy.faceAdded);
     } catch (error) {
-      toast.error(uiErrorMessage(error, "顔ライブラリに追加できません。"));
+      toast.error(uiErrorMessage(error, copy.faceAddFailed));
     } finally {
       setFaceSaving(false);
     }
@@ -175,24 +178,24 @@ export default function ChatPage() {
     faceId: Id<"face_library">,
     currentName: string,
   ) => {
-    const name = window.prompt("新しい名前を入力してください", currentName);
+    const name = window.prompt(copy.renamePrompt, currentName);
     if (name === null || name.trim() === currentName) return;
     try {
       await renameFace({ code: myCode, deviceId, faceId, name });
-      toast.success("名前を変更しました。");
+      toast.success(copy.renameSuccess);
     } catch (error) {
-      toast.error(uiErrorMessage(error, "名前を変更できません。"));
+      toast.error(uiErrorMessage(error, copy.renameFailed));
     }
   };
 
   const handleDeleteFace = async (faceId: Id<"face_library">, name: string) => {
-    if (!window.confirm(`「${name}」を削除しますか？`)) return;
+    if (!window.confirm(copy.deleteConfirm(name))) return;
     try {
       await deleteFace({ code: myCode, deviceId, faceId });
       if (previewFace?.name === name) setPreviewFace(null);
-      toast.success("削除しました。");
+      toast.success(copy.deleteSuccess);
     } catch (error) {
-      toast.error(uiErrorMessage(error, "削除できません。"));
+      toast.error(uiErrorMessage(error, copy.deleteFailed));
     }
   };
 
@@ -220,7 +223,7 @@ export default function ChatPage() {
       });
       setText("");
     } catch {
-      toast.error("送信に失敗しました。");
+      toast.error(copy.sendFailed);
     } finally {
       setSending(false);
     }
@@ -236,9 +239,9 @@ export default function ChatPage() {
   const handleCopyCode = async (value: string) => {
     try {
       await navigator.clipboard.writeText(value.trim());
-      toast.success("認証コードをコピーしました。");
+      toast.success(copy.codeCopied);
     } catch {
-      toast.error("認証コードをコピーできませんでした。");
+      toast.error(copy.codeCopyFailed);
     }
   };
 
@@ -250,7 +253,7 @@ export default function ChatPage() {
     setSending(true);
     try {
       if (file.size > 50 * 1024 * 1024) {
-        toast.error("ファイルサイズは 50 MB 以下にしてください。");
+        toast.error(copy.fileMaxSize);
         return;
       }
       const uploadUrl = await generateUploadUrl({
@@ -263,9 +266,9 @@ export default function ChatPage() {
         headers: { "Content-Type": file.type },
         body: file,
       });
-      if (!res.ok) throw new Error(`アップロードに失敗しました（${res.status}）`);
+      if (!res.ok) throw new Error(copy.uploadFailed(res.status));
       const { storageId } = (await res.json()) as { storageId: string };
-      if (!storageId) throw new Error("アップロード済みファイルを確認できませんでした");
+      if (!storageId) throw new Error(copy.uploadedFileMissing);
       await sendMedia({
         myCode,
         myName,
@@ -277,7 +280,7 @@ export default function ChatPage() {
         deviceId,
       });
     } catch {
-      toast.error("ファイル送信に失敗しました。");
+      toast.error(copy.fileSendFailed);
     } finally {
       setSending(false);
       e.target.value = "";
@@ -309,7 +312,7 @@ export default function ChatPage() {
         style={{ borderColor: "oklch(1 0 0 / 8%)" }}
       >
         <button
-          aria-label="前の画面に戻る"
+          aria-label={copy.back}
           className="cursor-pointer opacity-70 hover:opacity-100 p-1"
           onClick={() => navigate(-1)}
         >
@@ -324,12 +327,12 @@ export default function ChatPage() {
         <div className="flex-1 min-w-0">
           <div className="text-sm font-semibold truncate">{chatName}</div>
           <div className="text-xs" style={{ color: "#22c55e" }}>
-            オンライン
+            {copy.online}
           </div>
         </div>
         <div className="flex items-center gap-3">
           <button
-            aria-label="音声通話を開始"
+            aria-label={copy.startVoiceCall}
             className="cursor-pointer opacity-70 hover:opacity-100 p-1 disabled:opacity-30"
             disabled={callLoading || !theirCode}
             onClick={() => setCallSelectorMode("audio")}
@@ -337,7 +340,7 @@ export default function ChatPage() {
             <Phone size={20} />
           </button>
           <button
-            aria-label="ビデオ通話を開始"
+            aria-label={copy.startVideoCall}
             className="cursor-pointer opacity-70 hover:opacity-100 p-1 disabled:opacity-30"
             disabled={callLoading || !theirCode}
             onClick={() => setCallSelectorMode("camera")}
@@ -355,7 +358,7 @@ export default function ChatPage() {
               onClick={() => loadMore(30)}
               className="text-xs opacity-40 cursor-pointer hover:opacity-70"
             >
-              さらに読み込む
+              {copy.loadMore}
             </button>
           </div>
         )}
@@ -383,7 +386,7 @@ export default function ChatPage() {
                     onCopyCode={handleCopyCode}
                   />
                 <div className="text-[10px] opacity-30 px-1">
-                  {new Date(msg.sentAt).toLocaleTimeString("zh-CN", {
+                  {new Date(msg.sentAt).toLocaleTimeString(undefined, {
                     hour: "2-digit",
                     minute: "2-digit",
                   })}
@@ -404,7 +407,7 @@ export default function ChatPage() {
       >
         {/* Media upload */}
         <button
-          aria-label="画像・動画・ファイルを送信"
+          aria-label={copy.sendAttachment}
           className="cursor-pointer opacity-60 hover:opacity-100 p-2 shrink-0"
           onClick={() => fileInputRef.current?.click()}
           disabled={sending}
@@ -423,7 +426,7 @@ export default function ChatPage() {
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="メッセージを入力..."
+          placeholder={copy.messagePlaceholder}
           rows={1}
           disabled={sending}
           className="flex-1 rounded-2xl px-4 py-2.5 text-sm text-white placeholder:text-white/30 outline-none resize-none disabled:opacity-50"
@@ -435,7 +438,7 @@ export default function ChatPage() {
         />
 
         <button
-          aria-label="メッセージを送信"
+          aria-label={copy.sendMessage}
           onClick={handleSendText}
           disabled={!text.trim() || sending}
           className="shrink-0 w-10 h-10 rounded-full flex items-center justify-center cursor-pointer disabled:opacity-30 transition-opacity"
@@ -460,15 +463,15 @@ export default function ChatPage() {
             <header className="flex items-center justify-between border-b border-white/10 px-5 py-4">
               <div>
                 <h2 id="face-library-title" className="text-base font-bold">
-                  顔ライブラリ
+                  {copy.faceLibrary}
                 </h2>
                 <p className="mt-1 text-xs text-white/45">
-                  写真と顔データを保存・管理します
+                  {copy.faceLibraryDescription}
                 </p>
               </div>
               <button
                 type="button"
-                aria-label="顔ライブラリを閉じる"
+                aria-label={copy.closeFaceLibrary}
                 onClick={() => setFaceLibraryOpen(false)}
                 className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10"
               >
@@ -481,7 +484,7 @@ export default function ChatPage() {
                 onClick={() => setAddFaceOpen((open) => !open)}
                 className="w-full rounded-xl bg-blue-600 py-3 text-sm font-bold"
               >
-                顔を追加
+                {copy.addFace}
               </button>
               {addFaceOpen && (
                 <div className="mt-4 space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -489,11 +492,11 @@ export default function ChatPage() {
                     value={faceName}
                     maxLength={80}
                     onChange={(event) => setFaceName(event.target.value)}
-                    placeholder="顔データ名"
+                    placeholder={copy.faceNamePlaceholder}
                     className="w-full rounded-xl bg-black/25 px-4 py-3 text-sm outline-none"
                   />
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-white/40">例：</span>
+                    <span className="text-[10px] text-white/40">{copy.example}</span>
                     {["Tom", "Jack", "Mary"].map((name) => (
                       <button
                         key={name}
@@ -508,7 +511,7 @@ export default function ChatPage() {
                   <div className="grid grid-cols-2 gap-2">
                     <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-white/20 bg-black/20 p-3 text-center text-xs text-white/70">
                       <ImagePlus size={16} />
-                      写真を選択
+                      {copy.choosePhoto}
                       <input
                         type="file"
                         accept="image/*"
@@ -520,7 +523,7 @@ export default function ChatPage() {
                     </label>
                     <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-white/20 bg-black/20 p-3 text-center text-xs text-white/70">
                       <Camera size={16} />
-                      写真を撮影
+                      {copy.takePhoto}
                       <input
                         type="file"
                         accept="image/*"
@@ -534,7 +537,7 @@ export default function ChatPage() {
                   </div>
                   {faceFile && (
                     <div className="rounded-lg bg-black/20 px-3 py-2 text-xs text-white/55">
-                      選択済み：{faceFile.name}
+                      {copy.selectedFile(faceFile.name)}
                     </div>
                   )}
                   <button
@@ -543,13 +546,13 @@ export default function ChatPage() {
                     onClick={() => void handleAddFace()}
                     className="w-full rounded-xl bg-green-600 py-3 text-sm font-bold disabled:opacity-40"
                   >
-                    {faceSaving ? "追加中..." : "追加"}
+                    {faceSaving ? copy.adding : copy.add}
                   </button>
                 </div>
               )}
               {faces === undefined && (
                 <p className="py-12 text-center text-sm text-white/40">
-                  読み込み中...
+                  {copy.loading}
                 </p>
               )}
               {faces?.length === 0 && !addFaceOpen && (
@@ -557,7 +560,7 @@ export default function ChatPage() {
                   <div>
                     <div className="text-4xl">🎭</div>
                     <p className="mt-3 text-sm font-semibold">
-                      保存済みの顔データはありません
+                      {copy.noFaces}
                     </p>
                   </div>
                 </div>
@@ -571,7 +574,7 @@ export default function ChatPage() {
                     >
                       <button
                         type="button"
-                        aria-label={`${face.name} をプレビュー`}
+                        aria-label={copy.previewFace(face.name)}
                         onClick={() =>
                           face.imageUrl &&
                           setPreviewFace({
@@ -601,7 +604,7 @@ export default function ChatPage() {
                       <div className="grid grid-cols-2 gap-1 p-2">
                         <button
                           type="button"
-                          aria-label={`${face.name} の名前を変更`}
+                          aria-label={copy.renameFace(face.name)}
                           onClick={() =>
                             void handleRenameFace(face._id, face.name)
                           }
@@ -611,7 +614,7 @@ export default function ChatPage() {
                         </button>
                         <button
                           type="button"
-                          aria-label={`${face.name} を削除`}
+                          aria-label={copy.deleteFace(face.name)}
                           onClick={() =>
                             void handleDeleteFace(face._id, face.name)
                           }
@@ -647,7 +650,7 @@ export default function ChatPage() {
             </div>
             <button
               type="button"
-              aria-label="プレビューを閉じる"
+              aria-label={copy.closePreview}
               onClick={() => setPreviewFace(null)}
               className="absolute -right-2 -top-2 flex h-10 w-10 items-center justify-center rounded-full bg-white text-black shadow-xl"
             >

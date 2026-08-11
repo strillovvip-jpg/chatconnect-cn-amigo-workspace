@@ -3,6 +3,7 @@ import { Command as CommandPrimitive } from "cmdk";
 import { SearchIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n";
 import {
   Dialog,
   DialogContent,
@@ -28,8 +29,8 @@ function Command({
 }
 
 function CommandDialog({
-  title = "命令面板",
-  description = "搜索要执行的命令...",
+  title,
+  description,
   children,
   className,
   showCloseButton = true,
@@ -40,11 +41,14 @@ function CommandDialog({
   className?: string;
   showCloseButton?: boolean;
 }) {
+  const { messages } = useI18n();
+  const resolvedTitle = title ?? messages.uiKit.commandTitle;
+  const resolvedDescription = description ?? messages.uiKit.commandDescription;
   return (
     <Dialog {...props}>
       <DialogHeader className="sr-only">
-        <DialogTitle>{title}</DialogTitle>
-        <DialogDescription>{description}</DialogDescription>
+        <DialogTitle>{resolvedTitle}</DialogTitle>
+        <DialogDescription>{resolvedDescription}</DialogDescription>
       </DialogHeader>
       <DialogContent
         className={cn("overflow-hidden p-0", className)}

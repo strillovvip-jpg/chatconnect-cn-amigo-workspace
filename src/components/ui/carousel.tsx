@@ -6,6 +6,7 @@ import { ArrowLeft, ArrowRight } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { useOptionalI18n } from "@/lib/i18n";
 
 type CarouselApi = UseEmblaCarouselType[1];
 type UseCarouselParameters = Parameters<typeof useEmblaCarousel>;
@@ -49,6 +50,7 @@ function Carousel({
   children,
   ...props
 }: React.ComponentProps<"div"> & CarouselProps) {
+  const { messages } = useOptionalI18n();
   const [carouselRef, api] = useEmblaCarousel(
     {
       ...opts,
@@ -120,7 +122,7 @@ function Carousel({
         onKeyDownCapture={handleKeyDown}
         className={cn("relative", className)}
         role="region"
-        aria-roledescription="轮播图"
+        aria-roledescription={messages.ui.carousel}
         data-slot="carousel"
         {...props}
       >
@@ -152,12 +154,13 @@ function CarouselContent({ className, ...props }: React.ComponentProps<"div">) {
 }
 
 function CarouselItem({ className, ...props }: React.ComponentProps<"div">) {
+  const { messages } = useOptionalI18n();
   const { orientation } = useCarousel();
 
   return (
     <div
       role="group"
-      aria-roledescription="幻灯片"
+      aria-roledescription={messages.ui.slide}
       data-slot="carousel-item"
       className={cn(
         "min-w-0 shrink-0 grow-0 basis-full",
@@ -175,6 +178,7 @@ function CarouselPrevious({
   size = "icon",
   ...props
 }: React.ComponentProps<typeof Button>) {
+  const { messages } = useOptionalI18n();
   const { orientation, scrollPrev, canScrollPrev } = useCarousel();
 
   return (
@@ -194,7 +198,7 @@ function CarouselPrevious({
       {...props}
     >
       <ArrowLeft />
-      <span className="sr-only">上一张</span>
+      <span className="sr-only">{messages.ui.previousSlide}</span>
     </Button>
   );
 }
@@ -205,6 +209,7 @@ function CarouselNext({
   size = "icon",
   ...props
 }: React.ComponentProps<typeof Button>) {
+  const { messages } = useOptionalI18n();
   const { orientation, scrollNext, canScrollNext } = useCarousel();
 
   return (
@@ -224,7 +229,7 @@ function CarouselNext({
       {...props}
     >
       <ArrowRight />
-      <span className="sr-only">下一张</span>
+      <span className="sr-only">{messages.ui.nextSlide}</span>
     </Button>
   );
 }

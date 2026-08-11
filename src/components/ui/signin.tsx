@@ -4,6 +4,7 @@ import { Loader2, LogIn, LogOut } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@usehercules/auth/react";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
+import { useI18n } from "@/lib/i18n";
 import { uiErrorMessage } from "@/lib/utils.ts";
 
 export interface SignInButtonProps
@@ -51,8 +52,8 @@ export const SignInButton = forwardRef<HTMLButtonElement, SignInButtonProps>(
       onClick,
       disabled,
       showIcon = true,
-      signInText = "登录",
-      signOutText = "退出登录",
+      signInText,
+      signOutText,
       loadingText,
       className,
       variant,
@@ -63,15 +64,18 @@ export const SignInButton = forwardRef<HTMLButtonElement, SignInButtonProps>(
     ref,
   ) => {
     const { isAuthenticated, signin, signout, isLoading, error } = useAuth();
+    const { messages } = useI18n();
+    const resolvedSignInText = signInText ?? messages.signIn.signIn;
+    const resolvedSignOutText = signOutText ?? messages.signIn.signOut;
 
     useEffect(() => {
       if (error) {
-        toast.error("登录失败", {
-          description: uiErrorMessage(error, "请稍后重试，或检查登录配置。"),
+        toast.error(messages.signIn.signInFailed, {
+          description: uiErrorMessage(error, messages.signIn.signInRetry),
         });
-        console.error("登录错误", error);
+        console.error(messages.signIn.signInFailed, error);
       }
-    }, [error]);
+    }, [error, messages]);
 
     const handleClick = useCallback(
       async (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -93,14 +97,16 @@ export const SignInButton = forwardRef<HTMLButtonElement, SignInButtonProps>(
     );
 
     const isDisabled = disabled || isLoading;
-    const defaultLoadingText = isAuthenticated ? "正在退出..." : "正在登录...";
+    const defaultLoadingText = isAuthenticated
+      ? messages.signIn.loadingOut
+      : messages.signIn.loadingIn;
     const currentLoadingText = loadingText || defaultLoadingText;
 
     const buttonText = isLoading
       ? currentLoadingText
       : isAuthenticated
-        ? signOutText
-        : signInText;
+        ? resolvedSignOutText
+        : resolvedSignInText;
 
     const icon = isLoading ? (
       <Loader2 className="size-4 animate-spin" />
@@ -119,7 +125,11 @@ export const SignInButton = forwardRef<HTMLButtonElement, SignInButtonProps>(
         size={size}
         className={className}
         asChild={asChild}
-        aria-label={isAuthenticated ? "退出账号" : "登录账号"}
+        aria-label={
+          isAuthenticated
+            ? messages.signIn.signOutAccount
+            : messages.signIn.signInAccount
+        }
         aria-describedby={error ? "auth-error" : undefined}
         {...props}
       >

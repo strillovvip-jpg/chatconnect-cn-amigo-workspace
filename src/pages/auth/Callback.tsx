@@ -5,8 +5,10 @@ import { useConvexAuth, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api.js";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Button } from "@/components/ui/button.tsx";
+import { useI18n } from "@/lib/i18n";
 
 export default function AuthCallback() {
+  const { messages } = useI18n();
   const navigate = useNavigate();
   const { isAuthenticated: isConvexAuthenticated } = useConvexAuth();
   const updateCurrentUser = useMutation(api.users.updateCurrentUser);
@@ -31,14 +33,16 @@ export default function AuthCallback() {
     return (
       <div className="flex flex-col items-center justify-center h-svh gap-6 px-4">
         <div className="flex flex-col items-center gap-2 text-center">
-          <p className="text-destructive font-medium">发生错误</p>
+          <p className="text-destructive font-medium">
+            {messages.authCallback.errorTitle}
+          </p>
           <p className="text-sm text-muted-foreground max-w-md">{error}</p>
         </div>
         <div className="flex gap-3">
           <Button variant="secondary" onClick={navigateHome}>
-            返回首页
+            {messages.common.home}
           </Button>
-          <Button onClick={retry}>重试</Button>
+          <Button onClick={retry}>{messages.common.retry}</Button>
         </div>
       </div>
     );
@@ -47,7 +51,9 @@ export default function AuthCallback() {
   return (
     <div className="flex flex-col items-center justify-center h-svh gap-4">
       <Spinner className="size-8" />
-      <p className="text-sm text-muted-foreground">正在加载...</p>
+      <p className="text-sm text-muted-foreground">
+        {messages.authCallback.loading}
+      </p>
     </div>
   );
 }

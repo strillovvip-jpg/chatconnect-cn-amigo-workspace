@@ -6,6 +6,7 @@ import {
   Track,
   type TrackPublication,
 } from "livekit-client";
+import { useI18n } from "@/lib/i18n";
 
 function MediaTrack({
   publication,
@@ -91,6 +92,7 @@ export function LiveKitStage({
   mode?: "p2p" | "group";
   showSelfPreview?: boolean;
 }) {
+  const { messages } = useI18n();
   const [, refresh] = useReducer((value) => value + 1, 0);
   const [pinnedIdentity, setPinnedIdentity] = useState<string | null>(null);
   useEffect(() => {
@@ -149,7 +151,7 @@ export function LiveKitStage({
       <ParticipantTile participant={primary} />
     ) : (
       <div className="flex h-full items-center justify-center bg-[#111e38] text-sm text-white/60">
-        正在等待对方加入...
+        {messages.livekitStage.waitingRemote}
       </div>
     );
   } else if (primary) {
@@ -185,7 +187,7 @@ export function LiveKitStage({
   } else {
     content = (
       <div className="flex h-full items-center justify-center bg-[#111e38] text-sm text-white/60">
-        正在等待其他参与者加入...
+        {messages.livekitStage.waitingOthers}
       </div>
     );
   }

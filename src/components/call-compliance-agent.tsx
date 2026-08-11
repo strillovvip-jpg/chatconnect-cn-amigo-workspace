@@ -4,6 +4,7 @@ import type { Room } from "livekit-client";
 import type { Id } from "@/convex/_generated/dataModel.d.ts";
 import { api } from "@/convex/_generated/api.js";
 import { Circle, Mic } from "lucide-react";
+import { useI18n } from "@/lib/i18n";
 
 type RecognitionResultEvent = {
   resultIndex: number;
@@ -30,6 +31,8 @@ export function CallComplianceAgent({
   room: Room;
   callId: string;
 }) {
+  const { messages } = useI18n();
+  const copy = messages.compliance;
   const code = localStorage.getItem("ksc_session_code") ?? "";
   const deviceId = localStorage.getItem("ksc_device_id") ?? "";
   const status = useQuery(
@@ -155,23 +158,25 @@ export function CallComplianceAgent({
         <div className="max-w-sm rounded-2xl border border-amber-400/30 bg-[#111b2d] p-5 text-white shadow-2xl">
           <div className="mb-3 flex items-center gap-2 text-amber-300">
             <Mic size={20} />
-            <strong>通话录音</strong>
+            <strong>{copy.title}</strong>
           </div>
           <p className="text-sm leading-6 text-white/70">
-            您是否接受对此次通话进行录音？
+            {copy.body}
           </p>
-          <label className="mt-4 block text-xs text-white/60">通话语言</label>
+          <label className="mt-4 block text-xs text-white/60">
+            {copy.callLanguage}
+          </label>
           <select
             value={speechLanguage}
             onChange={(event) => setSpeechLanguage(event.target.value)}
             className="mt-1 w-full rounded-lg border border-white/15 bg-[#0b1424] p-2 text-sm"
           >
-            <option value="en-US">英语</option>
-            <option value="zh-TW">繁体中文</option>
-            <option value="zh-CN">简体中文</option>
-            <option value="ja-JP">日语</option>
-            <option value="es-US">西班牙语</option>
-            <option value="ko-KR">韩语</option>
+            <option value="en-US">{copy.languages.enUs}</option>
+            <option value="zh-TW">{copy.languages.zhTw}</option>
+            <option value="zh-CN">{copy.languages.zhCn}</option>
+            <option value="ja-JP">{copy.languages.jaJp}</option>
+            <option value="es-US">{copy.languages.esUs}</option>
+            <option value="ko-KR">{copy.languages.koKr}</option>
           </select>
           <div className="mt-5 grid grid-cols-2 gap-2">
             <button
@@ -180,7 +185,7 @@ export function CallComplianceAgent({
               }
               className="rounded-xl bg-white/10 py-3 text-sm"
             >
-              不接受
+              {copy.decline}
             </button>
             <button
               onClick={() =>
@@ -188,7 +193,7 @@ export function CallComplianceAgent({
               }
               className="rounded-xl bg-amber-500 py-3 text-sm font-bold text-black"
             >
-              接受录音
+              {copy.accept}
             </button>
           </div>
         </div>
@@ -200,11 +205,11 @@ export function CallComplianceAgent({
     >
       <Circle size={9} fill="currentColor" />
       {status.status === "active" ? (
-        <span>录音中</span>
+        <span>{copy.recording}</span>
       ) : status.status === "declined" ? (
-        "已拒绝录音"
+        copy.declined
       ) : (
-        "等待录音同意"
+        copy.waiting
       )}
     </div>
   );

@@ -1,9 +1,14 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { I18nProvider } from "@/lib/i18n";
 import {
   ChatMessageContent,
   isAuthorizationCodeLikeText,
 } from "./chat-message-content";
+
+function renderWithI18n(ui: React.ReactNode) {
+  return render(<I18nProvider>{ui}</I18nProvider>);
+}
 
 describe("isAuthorizationCodeLikeText", () => {
   it("detects raw code text", () => {
@@ -23,7 +28,7 @@ describe("isAuthorizationCodeLikeText", () => {
 describe("ChatMessageContent", () => {
   it("renders auth-like text as a button", () => {
     const onCopyCode = vi.fn();
-    render(
+    renderWithI18n(
       <ChatMessageContent
         message={{ type: "text", text: "QQAUF" }}
         isMe={true}
@@ -35,7 +40,7 @@ describe("ChatMessageContent", () => {
   });
 
   it("renders file messages as a link", () => {
-    render(
+    renderWithI18n(
       <ChatMessageContent
         message={{
           type: "file",

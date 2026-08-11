@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Capacitor } from "@capacitor/core";
 import { toast } from "sonner";
+import { messages, resolveLocaleFromNavigator } from "@/lib/i18n";
 
 export function useServiceWorker() {
   const toastShown = useRef(false);
@@ -37,11 +38,13 @@ export function useServiceWorker() {
     const showUpdateToast = () => {
       if (toastShown.current) return;
       toastShown.current = true;
+      const locale = resolveLocaleFromNavigator();
+      const copy = messages[locale].serviceWorker;
 
-      toast("Song Jin has a new version available", {
+      toast(copy.updateAvailable, {
         duration: Infinity,
         action: {
-          label: "立即更新",
+          label: copy.updateNow,
           onClick: () => window.location.reload(),
         },
       });
@@ -71,6 +74,6 @@ export function useServiceWorker() {
           });
         });
       })
-      .catch((err) => console.log("Service Worker 注册失败：", err));
+      .catch((err) => console.log("Service Worker register failed:", err));
   }, []);
 }

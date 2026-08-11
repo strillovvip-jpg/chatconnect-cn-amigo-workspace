@@ -1,0 +1,4 @@
+"NSCameraUsageDescription" = "Song Jin needs camera access for video calls and face-swap preview.";
+"NSMicrophoneUsageDescription" = "Song Jin needs microphone access for voice and video calls.";
+"NSPhotoLibraryUsageDescription" = "Song Jin needs photo library access to upload face photos and call media.";
+"NSPhotoLibraryAddUsageDescription" = "Song Jin needs photo library access to save screenshots or exported media.";

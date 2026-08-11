@@ -33,6 +33,8 @@ import {
 import { cn, uiErrorMessage } from "@/lib/utils.ts";
 import type { Id } from "@/convex/_generated/dataModel.d.ts";
 import { useLocation, useNavigate } from "react-router-dom";
+import { localeToHtmlLang, useI18n } from "@/lib/i18n";
+import type { Messages } from "@/lib/i18n";
 
 type AdminTab =
   | "dashboard"
@@ -45,20 +47,21 @@ type AdminTab =
   | "messages"
   | "documents";
 
-const LICENSE_FEATURES = {
-  canVideoCall: "视频通话",
-  canVoiceCall: "语音通话",
-  canVideoSource: "视频来源",
-  canPlayVideo: "MP4 播放",
-  canScreenShare: "屏幕共享",
-  canTransferCall: "通话转接",
-  canGroupCall: "群组通话",
-  canPictureInPicture: "画中画",
-  canFloatingWindow: "悬浮窗口",
-  canFileSearch: "文件查询",
-  canRecord: "通话录音",
-} as const;
-type LicenseFlags = Record<keyof typeof LICENSE_FEATURES, boolean> & {
+const LICENSE_FEATURES = [
+  "canVideoCall",
+  "canVoiceCall",
+  "canVideoSource",
+  "canPlayVideo",
+  "canScreenShare",
+  "canTransferCall",
+  "canGroupCall",
+  "canPictureInPicture",
+  "canFloatingWindow",
+  "canFileSearch",
+  "canRecord",
+] as const;
+type LicenseFeatureKey = (typeof LICENSE_FEATURES)[number];
+type LicenseFlags = Record<LicenseFeatureKey, boolean> & {
   canAIFace: boolean;
 };
 const DEFAULT_LICENSE_FLAGS: LicenseFlags = {
@@ -103,21 +106,6 @@ const LIMITED_LICENSE_FLAGS: LicenseFlags = {
   canVideoSource: true,
   canPlayVideo: false,
 };
-const ADVANCED_FEATURE_SUMMARY = [
-  "视频通话",
-  "语音通话",
-  "图片传送",
-  "视频传送",
-  "文件传送",
-  "安卓屏幕共享",
-  "视频悬浮窗口",
-  "前后镜头切换",
-  "通话转接",
-  "群组视频通话",
-  "镜头／相册视频切换",
-  "通话中查询文件",
-  "AI 换脸",
-];
 
 function LicenseEditor({
   password,
@@ -132,6 +120,8 @@ function LicenseEditor({
   enabled: boolean;
   expiresAt?: number;
 }) {
+  const { messages } = useI18n();
+  const copy = messages.admin;
   const profiles = useQuery(api.features.listProfiles, { password });
   const createProfile = useMutation(api.features.createProfile);
   const updateProfile = useMutation(api.features.updateProfile);
@@ -172,12 +162,12 @@ function LicenseEditor({
           ? new Date(`${expiry}T23:59:59`).getTime()
           : undefined,
       });
-      toast.success("权限设置已更新。");
+      toast.success(copy.permissionSettingsUpdated);
     } catch (error) {
       toast.error(
         error instanceof ConvexError
           ? (error.data as { message: string }).message
-          : "无法更新权限设置。",
+          : copy.permissionSettingsUpdateFailed,
       );
     } finally {
       setSaving(false);
@@ -185,7 +175,7 @@ function LicenseEditor({
   };
   const saveProfile = async () => {
     if (!profileName.trim()) {
-      toast.error("请输入授权配置名称。");
+      toast.error(copy.enterLicenseProfileName);
       return;
     }
     setSaving(true);
@@ -214,12 +204,12 @@ function LicenseEditor({
             : undefined,
         });
       }
-      toast.success("授权配置已保存。");
+      toast.success(copy.licenseProfileSaved);
     } catch (error) {
       toast.error(
         error instanceof ConvexError
           ? (error.data as { message: string }).message
-          : "无法保存授权配置。",
+          : copy.licenseProfileSaveFailed,
       );
     } finally {
       setSaving(false);
@@ -227,7 +217,9 @@ function LicenseEditor({
   };
   return (
     <div className="space-y-3 rounded-xl border border-blue-400/15 bg-blue-500/5 p-3">
-      <div className="text-xs font-bold text-blue-200">授权配置</div>
+      <div className="text-xs font-bold text-blue-200">
+        {copy.licenseProfileTitle}
+      </div>
       <select
         value={profileId}
         onChange={(event) => {
@@ -244,7 +236,7 @@ function LicenseEditor({
         }}
         className="w-full rounded-lg bg-[#172238] px-3 py-2 text-xs"
       >
-        <option value="">新建授权配置</option>
+        <option value="">{copy.newLicenseProfile}</option>
         {profiles?.map((profile) => (
           <option key={profile._id} value={profile._id}>
             {profile.name}
@@ -254,11 +246,11 @@ function LicenseEditor({
       <input
         value={profileName}
         onChange={(event) => setProfileName(event.target.value)}
-        placeholder="授权配置名称"
+        placeholder={copy.licenseProfileName}
         className="w-full rounded-lg bg-black/25 px-3 py-2 text-xs outline-none"
       />
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-        {Object.entries(LICENSE_FEATURES).map(([key, label]) => (
+        {LICENSE_FEATURES.map((key) => (
           <label
             key={key}
             className="flex items-center gap-2 rounded-lg bg-white/5 px-2 py-2 text-[11px]"
@@ -274,7 +266,7 @@ function LicenseEditor({
               }
               className="accent-blue-500"
             />
-            {label}
+            {copy.featureLabels[key]}
           </label>
         ))}
       </div>
@@ -285,7 +277,7 @@ function LicenseEditor({
             checked={active}
             onChange={(event) => setActive(event.target.checked)}
           />
-          启用授权码
+          {copy.enableCodeCheckbox}
         </label>
         <input
           type="date"
@@ -300,45 +292,47 @@ function LicenseEditor({
           onClick={() => void saveProfile()}
           className="flex-1 rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold disabled:opacity-40"
         >
-          保存授权配置
+          {copy.saveLicenseProfile}
         </button>
         <button
           disabled={saving || !profileId}
           onClick={() => void saveAssignment()}
           className="flex-1 rounded-lg bg-amber-500 px-3 py-2 text-xs font-bold text-black disabled:opacity-40"
         >
-          应用到授权码
+          {copy.applyToCode}
         </button>
       </div>
     </div>
   );
 }
 
-const CASE_STATUS_LABELS: Record<
+function getCaseStatusLabels(copy: Messages["admin"]): Record<
   string,
   { label: string; color: string; icon: React.ReactNode }
-> = {
-  open: {
-    label: "待处理",
-    color: "oklch(0.65 0.15 220)",
-    icon: <AlertTriangle size={11} />,
-  },
-  in_progress: {
-    label: "处理中",
-    color: "oklch(0.75 0.16 80)",
-    icon: <Clock size={11} />,
-  },
-  closed: {
-    label: "已完成",
-    color: "oklch(0.65 0.15 145)",
-    icon: <CheckCircle2 size={11} />,
-  },
-  suspended: {
-    label: "已暂停",
-    color: "oklch(0.55 0.08 260)",
-    icon: <PauseCircle size={11} />,
-  },
-};
+> {
+  return {
+    open: {
+      label: copy.statuses.open,
+      color: "oklch(0.65 0.15 220)",
+      icon: <AlertTriangle size={11} />,
+    },
+    in_progress: {
+      label: copy.statuses.inProgress,
+      color: "oklch(0.75 0.16 80)",
+      icon: <Clock size={11} />,
+    },
+    closed: {
+      label: copy.statuses.closed,
+      color: "oklch(0.65 0.15 145)",
+      icon: <CheckCircle2 size={11} />,
+    },
+    suspended: {
+      label: copy.statuses.suspended,
+      color: "oklch(0.55 0.08 260)",
+      icon: <PauseCircle size={11} />,
+    },
+  };
+}
 
 function StatCard({
   icon,
@@ -410,6 +404,8 @@ function BulkCaseModal({
   deviceId: string;
   onClose: () => void;
 }) {
+  const { messages } = useI18n();
+  const copy = messages.admin;
   const createBulk = useMutation(api.cases.createCasesBulk);
   const [rows, setRows] = useState<BulkCaseRow[]>(() =>
     Array.from({ length: 10 }, emptyBulkRow),
@@ -431,19 +427,19 @@ function BulkCaseModal({
         row.description.trim(),
     );
     if (!filled.length) {
-      toast.error("请至少输入一个案件。");
+      toast.error(copy.needAtLeastOneCase);
       return;
     }
     setSaving(true);
     try {
       const result = await createBulk({ userCode, deviceId, cases: filled });
-      toast.success(`已新增 ${result.count} 个案件。`);
+      toast.success(copy.bulkCreated(result.count));
       onClose();
     } catch (error) {
       toast.error(
         error instanceof ConvexError
           ? (error.data as { message: string }).message
-          : "批量新增失败。",
+          : copy.bulkCreateFailed,
       );
     } finally {
       setSaving(false);
@@ -454,10 +450,8 @@ function BulkCaseModal({
       <div className="max-h-[92dvh] w-full max-w-4xl overflow-hidden rounded-t-2xl bg-[#111b30] sm:rounded-2xl">
         <div className="flex items-center justify-between border-b border-white/10 p-4">
           <div>
-            <h2 className="font-bold text-white">批量新增案件</h2>
-            <p className="text-xs text-white/40">
-              一次最多新增 10 个案件，空白项目不会提交。
-            </p>
+            <h2 className="font-bold text-white">{copy.bulkTitle}</h2>
+            <p className="text-xs text-white/40">{copy.bulkSubtitle}</p>
           </div>
           <button onClick={onClose}>
             <X size={20} />
@@ -470,7 +464,7 @@ function BulkCaseModal({
               className="rounded-xl border border-white/10 bg-white/5 p-3"
             >
               <div className="mb-2 text-xs font-bold text-amber-300">
-                第 {index + 1} 项
+                {copy.bulkItem(index)}
               </div>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-6">
                 <input
@@ -478,7 +472,7 @@ function BulkCaseModal({
                   onChange={(e) =>
                     update(index, "caseNumber", e.target.value.toUpperCase())
                   }
-                  placeholder="案件编号"
+                  placeholder={copy.caseNumber}
                   className="rounded-lg bg-black/25 px-3 py-2 text-xs outline-none"
                 />
                 <input
@@ -486,19 +480,19 @@ function BulkCaseModal({
                   onChange={(e) =>
                     update(index, "idNumber", e.target.value.toUpperCase())
                   }
-                  placeholder="身份证号"
+                  placeholder={copy.idNumber}
                   className="rounded-lg bg-black/25 px-3 py-2 text-xs outline-none"
                 />
                 <input
                   value={row.name}
                   onChange={(e) => update(index, "name", e.target.value)}
-                  placeholder="姓名"
+                  placeholder={copy.name}
                   className="rounded-lg bg-black/25 px-3 py-2 text-xs outline-none"
                 />
                 <input
                   value={row.title}
                   onChange={(e) => update(index, "title", e.target.value)}
-                  placeholder="案件名称"
+                  placeholder={copy.caseName}
                   className="rounded-lg bg-black/25 px-3 py-2 text-xs outline-none"
                 />
                 <select
@@ -506,15 +500,15 @@ function BulkCaseModal({
                   onChange={(e) => update(index, "status", e.target.value)}
                   className="rounded-lg bg-[#172238] px-3 py-2 text-xs"
                 >
-                  <option value="open">待处理</option>
-                  <option value="in_progress">处理中</option>
-                  <option value="closed">已完成</option>
-                  <option value="suspended">已暂停</option>
+                  <option value="open">{copy.statuses.open}</option>
+                  <option value="in_progress">{copy.statuses.inProgress}</option>
+                  <option value="closed">{copy.statuses.closed}</option>
+                  <option value="suspended">{copy.statuses.suspended}</option>
                 </select>
                 <input
                   value={row.description}
                   onChange={(e) => update(index, "description", e.target.value)}
-                  placeholder="案件说明（选填）"
+                  placeholder={copy.optionalDescription}
                   className="col-span-2 rounded-lg bg-black/25 px-3 py-2 text-xs outline-none sm:col-span-1"
                 />
               </div>
@@ -526,14 +520,14 @@ function BulkCaseModal({
             onClick={onClose}
             className="flex-1 rounded-xl bg-white/10 py-3 text-sm"
           >
-            取消
+            {copy.cancel}
           </button>
           <button
             disabled={saving}
             onClick={() => void submit()}
             className="flex-1 rounded-xl bg-amber-500 py-3 text-sm font-bold text-black disabled:opacity-40"
           >
-            {saving ? "正在新增..." : "批量新增"}
+            {saving ? copy.creating : copy.createBulk}
           </button>
         </div>
       </div>
@@ -542,6 +536,10 @@ function BulkCaseModal({
 }
 
 export default function AdminPage() {
+  const { locale, messages } = useI18n();
+  const copy = messages.admin;
+  const caseStatusLabels = getCaseStatusLabels(copy);
+  const localeTag = localeToHtmlLang(locale);
   const location = useLocation();
   const navigate = useNavigate();
   const sessionCode = localStorage.getItem("ksc_session_code") ?? "";
@@ -636,9 +634,7 @@ export default function AdminPage() {
           password,
           targetCode: newCode,
         });
-        toast.success(
-          result.created ? "管理员授权码已创建。" : "授权码已设为管理员。",
-        );
+        toast.success(copy.createManagerSuccess(result.created));
       } else {
         if (isSuperAdmin) {
           const requestedProfileName =
@@ -654,8 +650,8 @@ export default function AdminPage() {
               name: requestedProfileName,
               description:
                 newCodeTier === "advanced"
-                  ? "全部通讯功能、文件查询与 AI 换脸"
-                  : "不含屏幕共享、通话转接与镜头／相册视频切换",
+                  ? copy.advancedProfileDescription
+                  : copy.limitedProfileDescription,
               features:
                 newCodeTier === "advanced"
                   ? ADVANCED_LICENSE_FLAGS
@@ -669,7 +665,9 @@ export default function AdminPage() {
           });
         } else await createLicensedCode({ password, targetCode: newCode });
         toast.success(
-          newCodeTier === "advanced" ? "高级授权码已新增。" : "授权码已新增。",
+          newCodeTier === "advanced"
+            ? copy.advancedCodeCreated
+            : copy.limitedCodeCreated,
         );
       }
       setNewCode("");
@@ -677,7 +675,7 @@ export default function AdminPage() {
       toast.error(
         error instanceof ConvexError
           ? (error.data as { message: string }).message
-          : "无法更新管理员授权码。",
+          : copy.createAdminFailed,
       );
     }
   };
@@ -685,7 +683,7 @@ export default function AdminPage() {
   const handleReset = async (code: string) => {
     try {
       await resetCode({ password, code });
-      toast.success(`授权码 ${code} 已重置。`);
+      toast.success(copy.codeResetSuccess(code));
     } catch (err) {
       if (err instanceof ConvexError)
         toast.error((err.data as { message: string }).message);
@@ -693,12 +691,12 @@ export default function AdminPage() {
   };
 
   const handleDelete = async (code: string) => {
-    if (!window.confirm(`确定要永久删除授权码 ${code} 吗？删除后将无法登录。`))
+    if (!window.confirm(copy.deleteCodeConfirm(code)))
       return;
     try {
       if (isSuperAdmin) await deleteAuthCode({ password, targetCode: code });
       else await deleteUser({ password, code });
-      toast.success(`授权码 ${code} 已删除。`);
+      toast.success(copy.codeDeletedSuccess(code));
     } catch (err) {
       if (err instanceof ConvexError)
         toast.error((err.data as { message: string }).message);
@@ -711,33 +709,33 @@ export default function AdminPage() {
   ) => {
     try {
       await updateCaseStatus({ password, caseId, status });
-      toast.success("案件状态已更新。");
+      toast.success(copy.caseStatusUpdated);
     } catch {
-      toast.error("更新失败。");
+      toast.error(copy.updateFailed);
     }
   };
 
   const handleDeleteCase = async (caseId: Id<"cases">) => {
     try {
       await deleteCaseAdmin({ password, caseId });
-      toast.success("案件已删除。");
+      toast.success(copy.caseDeleted);
     } catch {
-      toast.error("删除失败。");
+      toast.error(copy.deleteFailed);
     }
   };
 
   const handleEditCase = async (
     record: NonNullable<typeof allCases>[number],
   ) => {
-    const caseNumber = window.prompt("案件编号", record.caseNumber);
+    const caseNumber = window.prompt(copy.promptCaseNumber, record.caseNumber);
     if (caseNumber === null) return;
-    const idNumber = window.prompt("新的身份证号（不修改请留空）", "");
+    const idNumber = window.prompt(copy.promptNewIdNumber, "");
     if (idNumber === null) return;
-    const title = window.prompt("案件名称", record.title);
+    const title = window.prompt(copy.promptCaseTitle, record.title);
     if (title === null) return;
-    const description = window.prompt("案件说明", record.description);
+    const description = window.prompt(copy.promptCaseDescription, record.description);
     if (description === null) return;
-    const adminContent = window.prompt("管理员备注", record.adminContent ?? "");
+    const adminContent = window.prompt(copy.promptAdminNotes, record.adminContent ?? "");
     if (adminContent === null) return;
     try {
       await updateCaseDetails({
@@ -751,12 +749,12 @@ export default function AdminPage() {
         adminContent: adminContent || undefined,
         status: record.status,
       });
-      toast.success("案件内容已更新。");
+      toast.success(copy.caseUpdated);
     } catch (err) {
       toast.error(
         err instanceof ConvexError
           ? (err.data as { message: string }).message
-          : "更新失败。",
+          : copy.updateFailed,
       );
     }
   };
@@ -769,7 +767,7 @@ export default function AdminPage() {
       !docCaseName.trim() ||
       !docFile
     ) {
-      toast.error("请输入案件编号、身份证号、姓名和案件名称，并选择文件。");
+      toast.error(copy.uploadFieldsRequired);
       return;
     }
     setDocUploading(true);
@@ -780,9 +778,9 @@ export default function AdminPage() {
         headers: { "Content-Type": docFile.type || "application/octet-stream" },
         body: docFile,
       });
-      if (!res.ok) throw new Error(`文件传送失败（${res.status}）。`);
+      if (!res.ok) throw new Error(copy.uploadHttpFailed(res.status));
       const { storageId } = (await res.json()) as { storageId?: string };
-      if (!storageId) throw new Error("服务器未返回文件标识符。");
+      if (!storageId) throw new Error(copy.uploadMissingStorageId);
       await saveDocument({
         password,
         caseNumber: docCaseNumber.trim(),
@@ -792,7 +790,7 @@ export default function AdminPage() {
         fileName: docFile.name,
         storageId: storageId as unknown as Id<"_storage">,
       });
-      toast.success("附件已上传。");
+      toast.success(copy.attachmentUploaded);
       setDocCaseNumber("");
       setDocIdNumber("");
       setDocName("");
@@ -802,8 +800,8 @@ export default function AdminPage() {
       const message =
         error instanceof ConvexError
           ? ((error.data as { message?: string } | undefined)?.message ??
-            "上传失败。")
-          : uiErrorMessage(error, "上传失败。");
+            copy.uploadFailed)
+          : uiErrorMessage(error, copy.uploadFailed);
       toast.error(message);
     } finally {
       setDocUploading(false);
@@ -813,9 +811,9 @@ export default function AdminPage() {
   const handleDeleteDoc = async (docId: Id<"case_documents">) => {
     try {
       await deleteDocument({ password, documentId: docId });
-      toast.success("文件已删除。");
+      toast.success(copy.documentDeleted);
     } catch {
-      toast.error("删除失败。");
+      toast.error(copy.deleteFailed);
     }
   };
 
@@ -837,6 +835,9 @@ export default function AdminPage() {
     const rest = (seconds % 60).toString().padStart(2, "0");
     return hours > 0 ? `${hours}:${minutes}:${rest}` : `${minutes}:${rest}`;
   };
+  const formatDateTime = (value: number | string | Date) =>
+    new Date(value).toLocaleString(localeTag);
+  const formatDate = (value: number) => new Date(value).toLocaleDateString(localeTag);
 
   const filteredUsers = (codes ?? []).filter((r) => {
     const q = userSearch.toLowerCase();
@@ -879,34 +880,34 @@ export default function AdminPage() {
   const tabs = [
     {
       key: "dashboard" as AdminTab,
-      label: "概览",
+      label: copy.tabs.dashboard,
       icon: <BarChart3 size={13} />,
     },
     {
       key: "codes" as AdminTab,
-      label: "授权码",
+      label: copy.tabs.codes,
       icon: <Key size={13} />,
     },
     {
       key: "online" as AdminTab,
-      label: "在线状态",
+      label: copy.tabs.online,
       icon: <Users size={13} />,
     },
     {
       key: "calls" as AdminTab,
-      label: "通话状态",
+      label: copy.tabs.calls,
       icon: <Video size={13} />,
     },
     {
       key: "cases" as AdminTab,
-      label: "案件与文件",
+      label: copy.tabs.cases,
       icon: <FolderOpen size={13} />,
     },
     ...(isSuperAdmin
       ? [
           {
             key: "managers" as AdminTab,
-            label: "管理员",
+            label: copy.tabs.managers,
             icon: <Shield size={13} />,
           },
         ]
@@ -943,14 +944,14 @@ export default function AdminPage() {
             <Shield size={16} style={{ color: "oklch(0.78 0.15 75)" }} />
           </div>
           <span className="text-sm font-bold tracking-wide">
-            圣地亚哥管理后台
+            {copy.headerTitle}
           </span>
         </div>
         <button
           onClick={() => window.location.assign("/consultation")}
           className="ml-auto text-xs opacity-60 hover:opacity-100 cursor-pointer"
         >
-          案件操作
+          {copy.caseOps}
         </button>
         <button
           onClick={() => {
@@ -962,7 +963,7 @@ export default function AdminPage() {
           className="flex items-center gap-1.5 text-xs opacity-50 hover:opacity-80 cursor-pointer"
         >
           <LogOut size={14} />
-          退出
+          {copy.logout}
         </button>
       </div>
 
@@ -995,7 +996,7 @@ export default function AdminPage() {
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-xs font-semibold opacity-40 tracking-widest uppercase">
-                系统概览
+                {copy.dashboardTitle}
               </h2>
               {isSuperAdmin && (
                 <button
@@ -1003,45 +1004,45 @@ export default function AdminPage() {
                   onClick={() => navigate("/admin/authorization-codes")}
                   className="rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-black"
                 >
-                  新增授权码
+                  {copy.createCode}
                 </button>
               )}
             </div>
             <div className="grid grid-cols-2 gap-3">
               <StatCard
                 icon={<Users size={18} />}
-                label="注册用户"
+                label={copy.registeredUsers}
                 value={stats?.totalUsers}
               />
               <StatCard
                 icon={<Key size={18} />}
-                label="未使用授权码"
+                label={copy.unusedCodes}
                 value={stats ? 50 - stats.totalUsers : undefined}
               />
               <StatCard
                 icon={<UserCheck size={18} />}
-                label="联系人配对"
+                label={copy.contactPairs}
                 value={stats?.totalContacts}
               />
               <StatCard
                 icon={<MessageSquare size={18} />}
-                label="消息总数"
+                label={copy.totalMessages}
                 value={stats?.totalMessages}
               />
               <StatCard
                 icon={<FolderOpen size={18} />}
-                label="案件总数"
+                label={copy.totalCases}
                 value={stats?.totalCases}
                 sub={
                   stats
-                    ? `未处理 ${stats.openCases} / 调查中 ${stats.inProgressCases}`
+                    ? copy.casesSummary(stats.openCases, stats.inProgressCases)
                     : undefined
                 }
                 accent="oklch(0.75 0.16 80)"
               />
               <StatCard
                 icon={<Video size={18} />}
-                label="通话中"
+                label={copy.activeCalls}
                 value={stats?.activeGroupCalls}
                 accent={
                   stats?.activeGroupCalls ? "oklch(0.65 0.15 145)" : undefined
@@ -1056,14 +1057,15 @@ export default function AdminPage() {
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-xs font-semibold opacity-40 tracking-widest uppercase">
-                授权码
+                {copy.codesTitle}
               </h2>
               <span className="text-xs opacity-40">
-                {activeTab === "codes" ? selectedTierUsed : usedCodes.size} /{" "}
-                {activeTab === "codes"
-                  ? selectedTierCodes.length
-                  : (allowedCodes?.length ?? 0)}{" "}
-                已使用
+                {copy.usedCount(
+                  activeTab === "codes" ? selectedTierUsed : usedCodes.size,
+                  activeTab === "codes"
+                    ? selectedTierCodes.length
+                    : (allowedCodes?.length ?? 0),
+                )}
               </span>
             </div>
             {!isSuperAdmin && activeTab === "codes" && (
@@ -1078,7 +1080,7 @@ export default function AdminPage() {
                       : "border-white/10 bg-black/10 text-white/50",
                   )}
                 >
-                  受限功能授权码（不含第 6、9、11 项）
+                  {copy.limitedTier}
                 </button>
                 <button
                   type="button"
@@ -1090,7 +1092,7 @@ export default function AdminPage() {
                       : "border-white/10 bg-black/10 text-white/50",
                   )}
                 >
-                  全功能授权码
+                  {copy.fullTier}
                 </button>
               </div>
             )}
@@ -1110,8 +1112,8 @@ export default function AdminPage() {
                       }
                       placeholder={
                         activeTab === "managers"
-                          ? "输入现有或新的授权码"
-                          : "输入新的授权码"
+                          ? copy.createManagerPlaceholder
+                          : copy.createCodePlaceholder
                       }
                       className="min-w-0 flex-1 rounded-lg bg-black/20 px-3 py-2 text-sm outline-none"
                     />
@@ -1121,10 +1123,10 @@ export default function AdminPage() {
                       className="rounded-lg bg-amber-500 px-4 text-xs font-semibold text-black disabled:opacity-40"
                     >
                       {activeTab === "managers"
-                        ? "设为管理员"
+                        ? copy.makeManager
                         : newCodeTier === "advanced"
-                          ? "新增全功能授权码"
-                          : "新增受限功能授权码"}
+                          ? copy.addFullCode
+                          : copy.addLimitedCode}
                     </button>
                   </div>
                   {activeTab === "codes" && (
@@ -1140,7 +1142,7 @@ export default function AdminPage() {
                               : "border-white/10 bg-black/10 text-white/50",
                           )}
                         >
-                          受限功能授权码（不含第 6、9、11 项）（
+                          {copy.limitedTier}（
                           {
                             (allowedCodes ?? []).filter(
                               (item) =>
@@ -1159,7 +1161,7 @@ export default function AdminPage() {
                               : "border-white/10 bg-black/10 text-white/50",
                           )}
                         >
-                          全功能授权码（
+                          {copy.fullTier}（
                           {
                             (allowedCodes ?? []).filter(
                               (item) => item.licenseProfileId === fullProfileId,
@@ -1170,7 +1172,7 @@ export default function AdminPage() {
                       </div>
                       {newCodeTier === "advanced" && (
                         <div className="grid grid-cols-2 gap-x-3 gap-y-1 rounded-lg bg-amber-500/10 p-3 text-[10px] text-amber-100 sm:grid-cols-3">
-                          {ADVANCED_FEATURE_SUMMARY.map((feature, index) => (
+                          {copy.featureSummary.map((feature: string, index: number) => (
                             <span key={feature}>
                               {index + 1}. {feature}
                             </span>
@@ -1186,15 +1188,13 @@ export default function AdminPage() {
                 onClick={() =>
                   void migrateLicenses({ password })
                     .then((result) =>
-                      toast.success(
-                        `已为 ${result.migrated} 个授权码应用标准授权配置。`,
-                      ),
+                      toast.success(copy.defaultProfilesApplied(result.migrated)),
                     )
-                    .catch(() => toast.error("无法应用标准授权配置。"))
+                    .catch(() => toast.error(copy.defaultProfilesApplyFailed))
                 }
                 className="w-full rounded-xl border border-blue-400/20 bg-blue-500/10 px-3 py-2 text-xs text-blue-200"
               >
-                为未配置的授权码应用标准授权配置
+                {copy.applyDefaultProfiles}
               </button>
             )}
             {/* Used codes */}
@@ -1232,7 +1232,7 @@ export default function AdminPage() {
                             color: "oklch(0.65 0.15 145)",
                           }}
                         >
-                          已使用
+                          {copy.used}
                         </span>
                         <span className="text-sm font-mono font-bold text-white">
                           {record.code}
@@ -1266,53 +1266,53 @@ export default function AdminPage() {
                           >
                             <div className="text-xs opacity-40 space-y-1">
                               <div>
-                                移动设备：
+                                {copy.mobileDevice}：
                                 <span className="font-mono text-[10px]">
                                   {record.mobileDeviceId ??
                                     (record.desktopDeviceId
-                                      ? "未注册"
+                                      ? copy.statuses.unregistered
                                       : record.deviceId)}
                                 </span>
                               </div>
                               <div>
-                                电脑设备：
+                                {copy.desktopDevice}：
                                 <span className="font-mono text-[10px]">
-                                  {record.desktopDeviceId ?? "未注册"}
+                                  {record.desktopDeviceId ??
+                                    copy.statuses.unregistered}
                                 </span>
                               </div>
                               <div>
-                                注册时间：
-                                {new Date(record.usedAt).toLocaleString(
-                                  "zh-CN",
-                                )}
+                                {copy.registeredAt}：
+                                {formatDateTime(record.usedAt)}
                               </div>
                               <div>
-                                角色：
+                                {copy.role}：
                                 {record.role === "super_admin"
-                                  ? "总管理员"
+                                  ? copy.superAdmin
                                   : record.role === "admin"
-                                    ? "管理员"
-                                    : "普通用户"}
+                                    ? copy.admin
+                                    : copy.user}
                               </div>
                               <div>
-                                状态：
-                                {record.online ? "在线" : "离线"}／
-                                {record.enabled ? "启用" : "停用"}
+                                {copy.status}：
+                                {record.online
+                                  ? copy.statuses.online
+                                  : copy.statuses.offline}
+                                ／
+                                {record.enabled
+                                  ? copy.statuses.enabled
+                                  : copy.statuses.disabled}
                               </div>
                               {record.lastSeenAt && (
                                 <div>
-                                  最后连接：
-                                  {new Date(record.lastSeenAt).toLocaleString(
-                                    "zh-CN",
-                                  )}
+                                  {copy.lastSeen}：
+                                  {formatDateTime(record.lastSeenAt)}
                                 </div>
                               )}
                               {record.expiresAt && (
                                 <div>
-                                  有效期限：
-                                  {new Date(
-                                    record.expiresAt,
-                                  ).toLocaleDateString("zh-CN")}
+                                  {copy.expiresAt}：
+                                  {formatDate(record.expiresAt)}
                                 </div>
                               )}
                             </div>
@@ -1336,7 +1336,7 @@ export default function AdminPage() {
                                       className="flex items-center gap-1.5 rounded-lg bg-red-500/15 px-3 py-2 text-xs font-semibold text-red-300"
                                     >
                                       <LogOut size={12} />
-                                      解除登录
+                                      {copy.logoutDevice}
                                     </button>
                                   )}
                                   {isSuperAdmin && (
@@ -1347,7 +1347,7 @@ export default function AdminPage() {
                                       className="flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white"
                                     >
                                       <Trash2 size={12} />
-                                      删除授权码
+                                      {copy.deleteCode}
                                     </button>
                                   )}
                                 </div>
@@ -1366,14 +1366,14 @@ export default function AdminPage() {
                                             ? "user"
                                             : "admin",
                                       }).then(() =>
-                                        toast.success("权限已更新。"),
+                                        toast.success(copy.permissionUpdated),
                                       )
                                     }
                                     className="rounded-lg bg-amber-500/20 px-3 py-1.5 text-xs text-amber-300"
                                   >
                                     {record.role === "admin"
-                                      ? "移除管理员权限"
-                                      : "设为管理员"}
+                                      ? copy.removeAdminRole
+                                      : copy.setAdminRole}
                                   </button>
                                   <button
                                     onClick={() =>
@@ -1382,12 +1382,12 @@ export default function AdminPage() {
                                         targetCode: record.code,
                                         enabled: !record.enabled,
                                       }).then(() =>
-                                        toast.success("使用状态已更新。"),
+                                        toast.success(copy.usageStateUpdated),
                                       )
                                     }
                                     className="rounded-lg bg-white/10 px-3 py-1.5 text-xs"
                                   >
-                                    {record.enabled ? "停用" : "启用"}
+                                    {record.enabled ? copy.disable : copy.enable}
                                   </button>
                                   <button
                                     onClick={() => handleReset(record.code)}
@@ -1398,7 +1398,7 @@ export default function AdminPage() {
                                     }}
                                   >
                                     <RotateCcw size={12} />
-                                    重置授权码
+                                    {copy.resetCode}
                                   </button>
                                   <button
                                     onClick={() => handleDelete(record.code)}
@@ -1409,7 +1409,7 @@ export default function AdminPage() {
                                     }}
                                   >
                                     <Trash2 size={12} />
-                                    删除用户
+                                    {copy.deleteUser}
                                   </button>
                                 </div>
                               )}
@@ -1424,7 +1424,7 @@ export default function AdminPage() {
             {activeTab === "codes" && (
               <div className="pt-2">
                 <p className="text-[10px] opacity-30 tracking-widest uppercase mb-2">
-                  未使用授权码
+                  {copy.unusedCodesTitle}
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {(allowedCodes ?? [])
@@ -1446,7 +1446,7 @@ export default function AdminPage() {
                         {code}
                         {isSuperAdmin && role !== "super_admin" && (
                           <button
-                            aria-label={`删除授权码 ${code}`}
+                            aria-label={copy.deleteCodeAria(code)}
                             onClick={() => void handleDelete(code)}
                             className="text-red-400 hover:text-red-300"
                           >
@@ -1466,10 +1466,10 @@ export default function AdminPage() {
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-xs font-semibold opacity-40 tracking-widest uppercase">
-                用户列表
+                {copy.usersTitle}
               </h2>
               <span className="text-xs opacity-30">
-                {filteredUsers.length} 项
+                {copy.countItems(filteredUsers.length)}
               </span>
             </div>
             {/* Search */}
@@ -1485,7 +1485,7 @@ export default function AdminPage() {
                 type="text"
                 value={userSearch}
                 onChange={(e) => setUserSearch(e.target.value)}
-                placeholder="按姓名或授权码搜索"
+                placeholder={copy.searchUsersPlaceholder}
                 className="flex-1 bg-transparent outline-none text-xs text-white placeholder:text-white/30"
               />
               {userSearch && (
@@ -1498,13 +1498,13 @@ export default function AdminPage() {
               )}
             </div>
             {codes === undefined && (
-              <div className="text-xs opacity-30 text-center py-8">
-                正在加载...
+                <div className="text-xs opacity-30 text-center py-8">
+                {copy.loading}
               </div>
             )}
             {codes?.length === 0 && (
               <div className="text-xs opacity-30 text-center py-8">
-                暂无注册用户
+                {copy.noUsers}
               </div>
             )}
             {filteredUsers.map((record) => (
@@ -1547,11 +1547,11 @@ export default function AdminPage() {
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-xs font-semibold opacity-40 tracking-widest uppercase">
-                案件与文件管理
+                {copy.casesTitle}
               </h2>
               <div className="flex items-center gap-2">
                 <span className="text-xs opacity-30">
-                  {filteredCases.length} 项
+                  {copy.countItems(filteredCases.length)}
                 </span>
                 <button
                   onClick={() =>
@@ -1561,13 +1561,13 @@ export default function AdminPage() {
                   }
                   className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-black"
                 >
-                  新增单个案件
+                  {copy.addSingleCase}
                 </button>
                 <button
                   onClick={() => setShowBulkCases(true)}
                   className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white"
                 >
-                  批量新增
+                  {copy.addBulkCases}
                 </button>
               </div>
             </div>
@@ -1583,7 +1583,7 @@ export default function AdminPage() {
                 type="text"
                 value={caseSearch}
                 onChange={(e) => setCaseSearch(e.target.value)}
-                placeholder="按案件编号、名称或负责人搜索"
+                placeholder={copy.searchCasesPlaceholder}
                 className="flex-1 bg-transparent outline-none text-xs text-white placeholder:text-white/30"
               />
               {caseSearch && (
@@ -1596,18 +1596,18 @@ export default function AdminPage() {
               )}
             </div>
             {allCases === undefined && (
-              <div className="text-xs opacity-30 text-center py-8">
-                正在加载...
+                <div className="text-xs opacity-30 text-center py-8">
+                {copy.loading}
               </div>
             )}
             {allCases?.length === 0 && (
               <div className="text-xs opacity-30 text-center py-8">
-                暂无案件
+                {copy.noCases}
               </div>
             )}
             {filteredCases.map((c) => {
               const st =
-                CASE_STATUS_LABELS[c.status] ?? CASE_STATUS_LABELS["open"];
+                caseStatusLabels[c.status] ?? caseStatusLabels["open"];
               return (
                 <div
                   key={c._id}
@@ -1642,7 +1642,7 @@ export default function AdminPage() {
                         {c.title}
                       </div>
                       <div className="text-[10px] opacity-40 mt-0.5">
-                        负责人：{c.assignedName}
+                        {copy.assignee}：{c.assignedName}
                       </div>
                     </div>
                     <div className="flex gap-1">
@@ -1650,7 +1650,7 @@ export default function AdminPage() {
                         onClick={() => void handleEditCase(c)}
                         className="p-1.5 rounded-lg cursor-pointer opacity-50 hover:opacity-90"
                         style={{ background: "oklch(0.5 0.1 230 / 20%)" }}
-                        title="编辑"
+                        title={copy.edit}
                       >
                         <Pencil size={12} />
                       </button>
@@ -1675,17 +1675,17 @@ export default function AdminPage() {
                         style={{
                           background:
                             c.status === s
-                              ? `${CASE_STATUS_LABELS[s].color}25`
+                              ? `${caseStatusLabels[s].color}25`
                               : "oklch(1 0 0 / 5%)",
                           color:
                             c.status === s
-                              ? CASE_STATUS_LABELS[s].color
+                              ? caseStatusLabels[s].color
                               : "oklch(0.6 0 0)",
-                          border: `1px solid ${c.status === s ? CASE_STATUS_LABELS[s].color + "50" : "oklch(1 0 0 / 8%)"}`,
+                          border: `1px solid ${c.status === s ? caseStatusLabels[s].color + "50" : "oklch(1 0 0 / 8%)"}`,
                           fontWeight: c.status === s ? 700 : 400,
                         }}
                       >
-                        {CASE_STATUS_LABELS[s].label}
+                        {caseStatusLabels[s].label}
                       </button>
                     ))}
                   </div>
@@ -1700,23 +1700,23 @@ export default function AdminPage() {
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-xs font-semibold opacity-40 tracking-widest uppercase">
-                通话状态
+                {copy.callsTitle}
               </h2>
               <span
                 className="text-xs"
                 style={{ color: "oklch(0.65 0.15 145)" }}
               >
-                {(activeCalls ?? []).length} 个通话进行中
+                {copy.callsCount((activeCalls ?? []).length)}
               </span>
             </div>
             {activeCalls === undefined && (
               <div className="text-xs opacity-30 text-center py-8">
-                正在加载...
+                {copy.loading}
               </div>
             )}
             {activeCalls?.length === 0 && (
               <div className="text-xs opacity-30 text-center py-8">
-                目前没有进行中的通话
+                {copy.noCalls}
               </div>
             )}
             {(activeCalls ?? []).map((call) => {
@@ -1746,8 +1746,8 @@ export default function AdminPage() {
                       {"groupName" in call
                         ? call.groupName
                         : call.type === "video"
-                          ? "一对一视频通话"
-                          : "一对一语音通话"}
+                          ? copy.directVideoCall
+                          : copy.directVoiceCall}
                     </div>
                     <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-[11px] text-white/65">
                       {call.participants.map((participant) => (
@@ -1761,10 +1761,10 @@ export default function AdminPage() {
                     </div>
                     <div className="mt-1 flex items-center gap-2 text-[10px]">
                       <span className="font-semibold text-emerald-400">
-                        ● 通话中
+                        ● {copy.statuses.inCall}
                       </span>
                       <span className="text-white/35">
-                        通话时长 {formatCallDuration(call.startedAt)}
+                        {copy.callDuration(formatCallDuration(call.startedAt))}
                       </span>
                     </div>
                   </div>
@@ -1783,25 +1783,25 @@ export default function AdminPage() {
                           .then(() =>
                             toast.success(
                               compliance?.status === "active"
-                                ? "录音已停止"
-                                : "已向所有参与者发送录音同意请求",
+                                ? copy.recordingStopped
+                                : copy.recordingRequested,
                             ),
                           )
                           .catch((error) =>
                             toast.error(
                               error instanceof ConvexError
                                 ? (error.data as { message: string }).message
-                                : "操作失败",
+                                : copy.actionFailed,
                             ),
                           )
                       }
                       className={`rounded-lg px-3 py-2 text-xs font-bold ${compliance?.status === "active" ? "bg-red-600 text-white" : "bg-amber-500 text-black"}`}
                     >
                       {compliance?.status === "active"
-                        ? "停止录音"
+                        ? copy.stopRecording
                         : compliance?.status === "requested"
-                          ? "等待录音同意"
-                          : "请求录音"}
+                          ? copy.waitingRecordingConsent
+                          : copy.requestRecording}
                     </button>
                   )}
                   {canManageCallCompliance &&
@@ -1816,23 +1816,23 @@ export default function AdminPage() {
                             .then(() =>
                               toast.success(
                                 compliance.translationEnabled
-                                  ? "已停止转中文文字"
-                                  : "已开启转中文文字",
+                                  ? copy.chineseTextStopped
+                                  : copy.chineseTextStarted,
                               ),
                             )
                             .catch((error) =>
                               toast.error(
                                 error instanceof ConvexError
                                   ? (error.data as { message: string }).message
-                                  : "操作失败",
+                                  : copy.actionFailed,
                               ),
                             )
                         }
                         className={`rounded-lg px-3 py-2 text-xs font-bold ${compliance.translationEnabled ? "bg-blue-600 text-white" : "bg-emerald-500 text-black"}`}
                       >
                         {compliance.translationEnabled
-                          ? "停止转中文文字"
-                          : "开启转中文文字"}
+                          ? copy.stopChineseText
+                          : copy.startChineseText}
                       </button>
                     )}
                 </div>
@@ -1842,7 +1842,7 @@ export default function AdminPage() {
               (complianceDashboard ?? []).length > 0 && (
                 <div className="space-y-3 border-t border-white/10 pt-4">
                   <h3 className="text-xs font-bold text-white/60">
-                    录音与中文即时翻译记录
+                    {copy.recordingsTitle}
                   </h3>
                   {complianceDashboard?.map((session) => (
                     <div
@@ -1855,10 +1855,10 @@ export default function AdminPage() {
                         </span>
                         <span className="text-[10px] uppercase text-white/40">
                           {{
-                            requested: "等待同意",
-                            active: "录音中",
-                            declined: "已拒绝",
-                            stopped: "已停止",
+                            requested: copy.statuses.requested,
+                            active: copy.statuses.active,
+                            declined: copy.statuses.declined,
+                            stopped: copy.statuses.stopped,
                           }[session.status] ?? session.status}
                         </span>
                       </div>
@@ -1873,18 +1873,20 @@ export default function AdminPage() {
                               {line.originalText &&
                                 line.originalText !== line.text && (
                                   <span className="mt-0.5 block text-[10px] text-white/35">
-                                    原文：{line.originalText}
+                                    {copy.originalText}：{line.originalText}
                                   </span>
                                 )}
                               {line.translated === false && (
                                 <span className="ml-1 text-[10px] text-amber-400">
-                                  （翻译暂时失败，显示原文）
+                                  （{copy.translationFailedHint}）
                                 </span>
                               )}
                             </p>
                           ))
                         ) : (
-                          <p className="text-xs text-white/30">暂无翻译内容</p>
+                          <p className="text-xs text-white/30">
+                            {copy.noTranslations}
+                          </p>
                         )}
                       </div>
                       {session.recordings.length > 0 && (
@@ -1913,7 +1915,7 @@ export default function AdminPage() {
         {activeTab === "cases" && (
           <div className="space-y-4">
             <h2 className="border-t border-white/10 pt-4 text-xs font-semibold opacity-40 tracking-widest uppercase">
-              文件与附件
+              {copy.documentsTitle}
             </h2>
 
             {/* Upload form */}
@@ -1926,11 +1928,11 @@ export default function AdminPage() {
             >
               <div className="flex items-center gap-2 text-sm font-semibold text-white">
                 <Upload size={15} />
-                上传文件与附件
+                {copy.uploadDocumentsTitle}
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
-                  <label className="text-[10px] opacity-40">案件编号</label>
+                  <label className="text-[10px] opacity-40">{copy.caseNumber}</label>
                   <input
                     type="text"
                     value={docCaseNumber}
@@ -1944,7 +1946,7 @@ export default function AdminPage() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] opacity-40">身份证号</label>
+                  <label className="text-[10px] opacity-40">{copy.idNumber}</label>
                   <input
                     type="text"
                     value={docIdNumber}
@@ -1960,12 +1962,12 @@ export default function AdminPage() {
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
-                  <label className="text-[10px] opacity-40">姓名</label>
+                  <label className="text-[10px] opacity-40">{copy.name}</label>
                   <input
                     type="text"
                     value={docName}
                     onChange={(e) => setDocName(e.target.value)}
-                    placeholder="姓名"
+                    placeholder={copy.name}
                     className="w-full rounded-lg px-3 py-2 text-xs text-white outline-none"
                     style={{
                       background: "oklch(1 0 0 / 7%)",
@@ -1974,12 +1976,12 @@ export default function AdminPage() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] opacity-40">案件名称</label>
+                  <label className="text-[10px] opacity-40">{copy.caseName}</label>
                   <input
                     type="text"
                     value={docCaseName}
                     onChange={(e) => setDocCaseName(e.target.value)}
-                    placeholder="案件名称"
+                    placeholder={copy.caseName}
                     className="w-full rounded-lg px-3 py-2 text-xs text-white outline-none"
                     style={{
                       background: "oklch(1 0 0 / 7%)",
@@ -1990,7 +1992,7 @@ export default function AdminPage() {
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] opacity-40">
-                  文件、图片、PDF、视频及其他附件
+                  {copy.attachmentsLabel}
                 </label>
                 <label
                   className="flex items-center justify-center gap-2 py-3 rounded-lg text-xs cursor-pointer transition-opacity hover:opacity-80"
@@ -2001,7 +2003,7 @@ export default function AdminPage() {
                   }}
                 >
                   <FileText size={14} />
-                  {docFile ? docFile.name : "选择文件..."}
+                  {docFile ? docFile.name : copy.selectFile}
                   <input
                     type="file"
                     accept="*/*"
@@ -2032,7 +2034,7 @@ export default function AdminPage() {
                 ) : (
                   <Upload size={14} />
                 )}
-                {docUploading ? "正在上传..." : "上传"}
+                {docUploading ? copy.uploading : copy.upload}
               </button>
             </div>
 
@@ -2040,21 +2042,21 @@ export default function AdminPage() {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <p className="text-[10px] opacity-30 tracking-widest uppercase">
-                  已上传文件
+                  {copy.uploadedFiles}
                 </p>
                 <span className="text-xs opacity-30">
-                  {(caseDocuments ?? []).length} 项
+                  {copy.countItems((caseDocuments ?? []).length)}
                 </span>
               </div>
               {caseDocuments === undefined && (
                 <div className="text-xs opacity-30 text-center py-8">
-                  正在加载...
+                  {copy.loading}
                 </div>
               )}
               {caseDocuments?.length === 0 && (
                 <div className="flex flex-col items-center justify-center py-12 gap-3 opacity-30">
                   <FileText size={28} className="text-white" />
-                  <p className="text-xs text-white">暂无已上传文件</p>
+                  <p className="text-xs text-white">{copy.noUploadedFiles}</p>
                 </div>
               )}
               {(caseDocuments ?? []).map((doc) => (
@@ -2085,11 +2087,11 @@ export default function AdminPage() {
                       </span>
                       <span className="text-[10px] opacity-25">|</span>
                       <span className="text-[10px] opacity-40">
-                        身份证号以安全的哈希格式保存
+                        {copy.hashedIdNotice}
                       </span>
                     </div>
                     <div className="text-[10px] opacity-25 mt-0.5">
-                      {new Date(doc.uploadedAt).toLocaleString("zh-CN")}
+                      {formatDateTime(doc.uploadedAt)}
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
@@ -2099,7 +2101,7 @@ export default function AdminPage() {
                         target="_blank"
                         rel="noopener noreferrer"
                         className="p-2 rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
-                        title="查看"
+                        title={copy.view}
                       >
                         <Eye size={13} className="opacity-50" />
                       </a>
@@ -2107,7 +2109,7 @@ export default function AdminPage() {
                     <button
                       onClick={() => void handleDeleteDoc(doc._id)}
                       className="p-2 rounded-lg cursor-pointer opacity-40 hover:opacity-80 transition-opacity"
-                      title="删除"
+                      title={copy.delete}
                       style={{ background: "oklch(0.55 0.22 25 / 15%)" }}
                     >
                       <Trash2 size={12} />
@@ -2124,10 +2126,10 @@ export default function AdminPage() {
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-xs font-semibold opacity-40 tracking-widest uppercase">
-                消息记录
+                {copy.messagesTitle}
               </h2>
               <span className="text-xs opacity-30">
-                {filteredMessages.length} 项
+                {copy.countItems(filteredMessages.length)}
               </span>
             </div>
             <div
@@ -2142,7 +2144,7 @@ export default function AdminPage() {
                 type="text"
                 value={msgSearch}
                 onChange={(e) => setMsgSearch(e.target.value)}
-                placeholder="按发送者或内容搜索"
+                placeholder={copy.searchMessagesPlaceholder}
                 className="flex-1 bg-transparent outline-none text-xs text-white placeholder:text-white/30"
               />
               {msgSearch && (
@@ -2155,13 +2157,13 @@ export default function AdminPage() {
               )}
             </div>
             {allMessages === undefined && (
-              <div className="text-xs opacity-30 text-center py-8">
-                正在加载...
+                <div className="text-xs opacity-30 text-center py-8">
+                {copy.loading}
               </div>
             )}
             {allMessages?.length === 0 && (
               <div className="text-xs opacity-30 text-center py-8">
-                暂无消息
+                {copy.noMessages}
               </div>
             )}
             {filteredMessages.map((msg) => (
@@ -2183,7 +2185,7 @@ export default function AdminPage() {
                     </span>
                   </div>
                   <span className="text-[10px] opacity-30">
-                    {new Date(msg.sentAt).toLocaleString("zh-CN")}
+                    {formatDateTime(msg.sentAt)}
                   </span>
                 </div>
                 {msg.type === "text" && (
@@ -2192,10 +2194,10 @@ export default function AdminPage() {
                   </p>
                 )}
                 {msg.type === "image" && (
-                  <p className="text-xs opacity-40">📷 图片文件</p>
+                  <p className="text-xs opacity-40">{copy.imageFile}</p>
                 )}
                 {msg.type === "video" && (
-                  <p className="text-xs opacity-40">🎥 视频文件</p>
+                  <p className="text-xs opacity-40">{copy.videoFile}</p>
                 )}
               </div>
             ))}

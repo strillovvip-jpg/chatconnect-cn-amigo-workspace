@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { MonitorOff, MonitorUp } from "lucide-react";
+import { useI18n } from "@/lib/i18n";
 import { uiErrorMessage } from "@/lib/utils.ts";
 
 function formatDuration(s: number) {
@@ -33,7 +34,13 @@ function formatDuration(s: number) {
   return `${m}:${sec}`;
 }
 
+function useCallUiCopy() {
+  const { messages } = useI18n();
+  return messages.callUi;
+}
+
 export function CallOverlay() {
+  const copy = useCallUiCopy();
   const { can } = useFeatures();
   const {
     callState,
@@ -126,25 +133,25 @@ export function CallOverlay() {
               <p className="text-xl font-semibold text-white">
                 {callInfo?.chatName}
               </p>
-              {isGroup && <p className="text-xs text-white/40">グループ通話</p>}
+              {isGroup && <p className="text-xs text-white/40">{copy.groupCall}</p>}
               <div className="flex items-center gap-2 text-sm text-white/50 justify-center">
                 <Loader2 size={14} className="animate-spin" />
                 {callState === "ringing"
-                  ? "相手の応答を待っています..."
+                  ? copy.waitingAnswer
                   : callState === "reconnecting"
-                    ? "再接続中..."
-                    : "接続中..."}
+                    ? copy.reconnecting
+                    : copy.connecting}
               </div>
             </div>
             <button
-              aria-label={callState === "ringing" ? "呼び出しをキャンセル" : "通話を終了"}
+              aria-label={callState === "ringing" ? copy.cancelDial : copy.endCall}
               onClick={() => void hangUp()}
               className="mt-2 flex h-16 w-16 items-center justify-center rounded-full bg-red-600 text-white shadow-lg shadow-red-950/40 transition active:scale-95"
             >
               <PhoneOff size={26} />
             </button>
             <span className="-mt-4 text-xs text-white/70">
-              {callState === "ringing" ? "呼び出しをキャンセル" : "通話を終了"}
+              {callState === "ringing" ? copy.cancelDial : copy.endCall}
             </span>
           </motion.div>
         )}
@@ -162,10 +169,10 @@ export function CallOverlay() {
           <button
             onClick={minimizeCall}
             className="flex h-11 items-center justify-center gap-1.5 rounded-full bg-white/10 px-3 text-sm font-semibold text-white"
-            aria-label="通話を切らずに戻る"
+            aria-label={copy.backWithoutHangup}
           >
             <ArrowLeft size={18} />
-            <span>戻る</span>
+            <span>{copy.back}</span>
           </button>
           <div className="min-w-0 text-center">
             <p className="truncate text-base font-semibold text-white">
@@ -178,7 +185,7 @@ export function CallOverlay() {
               {isGroup && (
                 <span className="flex items-center gap-1 text-xs text-white/50">
                   <Users size={11} />
-                  {participantCount} 名が通話中
+                  {copy.participantsInCall(participantCount)}
                 </span>
               )}
             </div>
@@ -213,7 +220,7 @@ export function CallOverlay() {
             )}
             {callInfo?.callType === "video" && can("canVideoCall") && (
               <CallTool
-                label={camOn ? "カメラ" : "カメラOFF"}
+                label={camOn ? copy.camera : copy.cameraOff}
                 active={camOn}
                 onClick={() => void toggleCam()}
               >
@@ -221,12 +228,12 @@ export function CallOverlay() {
               </CallTool>
             )}
             {callInfo?.callType === "video" && camOn && (
-              <CallTool label="カメラ切替" onClick={() => void flipCamera()}>
+              <CallTool label={copy.switchCamera} onClick={() => void flipCamera()}>
                 <SwitchCamera size={19} />
               </CallTool>
             )}
             <CallTool
-              label={micOn ? "マイク" : "マイクOFF"}
+              label={micOn ? copy.mic : copy.micOff}
               active={micOn}
               onClick={() => void toggleMic()}
             >
@@ -234,12 +241,12 @@ export function CallOverlay() {
             </CallTool>
             {callInfo?.callType === "video" && can("canScreenShare") && (
               <CallTool
-                label={screenShareOn ? "共有停止" : "画面共有"}
+                label={screenShareOn ? copy.stopShare : copy.screenShare}
                 active={screenShareOn}
                 disabled={!screenShareOn && !screenShareSupported}
                 onClick={() =>
                   void toggleScreenShare().catch((error) =>
-                    toast.error(uiErrorMessage(error, "この端末では画面共有できません。")),
+                    toast.error(uiErrorMessage(error, copy.screenShareUnsupported)),
                   )
                 }
               >
@@ -250,7 +257,7 @@ export function CallOverlay() {
                 )}
               </CallTool>
             )}
-            <CallTool label="通話終了" danger onClick={() => void hangUp()}>
+            <CallTool label={copy.endCall} danger onClick={() => void hangUp()}>
               <PhoneOff size={20} />
             </CallTool>
           </div>
@@ -261,6 +268,7 @@ export function CallOverlay() {
 }
 
 function WaitingVideoPreview({ file, loop }: { file: File; loop: boolean }) {
+  const copy = useCallUiCopy();
   const [url, setUrl] = useState("");
   useEffect(() => {
     const nextUrl = URL.createObjectURL(file);
@@ -277,11 +285,11 @@ function WaitingVideoPreview({ file, loop }: { file: File; loop: boolean }) {
           playsInline
           loop={loop}
           className="h-full w-full object-contain"
-          aria-label="通話前の動画プレビュー"
+          aria-label={copy.waitingVideoPreview}
         />
       )}
       <div className="absolute bottom-3 left-3 rounded-full bg-black/60 px-3 py-1 text-xs text-white/80 backdrop-blur">
-        送信予定の動画を再生中
+        {copy.sendingPreview}
       </div>
     </div>
   );
@@ -304,15 +312,16 @@ function VideoSourceButton({
   }) => Promise<void>;
   aiAvailable: boolean;
 }) {
+  const copy = useCallUiCopy();
   const [open, setOpen] = useState(false);
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const labels = {
-    camera: "カメラ",
-    "video-file": "動画",
-    ai: "AI 换脸",
-    "screen-share": "画面共有",
+    camera: copy.sourceCamera,
+    "video-file": copy.sourceVideo,
+    ai: copy.sourceAi,
+    "screen-share": copy.sourceScreenShare,
   } as const;
   const run = async (task: () => Promise<void>, close = true) => {
     setBusy(true);
@@ -320,7 +329,7 @@ function VideoSourceButton({
       await task();
       if (close) setOpen(false);
     } catch (error) {
-      toast.error(uiErrorMessage(error, "映像ソースを切り替えられません。"));
+      toast.error(uiErrorMessage(error, copy.sourceSwitchFailed));
     } finally {
       setBusy(false);
     }
@@ -329,7 +338,7 @@ function VideoSourceButton({
   return (
     <div className="relative">
       <CallTool
-        label={`视频：${labels[source]}`}
+        label={copy.sourceButton(labels[source])}
         active={source !== "camera"}
         disabled={switching}
         onClick={() => setOpen(true)}
@@ -351,14 +360,14 @@ function VideoSourceButton({
           >
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-lg font-semibold">映像ソース</h2>
+                <h2 className="text-lg font-semibold">{copy.sourceTitle}</h2>
                 <p className="mt-1 text-xs text-white/55">
-                  通話を切らずに映像ソースを切り替えます
+                  {copy.sourceSubtitle}
                 </p>
               </div>
               <button
                 type="button"
-                aria-label="閉じる"
+                aria-label={copy.back}
                 onClick={() => setOpen(false)}
                 className="rounded-full p-2 text-white/70"
               >
@@ -369,26 +378,26 @@ function VideoSourceButton({
               <SourceOption
                 active={source === "camera"}
                 disabled={busy}
-                label="カメラ"
+                label={copy.sourceCamera}
                 onClick={() => void run(() => onSwitch("camera"))}
               />
               <SourceOption
                 active={source === "screen-share"}
                 disabled={busy}
-                label="画面共有"
+                label={copy.sourceScreenShare}
                 onClick={() => void run(() => onSwitch("screen-share"))}
               />
               <SourceOption
                 active={source === "video-file"}
                 disabled={busy}
-                label="動画ファイルを選択"
+                label={copy.chooseVideoFile}
                 onClick={() => fileRef.current?.click()}
               />
               {aiAvailable && (
                 <SourceOption
                   active={source === "ai"}
                   disabled={busy}
-                  label="AI 换脸"
+                  label={copy.sourceAi}
                   onClick={() => void run(() => onSwitch("ai"))}
                 />
               )}
@@ -405,14 +414,14 @@ function VideoSourceButton({
               }}
             />
             <p className="mt-4 rounded-xl bg-white/7 px-3 py-3 text-sm text-white/65">
-              選択した動画は、別の動画に切り替えるかカメラに戻すまでループ再生されます。
+              {copy.sourceLoopHint}
             </p>
             <div className="mt-3 flex gap-2">
               <input
                 value={url}
                 onChange={(event) => setUrl(event.target.value)}
                 inputMode="url"
-                placeholder="アップロード済み動画のURL"
+                placeholder={copy.uploadedVideoUrl}
                 className="min-w-0 flex-1 rounded-xl border border-white/15 bg-white/7 px-3 py-2 text-sm outline-none focus:border-blue-500"
               />
               <button
@@ -423,7 +432,7 @@ function VideoSourceButton({
                 }
                 className="rounded-xl bg-blue-600 px-4 text-sm font-semibold disabled:opacity-40"
               >
-                再生
+                {copy.play}
               </button>
             </div>
           </div>
@@ -500,6 +509,7 @@ function CallTool({
 }
 
 export function CallPiP() {
+  const copy = useCallUiCopy();
   const { can } = useFeatures();
   const {
     callState,
@@ -535,7 +545,7 @@ export function CallPiP() {
     <motion.div
       role="button"
       tabIndex={0}
-      aria-label="全画面通話に戻る"
+      aria-label={copy.fullscreenCall}
       initial={{ opacity: 0, scale: 0.8, y: 20 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.8, y: 20 }}
@@ -627,7 +637,7 @@ export function CallPiP() {
                 {formatDuration(duration)}
               </span>
               <button
-                aria-label="全画面に戻る"
+                aria-label={copy.fullscreen}
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -643,7 +653,7 @@ export function CallPiP() {
           {isGroup && (
             <div className="flex items-center gap-1 text-[9px] text-white/50">
               <Users size={9} />
-              {participantCount} 名
+              {copy.participantCount(participantCount)}
             </div>
           )}
           <div className="flex items-center gap-1.5">
@@ -651,7 +661,7 @@ export function CallPiP() {
               <TransferButton compact />
             )}
             <button
-              aria-label="マイク切替"
+              aria-label={copy.toggleMic}
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
@@ -672,7 +682,7 @@ export function CallPiP() {
             </button>
             {callInfo?.callType === "video" && can("canScreenShare") && (
               <button
-                aria-label="カメラ切替"
+                aria-label={copy.toggleCam}
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -694,13 +704,13 @@ export function CallPiP() {
             )}
             {callInfo?.callType === "video" && (
               <button
-                aria-label={screenShareOn ? "画面共有を停止" : "画面を共有"}
+                aria-label={screenShareOn ? copy.stopScreenShare : copy.shareScreen}
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
                   e.stopPropagation();
                   void toggleScreenShare().catch((error) =>
                     toast.error(
-                      uiErrorMessage(error, "この端末は画面共有に対応していません。"),
+                      uiErrorMessage(error, copy.deviceNoScreenShare),
                     ),
                   );
                 }}
@@ -719,7 +729,7 @@ export function CallPiP() {
               </button>
             )}
             <button
-              aria-label="通話終了"
+              aria-label={copy.endCall}
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
@@ -745,6 +755,7 @@ function credentials() {
 }
 
 function TransferButton({ compact }: { compact: boolean }) {
+  const copy = useCallUiCopy();
   const { callInfo } = useCall();
   const creds = credentials();
   const contacts = useQuery(
@@ -785,7 +796,7 @@ function TransferButton({ compact }: { compact: boolean }) {
   return (
     <>
       <button
-        aria-label="转接通话"
+        aria-label={copy.transferCall}
         onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => {
           e.stopPropagation();
@@ -799,7 +810,7 @@ function TransferButton({ compact }: { compact: boolean }) {
         style={{ background: "rgba(255,255,255,.18)", color: "white" }}
       >
         <ArrowRightLeft size={compact ? 12 : 14} />
-        {!compact && (transferInProgress ? "転送中" : "転送")}
+        {!compact && (transferInProgress ? copy.transferring : copy.transfer)}
       </button>
       {open && (
         <div
@@ -811,7 +822,7 @@ function TransferButton({ compact }: { compact: boolean }) {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between">
-              <h3 className="font-semibold text-white">转接通话</h3>
+              <h3 className="font-semibold text-white">{copy.transferTitle}</h3>
               <button onClick={() => setOpen(false)}>
                 <X className="text-white" size={18} />
               </button>
@@ -819,10 +830,10 @@ function TransferButton({ compact }: { compact: boolean }) {
             {transferInProgress ? (
               <div className="rounded-xl bg-white/10 p-4 text-center">
                 <p className="text-sm font-semibold text-white">
-                  正在等待新的接听人接听
+                  {copy.waitingNewReceiver}
                 </p>
                 <p className="mt-1 text-xs text-white/60">
-                  转接完成前，当前通话会保持连接。
+                  {copy.keepConnectedDuringTransfer}
                 </p>
                 <button
                   disabled={busy}
@@ -833,14 +844,14 @@ function TransferButton({ compact }: { compact: boolean }) {
                         ...credentials(),
                         transferId: outgoing._id,
                       });
-                      toast.success("已取消通话转接。");
+                      toast.success(copy.transferCancelled);
                       setOpen(false);
                     } catch (error) {
                       toast.error(
                         error instanceof ConvexError
                           ? ((error.data as { message?: string }).message ??
-                              "无法取消通话转接。")
-                          : "无法取消通话转接。",
+                              copy.cancelTransferFailed)
+                          : copy.cancelTransferFailed,
                       );
                     } finally {
                       setBusy(false);
@@ -848,13 +859,13 @@ function TransferButton({ compact }: { compact: boolean }) {
                   }}
                   className="mt-4 w-full rounded-xl bg-white/10 py-3 text-sm font-semibold text-white disabled:opacity-40"
                 >
-                  取消转接
+                  {copy.cancelTransfer}
                 </button>
               </div>
             ) : (
               <>
                 <p className="mb-3 text-xs text-white/60">
-                  可按授权码或姓名搜索。新接听人接听并加入前，当前通话会保持连接。
+                  {copy.transferSearchHint}
                 </p>
                 {(contacts?.length ?? 0) > 0 && (
                   <div className="mb-3 max-h-36 space-y-1 overflow-auto">
@@ -894,7 +905,7 @@ function TransferButton({ compact }: { compact: boolean }) {
                       /^[A-Z]{5}$/.test(normalized) ? normalized : "",
                     );
                   }}
-                  placeholder="授权码或姓名"
+                  placeholder={copy.searchCodeOrName}
                   className="w-full rounded-xl border border-white/10 bg-white/10 px-4 py-3 text-white outline-none"
                 />
                 {debouncedSearch.trim() && (
@@ -920,7 +931,7 @@ function TransferButton({ compact }: { compact: boolean }) {
                     {searchResults !== undefined &&
                       selectableResults.length === 0 && (
                         <p className="px-2 py-3 text-center text-xs text-white/45">
-                          未找到匹配的接听人。
+                          {copy.noTransferMatch}
                         </p>
                       )}
                   </div>
@@ -935,13 +946,13 @@ function TransferButton({ compact }: { compact: boolean }) {
                         callId: callInfo.callId!,
                         targetCode,
                       });
-                      toast.success("转接请求已发送，正在等待接听人接听。");
+                      toast.success(copy.transferSent);
                     } catch (error) {
                       toast.error(
                         error instanceof ConvexError
                           ? ((error.data as { message?: string }).message ??
-                              "无法转接通话。")
-                          : "无法转接通话。",
+                              copy.transferFailed)
+                          : copy.transferFailed,
                       );
                     } finally {
                       setBusy(false);
@@ -949,7 +960,7 @@ function TransferButton({ compact }: { compact: boolean }) {
                   }}
                   className="mt-4 w-full rounded-xl bg-blue-600 py-3 font-semibold text-white disabled:opacity-40"
                 >
-                  {busy ? "正在发送..." : "发送转接请求"}
+                  {busy ? copy.sending : copy.sendTransferRequest}
                 </button>
               </>
             )}
@@ -961,6 +972,7 @@ function TransferButton({ compact }: { compact: boolean }) {
 }
 
 export function GlobalTransferNotification() {
+  const copy = useCallUiCopy();
   const creds = credentials();
   const { callInfo, startCall, hangUp, waitForTransferReady } = useCall();
   const pending = useQuery(
@@ -986,19 +998,26 @@ export function GlobalTransferNotification() {
     if (handledStatus.current === key) return;
     if (outgoing.status === "completed") {
       handledStatus.current = key;
-      toast.success("通话已转接");
+      toast.success(copy.transferCompleted);
       void hangUp();
     } else if (outgoing.status === "rejected") {
       handledStatus.current = key;
-      toast.error("对方拒绝了通话转接");
+      toast.error(copy.transferRejected);
     } else if (outgoing.status === "expired") {
       handledStatus.current = key;
-      toast.error("转接对象未接听");
+      toast.error(copy.transferExpired);
     } else if (outgoing.status === "failed") {
       handledStatus.current = key;
-      toast.error("新接听人无法加入，将继续原通话");
+      toast.error(copy.transferJoinFailedContinue);
     }
-  }, [outgoing, hangUp]);
+  }, [
+    copy.transferCompleted,
+    copy.transferExpired,
+    copy.transferJoinFailedContinue,
+    copy.transferRejected,
+    outgoing,
+    hangUp,
+  ]);
 
   if (!pending) return null;
   return (
@@ -1007,10 +1026,9 @@ export function GlobalTransferNotification() {
         <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-blue-600/25">
           <ArrowRightLeft size={34} />
         </div>
-        <p className="mt-5 text-xl font-semibold">收到通话转接请求</p>
+        <p className="mt-5 text-xl font-semibold">{copy.incomingTransferTitle}</p>
         <p className="mt-3 text-sm leading-6 text-white/70">
-          {pending.fromName} 请求将其与 {pending.remoteName}
-          的通话转接给您
+          {copy.incomingTransferBody(pending.fromName, pending.remoteName)}
         </p>
         <div className="mt-6 flex gap-3">
           <button
@@ -1029,7 +1047,7 @@ export function GlobalTransferNotification() {
             }}
             className="flex-1 rounded-xl bg-red-600 py-3 font-semibold"
           >
-            拒绝
+            {copy.reject}
           </button>
           <button
             disabled={busy}
@@ -1068,25 +1086,25 @@ export function GlobalTransferNotification() {
                 if (!joined)
                   throw lastError instanceof Error
                     ? lastError
-                    : new Error("无法连接转接通话。");
+                    : new Error(copy.connectTransferredFailed);
                 await waitForTransferReady();
                 await confirm({ ...creds, transferId: pending._id });
-                toast.success("已加入转接通话");
+                toast.success(copy.joinedTransferred);
               } catch (error) {
                 await failJoin({
                   ...creds,
                   transferId: pending._id,
-                  reason: uiErrorMessage(error, "加入转接通话失败"),
+                  reason: uiErrorMessage(error, copy.connectTransferredFailed),
                 }).catch(() => undefined);
                 await hangUp();
-                toast.error("加入或确认转接通话失败，原通话将继续");
+                toast.error(copy.joinTransferredFailed);
               } finally {
                 setBusy(false);
               }
             }}
             className="flex-1 rounded-xl bg-green-600 py-2 font-semibold"
           >
-            接听
+            {copy.accept}
           </button>
         </div>
       </div>

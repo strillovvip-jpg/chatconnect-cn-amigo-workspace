@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api.js";
+import { localeToHtmlLang, useI18n } from "@/lib/i18n";
 import { uiErrorMessage } from "@/lib/utils.ts";
 import { useCall } from "@/contexts/call-context.tsx";
 import type { Id } from "@/convex/_generated/dataModel.js";
@@ -35,11 +36,17 @@ const NotificationContext = createContext<NotificationContextValue>({
 });
 export const useNotifications = () => useContext(NotificationContext);
 
+function useNotificationCopy() {
+  const { messages } = useI18n();
+  return messages.notification;
+}
+
 export function NotificationBellButton() {
+  const copy = useNotificationCopy();
   const { unreadCount, openCenter } = useNotifications();
   return (
     <button
-      aria-label="打开通知中心"
+      aria-label={copy.openCenter}
       onClick={openCenter}
       className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/15 bg-[#16233b] text-white shadow-md"
     >
@@ -59,8 +66,8 @@ function session() {
     deviceId: localStorage.getItem("ksc_device_id") ?? "",
   };
 }
-function timeLabel(timestamp: number) {
-  return new Intl.DateTimeFormat("zh-CN", {
+function timeLabel(timestamp: number, locale: string) {
+  return new Intl.DateTimeFormat(locale, {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
@@ -138,6 +145,8 @@ export function GlobalNotificationProvider({
 }: {
   children: React.ReactNode;
 }) {
+  const { locale } = useI18n();
+  const copy = useNotificationCopy();
   const navigate = useNavigate();
   const location = useLocation();
   const [credentials, setCredentials] = useState(session);
@@ -232,13 +241,13 @@ export function GlobalNotificationProvider({
       !("PushManager" in window) ||
       !("Notification" in window)
     )
-      throw new Error("此浏览器不支持后台通知。");
+      throw new Error(copy.pushUnsupported);
     const registration = await navigator.serviceWorker.ready;
     const existing = await registration.pushManager.getSubscription();
     if (existing && pushEnabled) {
       await removePush({ ...credentials, endpoint: existing.endpoint });
       await existing.unsubscribe();
-      toast.success("后台通知已关闭");
+      toast.success(copy.pushDisabled);
       return;
     }
     if (existing) {
@@ -249,14 +258,14 @@ export function GlobalNotificationProvider({
         p256dh: json.keys?.p256dh ?? "",
         auth: json.keys?.auth ?? "",
       });
-      toast.success("后台通知已开启");
+      toast.success(copy.pushEnabled);
       return;
     }
     const publicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY as
       string | undefined;
-    if (!publicKey) throw new Error("未配置 VITE_VAPID_PUBLIC_KEY。");
+    if (!publicKey) throw new Error(copy.vapidMissing);
     if ((await Notification.requestPermission()) !== "granted")
-      throw new Error("浏览器通知权限未获授权。");
+      throw new Error(copy.permissionDenied);
     const padding = "=".repeat((4 - (publicKey.length % 4)) % 4);
     const bytes = Uint8Array.from(
       atob((publicKey + padding).replace(/-/g, "+").replace(/_/g, "/")),
@@ -273,7 +282,7 @@ export function GlobalNotificationProvider({
       p256dh: json.keys?.p256dh ?? "",
       auth: json.keys?.auth ?? "",
     });
-    toast.success("后台通知已开启");
+    toast.success(copy.pushEnabled);
   };
 
   const urgent = unread?.find(
@@ -297,8 +306,14 @@ export function GlobalNotificationProvider({
           incomingCall.callType === "video"
             ? ("video_call" as const)
             : ("audio_call" as const),
-        title: incomingCall.callType === "video" ? "视频来电" : "语音来电",
-        message: `${incomingCall.callerName}（${incomingCall.callerCode}）正在呼叫`,
+        title:
+          incomingCall.callType === "video"
+            ? copy.incomingVideo
+            : copy.incomingAudio,
+        message: copy.callerMessage(
+          incomingCall.callerName,
+          incomingCall.callerCode,
+        ),
         data: {
           callId: incomingCall.callId,
           callType: incomingCall.callType,
@@ -355,11 +370,11 @@ export function GlobalNotificationProvider({
     if (outgoingHandled.current === key) return;
     if (outgoing.status === "rejected") {
       outgoingHandled.current = key;
-      toast.error("对方拒绝接听");
+      toast.error(copy.rejected);
       void hangUp();
     } else if (outgoing.status === "missed" || outgoing.status === "expired") {
       outgoingHandled.current = key;
-      toast.error("对方未接听");
+      toast.error(copy.missed);
       void hangUp();
     } else if (
       ["accepted", "connecting", "connected"].includes(outgoing.status)
@@ -374,7 +389,7 @@ export function GlobalNotificationProvider({
       )
         return;
       outgoingJoining.current = outgoing.callId;
-      toast.success(`${outgoing.calleeName ?? "对方"} 已接听`);
+      toast.success(copy.connected(outgoing.calleeName ?? "Other party"));
       void (async () => {
         let lastError: unknown;
         for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -406,10 +421,11 @@ export function GlobalNotificationProvider({
           error: lastError,
         });
         outgoingJoining.current = null;
-        toast.error("无法连接通话，请重试。");
+        toast.error(copy.connectFailed);
       })();
     }
   }, [
+    copy,
     outgoing,
     callState,
     credentials,
@@ -461,7 +477,7 @@ export function GlobalNotificationProvider({
         });
       }
     } catch (error) {
-      toast.error(uiErrorMessage(error, "通知处理失败"));
+      toast.error(uiErrorMessage(error, copy.handleFailed));
     } finally {
       setBusy(false);
     }
@@ -477,7 +493,7 @@ export function GlobalNotificationProvider({
         navigate("/consultation", { state: { notificationTab: "docsearch" } });
       else {
         navigate("/consultation", { replace: true });
-        toast.error("您无权访问此页面。");
+        toast.error(copy.noAccess);
       }
     } else if (source === "group" || source === "group_call")
       navigate("/consultation", { state: { notificationTab: "groupcall" } });
@@ -512,7 +528,7 @@ export function GlobalNotificationProvider({
         callState === "idle" &&
         location.pathname !== "/consultation" && (
           <button
-            aria-label="通知センターを開く"
+            aria-label={copy.openCenter}
             onClick={() => setCenterOpen(true)}
             className={`fixed top-[max(1rem,var(--app-safe-area-top))] z-[22000] flex h-11 w-11 items-center justify-center rounded-full border border-white/15 bg-[#16233b] text-white shadow-xl ${location.pathname.startsWith("/consultation/chat/") ? "right-[5.5rem]" : "right-4"}`}
           >
@@ -535,28 +551,28 @@ export function GlobalNotificationProvider({
           >
             <header className="flex items-center justify-between border-b border-white/10 px-5 pb-4 pt-[max(1.25rem,var(--app-safe-area-top))]">
               <div>
-                <h2 className="text-lg font-bold">通知センター</h2>
+                <h2 className="text-lg font-bold">{copy.title}</h2>
                 <p className="text-xs text-white/45">
-                  未読 {unread?.length ?? 0} 件
+                  {copy.unreadCount(unread?.length ?? 0)}
                 </p>
               </div>
               <div className="flex gap-2">
                 <button
-                  title="着信設定"
+                  title={copy.callSettings}
                   onClick={() => setSettingsOpen(true)}
                   className="rounded-lg bg-white/10 p-2"
                 >
                   <Settings size={18} />
                 </button>
                 <button
-                  title="すべて既読にする"
+                  title={copy.markAllRead}
                   onClick={() => void markAllRead(credentials)}
                   className="rounded-lg bg-white/10 p-2"
                 >
                   <CheckCheck size={18} />
                 </button>
                 <button
-                  title="閉じる"
+                  title={copy.close}
                   onClick={() => setCenterOpen(false)}
                   className="rounded-lg bg-white/10 p-2"
                 >
@@ -567,7 +583,7 @@ export function GlobalNotificationProvider({
             <div className="flex-1 overflow-auto">
               {notifications?.length === 0 && (
                 <div className="py-20 text-center text-sm text-white/35">
-                  通知はありません
+                  {copy.empty}
                 </div>
               )}
               {notifications?.map((item) => (
@@ -592,7 +608,7 @@ export function GlobalNotificationProvider({
                       </span>
                       <span className="flex shrink-0 items-center gap-1 text-[10px] text-white/35">
                         <Clock size={10} />
-                        {timeLabel(item.createdAt)}
+                        {timeLabel(item.createdAt, localeToHtmlLang(locale))}
                       </span>
                     </div>
                     <p className="mt-1 text-xs leading-5 text-white/60">
@@ -600,13 +616,13 @@ export function GlobalNotificationProvider({
                     </p>
                     {item.readAt && (
                       <p className="mt-1 text-[10px] text-white/30">
-                        既読：{timeLabel(item.readAt)}
+                        {copy.readAt(timeLabel(item.readAt, localeToHtmlLang(locale)))}
                       </p>
                     )}
                   </div>
                   <span
                     role="button"
-                    aria-label="通知を削除"
+                    aria-label={copy.deleteNotification}
                     onClick={(event) => {
                       event.stopPropagation();
                       void dismiss({
@@ -636,7 +652,7 @@ export function GlobalNotificationProvider({
             <div className="mb-5 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Volume2 size={19} />
-                <h2 className="font-bold">通知と着信音</h2>
+                <h2 className="font-bold">{copy.settingsTitle}</h2>
               </div>
               <button onClick={() => setSettingsOpen(false)}>
                 <X size={18} />
@@ -645,20 +661,20 @@ export function GlobalNotificationProvider({
             <button
               onClick={() =>
                 void configurePush().catch((error) =>
-                  toast.error(uiErrorMessage(error, "バックグラウンド通知の設定に失敗しました")),
+                  toast.error(uiErrorMessage(error, copy.pushStatusError)),
                 )
               }
               className="mb-3 flex w-full items-center justify-between rounded-xl bg-white/5 px-4 py-3 text-sm"
             >
-              <span>バックグラウンド通知</span>
+              <span>{copy.pushToggle}</span>
               <span
                 className={pushEnabled ? "text-green-400" : "text-white/45"}
               >
-                {pushEnabled ? "有効" : "無効"}
+                {pushEnabled ? copy.enabled : copy.disabled}
               </span>
             </button>
             <label className="flex items-center justify-between rounded-xl bg-white/5 px-4 py-3">
-              <span className="text-sm">着信音</span>
+              <span className="text-sm">{copy.ringtone}</span>
               <input
                 type="checkbox"
                 checked={ringtoneEnabled}
@@ -673,7 +689,7 @@ export function GlobalNotificationProvider({
               />
             </label>
             <label className="mt-3 flex items-center justify-between rounded-xl bg-white/5 px-4 py-3">
-              <span className="text-sm">メッセージ通知音</span>
+              <span className="text-sm">{copy.messageSound}</span>
               <input
                 type="checkbox"
                 checked={notificationSoundEnabled}
@@ -689,11 +705,11 @@ export function GlobalNotificationProvider({
             </label>
             <div className="mt-4 rounded-xl bg-white/5 px-4 py-3">
               <div className="mb-2 flex justify-between text-sm">
-                <span>音量</span>
+                <span>{copy.volume}</span>
                 <span>{Math.round(ringtoneVolume * 100)}%</span>
               </div>
               <input
-                aria-label="着信音の音量"
+                aria-label={copy.volume}
                 type="range"
                 min="0"
                 max="1"
@@ -708,16 +724,16 @@ export function GlobalNotificationProvider({
               />
             </div>
             <div className="mt-4 rounded-xl bg-white/5 px-4 py-3">
-              <label className="text-sm">カスタム着信音</label>
+              <label className="text-sm">{copy.uploadCustom}</label>
               <input
-                aria-label="カスタム着信音をアップロード"
+                aria-label={copy.uploadCustomAria}
                 type="file"
                 accept="audio/*,.mp3,.m4a,.wav,.ogg"
                 onChange={(event) => {
                   const file = event.target.files?.[0];
                   if (!file) return;
                   if (file.size > 2 * 1024 * 1024) {
-                    toast.error("カスタム着信音は 2 MB 未満にしてください");
+                    toast.error(copy.ringtoneTooLarge);
                     return;
                   }
                   const reader = new FileReader();
@@ -726,9 +742,9 @@ export function GlobalNotificationProvider({
                     try {
                       localStorage.setItem(RINGTONE_CUSTOM_KEY, source);
                       setCustomRingtone(source);
-                      toast.success("カスタム着信音を保存しました");
+                      toast.success(copy.ringtoneSaved);
                     } catch {
-                      toast.error("保存容量が不足しています。より小さい音声ファイルを選択してください");
+                      toast.error(copy.storageFull);
                     }
                   };
                   reader.readAsDataURL(file);
@@ -746,7 +762,7 @@ export function GlobalNotificationProvider({
                   }}
                   className="flex-1 rounded-lg bg-blue-600 py-2 text-xs font-semibold"
                 >
-                  試聴
+                  {copy.preview}
                 </button>
                 <button
                   disabled={!customRingtone}
@@ -756,12 +772,12 @@ export function GlobalNotificationProvider({
                   }}
                   className="flex-1 rounded-lg bg-white/10 py-2 text-xs disabled:opacity-30"
                 >
-                  標準着信音に戻す
+                  {copy.resetDefault}
                 </button>
               </div>
             </div>
             <p className="mt-4 text-[11px] leading-5 text-white/40">
-              一部の iPhone とモバイルブラウザでは、自動再生の前に画面操作が必要です。ログイン操作後に音声再生が有効になります。
+              {copy.autoplayNote}
             </p>
           </div>
         </div>
@@ -789,7 +805,7 @@ export function GlobalNotificationProvider({
                 >
                   <PhoneOff size={26} />
                 </button>
-                <span className="text-xs">拒否</span>
+                <span className="text-xs">{copy.decline}</span>
               </div>
               <div className="flex flex-col items-center gap-2">
                 <button
@@ -803,7 +819,7 @@ export function GlobalNotificationProvider({
                     <Phone size={26} />
                   )}
                 </button>
-                <span className="text-xs">応答</span>
+                <span className="text-xs">{copy.answer}</span>
               </div>
             </div>
           </div>

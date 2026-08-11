@@ -7,6 +7,7 @@ import { Slot } from "radix-ui";
 
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -164,6 +165,7 @@ function Sidebar({
   collapsible?: "offcanvas" | "icon" | "none";
 }) {
   const { isMobile, state, openMobile, setOpenMobile } = useSidebar();
+  const { messages } = useI18n();
 
   if (collapsible === "none") {
     return (
@@ -196,8 +198,8 @@ function Sidebar({
           side={side}
         >
           <SheetHeader className="sr-only">
-            <SheetTitle>侧边菜单</SheetTitle>
-            <SheetDescription>显示移动端侧边菜单。</SheetDescription>
+            <SheetTitle>{messages.uiKit.sidebarTitle}</SheetTitle>
+            <SheetDescription>{messages.uiKit.sidebarDescription}</SheetDescription>
           </SheetHeader>
           <div className="flex h-full w-full flex-col">{children}</div>
         </SheetContent>
@@ -259,6 +261,7 @@ function SidebarTrigger({
   ...props
 }: React.ComponentProps<typeof Button>) {
   const { toggleSidebar } = useSidebar();
+  const { messages } = useI18n();
 
   return (
     <Button
@@ -274,22 +277,23 @@ function SidebarTrigger({
       {...props}
     >
       <PanelLeftIcon />
-      <span className="sr-only">切换侧边菜单</span>
+      <span className="sr-only">{messages.uiKit.toggleSidebar}</span>
     </Button>
   );
 }
 
 function SidebarRail({ className, ...props }: React.ComponentProps<"button">) {
   const { toggleSidebar } = useSidebar();
+  const { messages } = useI18n();
 
   return (
     <button
       data-sidebar="rail"
       data-slot="sidebar-rail"
-      aria-label="切换侧边菜单"
+      aria-label={messages.uiKit.toggleSidebar}
       tabIndex={-1}
       onClick={toggleSidebar}
-      title="切换侧边菜单"
+      title={messages.uiKit.toggleSidebar}
       className={cn(
         "absolute inset-y-0 z-20 hidden w-4 -translate-x-1/2 transition-all ease-linear group-data-[side=left]:-right-4 group-data-[side=right]:left-0 after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] hover:after:bg-sidebar-border sm:flex",
         "in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize",

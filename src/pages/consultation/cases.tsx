@@ -22,18 +22,14 @@ import { api } from "@/convex/_generated/api.js";
 import type { Doc, Id } from "@/convex/_generated/dataModel.d.ts";
 import { ConvexError } from "convex/values";
 import { toast } from "sonner";
+import { useI18n } from "@/lib/i18n";
+import type { Messages } from "@/lib/i18n";
 import { cn } from "@/lib/utils.ts";
 import { motion, AnimatePresence } from "motion/react";
 
 type CaseStatus = Doc<"cases">["status"];
 type CasePriority = Doc<"cases">["priority"];
 
-const STATUS_LABEL: Record<CaseStatus, string> = {
-  open: "待处理",
-  in_progress: "处理中",
-  closed: "已结案",
-  suspended: "已暂停",
-};
 const STATUS_COLOR: Record<CaseStatus, string> = {
   open: "oklch(0.65 0.18 145)",
   in_progress: "oklch(0.72 0.17 75)",
@@ -52,12 +48,6 @@ const STATUS_ICON: Record<CaseStatus, React.ReactNode> = {
   closed: <CheckCircle2 size={12} />,
   suspended: <PauseCircle size={12} />,
 };
-const PRIORITY_LABEL: Record<CasePriority, string> = {
-  low: "低",
-  medium: "中",
-  high: "高",
-  urgent: "紧急",
-};
 const PRIORITY_COLOR: Record<CasePriority, string> = {
   low: "oklch(0.65 0.08 220)",
   medium: "oklch(0.72 0.14 75)",
@@ -74,35 +64,42 @@ const CATEGORIES = [
   "Missing Person",
   "Other",
 ];
-const CATEGORY_LABEL: Record<string, string> = {
-  Fraud: "诈骗",
-  Theft: "盗窃",
-  Assault: "袭击",
-  Narcotics: "毒品",
-  Cybercrime: "网络犯罪",
-  "Missing Person": "失踪人员",
-  Other: "其他",
-};
-const PRIORITIES: { value: CasePriority; label: string }[] = [
-  { value: "low", label: "低" },
-  { value: "medium", label: "中" },
-  { value: "high", label: "高" },
-  { value: "urgent", label: "紧急" },
-];
+const PRIORITIES: CasePriority[] = ["low", "medium", "high", "urgent"];
+type CasesPageCopy = Messages["casesPage"];
+
+function useCasesPageCopy() {
+  const { messages } = useI18n();
+  return messages.casesPage;
+}
+
+function getStatusLabel(copy: CasesPageCopy, status: CaseStatus) {
+  return status === "in_progress" ? copy.statuses.inProgress : copy.statuses[status];
+}
+
+function getPriorityLabel(copy: CasesPageCopy, priority: CasePriority) {
+  return copy.priorities[priority];
+}
+
+function getCategoryLabel(copy: CasesPageCopy, category: string) {
+  const categories = copy.categories as Record<string, string>;
+  return categories[category] ?? category;
+}
 
 function StatusBadge({ status }: { status: CaseStatus }) {
+  const copy = useCasesPageCopy();
   return (
     <span
       className="flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full"
       style={{ background: STATUS_BG[status], color: STATUS_COLOR[status] }}
     >
       {STATUS_ICON[status]}
-      {STATUS_LABEL[status]}
+      {getStatusLabel(copy, status)}
     </span>
   );
 }
 
 function PriorityDot({ priority }: { priority: CasePriority }) {
+  const copy = useCasesPageCopy();
   return (
     <span
       className="text-[10px] font-bold px-1.5 py-0.5 rounded"
@@ -111,7 +108,7 @@ function PriorityDot({ priority }: { priority: CasePriority }) {
         background: `${PRIORITY_COLOR[priority]}20`,
       }}
     >
-      {PRIORITY_LABEL[priority]}
+      {getPriorityLabel(copy, priority)}
     </span>
   );
 }
@@ -126,6 +123,7 @@ function NewCaseModal({
   userName: string;
   onClose: () => void;
 }) {
+  const copy = useCasesPageCopy();
   const createCase = useMutation(api.cases.createCase);
   const [form, setForm] = useState({
     caseNumber: "",
@@ -146,15 +144,15 @@ function NewCaseModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.caseNumber.trim() || !form.idNumber.trim()) {
-      toast.error("请输入案件编号和证件号码。");
+      toast.error(copy.enterCaseAndId);
       return;
     }
     if (!form.title.trim()) {
-      toast.error("请输入案件名称。");
+      toast.error(copy.enterCaseTitle);
       return;
     }
     if (!form.description.trim()) {
-      toast.error("请输入案件摘要。");
+      toast.error(copy.enterSummary);
       return;
     }
     setSaving(true);
@@ -177,12 +175,12 @@ function NewCaseModal({
         suspectName: form.suspectName.trim() || undefined,
         location: form.location.trim() || undefined,
       });
-      toast.success("案件已创建。");
+      toast.success(copy.caseCreated);
       onClose();
     } catch (err) {
       if (err instanceof ConvexError)
         toast.error((err.data as { message: string }).message);
-      else toast.error("发生错误，请稍后重试。");
+      else toast.error(copy.genericError);
     } finally {
       setSaving(false);
     }
@@ -224,7 +222,7 @@ function NewCaseModal({
           >
             <div className="w-10 h-1 rounded-full bg-white/20 mx-auto absolute left-1/2 -translate-x-1/2 top-2" />
             <h2 className="text-base font-semibold text-white mt-2">
-              新建案件
+              {copy.newCase}
             </h2>
             <button
               onClick={onClose}
@@ -237,7 +235,7 @@ function NewCaseModal({
           <form onSubmit={handleSubmit} className="p-5 space-y-4 pb-8">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <label className="text-xs text-white/50">案件编号 *</label>
+                <label className="text-xs text-white/50">{copy.caseNumberLabel}</label>
                 <input
                   value={form.caseNumber}
                   onChange={(e) => set("caseNumber", e.target.value)}
@@ -247,7 +245,7 @@ function NewCaseModal({
                 />
               </div>
               <div className="space-y-1.5">
-                <label className="text-xs text-white/50">证件号码 *</label>
+                <label className="text-xs text-white/50">{copy.idNumberLabel}</label>
                 <input
                   value={form.idNumber}
                   onChange={(e) => set("idNumber", e.target.value)}
@@ -260,24 +258,24 @@ function NewCaseModal({
             {/* Title */}
             <div className="space-y-1.5">
               <label className="text-xs text-white/50 tracking-wide">
-                案件名称 *
+                {copy.caseTitleLabel}
               </label>
               <input
                 value={form.title}
                 onChange={(e) => set("title", e.target.value)}
-                placeholder="例如：市中心盗窃案调查"
+                placeholder={copy.caseTitlePlaceholder}
                 className="w-full rounded-xl px-4 py-3 text-sm outline-none placeholder:text-white/25"
                 style={inputStyle}
               />
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs text-white/50">管理员补充信息</label>
+              <label className="text-xs text-white/50">{copy.adminContentLabel}</label>
               <textarea
                 value={form.adminContent}
                 onChange={(e) => set("adminContent", e.target.value)}
                 rows={4}
-                placeholder="向用户显示的补充信息"
+                placeholder={copy.adminContentPlaceholder}
                 className="w-full rounded-xl px-4 py-3 text-sm outline-none resize-none"
                 style={inputStyle}
               />
@@ -287,7 +285,7 @@ function NewCaseModal({
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <label className="text-xs text-white/50 tracking-wide">
-                  案件类别
+                  {copy.categoryLabel}
                 </label>
                 <select
                   value={form.category}
@@ -297,14 +295,14 @@ function NewCaseModal({
                 >
                   {CATEGORIES.map((c) => (
                     <option key={c} value={c} style={{ background: "#1a2540" }}>
-                      {CATEGORY_LABEL[c] ?? c}
+                      {getCategoryLabel(copy, c)}
                     </option>
                   ))}
                 </select>
               </div>
               <div className="space-y-1.5">
                 <label className="text-xs text-white/50 tracking-wide">
-                  优先级
+                  {copy.priorityLabel}
                 </label>
                 <select
                   value={form.priority}
@@ -316,11 +314,11 @@ function NewCaseModal({
                 >
                   {PRIORITIES.map((p) => (
                     <option
-                      key={p.value}
-                      value={p.value}
+                      key={p}
+                      value={p}
                       style={{ background: "#1a2540" }}
                     >
-                      {p.label}
+                      {getPriorityLabel(copy, p)}
                     </option>
                   ))}
                 </select>
@@ -330,12 +328,12 @@ function NewCaseModal({
             {/* Description */}
             <div className="space-y-1.5">
               <label className="text-xs text-white/50 tracking-wide">
-                案件摘要 *
+                {copy.descriptionLabel}
               </label>
               <textarea
                 value={form.description}
                 onChange={(e) => set("description", e.target.value)}
-                placeholder="请输入案件详情"
+                placeholder={copy.descriptionPlaceholder}
                 rows={3}
                 className="w-full rounded-xl px-4 py-3 text-sm outline-none resize-none placeholder:text-white/25"
                 style={inputStyle}
@@ -345,12 +343,12 @@ function NewCaseModal({
             {/* Location */}
             <div className="space-y-1.5">
               <label className="text-xs text-white/50 tracking-wide">
-                地点
+                {copy.locationLabel}
               </label>
               <input
                 value={form.location}
                 onChange={(e) => set("location", e.target.value)}
-                placeholder="例如：圣迭戈市中心"
+                placeholder={copy.locationPlaceholder}
                 className="w-full rounded-xl px-4 py-3 text-sm outline-none placeholder:text-white/25"
                 style={inputStyle}
               />
@@ -365,15 +363,15 @@ function NewCaseModal({
               }}
             >
               <p className="text-xs text-white/40 font-semibold tracking-wide uppercase">
-                涉案人员信息（选填）
+                {copy.suspectInfoOptional}
               </p>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <label className="text-xs text-white/40">姓名</label>
+                  <label className="text-xs text-white/40">{copy.nameLabel}</label>
                   <input
                     value={form.suspectName}
                     onChange={(e) => set("suspectName", e.target.value)}
-                    placeholder="姓名"
+                    placeholder={copy.namePlaceholder}
                     className="w-full rounded-xl px-3 py-2.5 text-sm outline-none placeholder:text-white/20"
                     style={inputStyle}
                   />
@@ -391,7 +389,7 @@ function NewCaseModal({
                 color: "oklch(0.12 0.03 250)",
               }}
             >
-              {saving ? "正在创建..." : "创建案件"}
+              {saving ? copy.creatingCase : copy.createCase}
             </button>
           </form>
         </div>
@@ -410,6 +408,7 @@ function CaseDetailModal({
   userCode: string;
   onClose: () => void;
 }) {
+  const copy = useCasesPageCopy();
   const updateStatus = useMutation(api.cases.updateCaseStatus);
   const deleteCase = useMutation(api.cases.deleteCase);
   const [updating, setUpdating] = useState(false);
@@ -423,9 +422,9 @@ function CaseDetailModal({
         userCode,
         deviceId: localStorage.getItem("ksc_device_id") ?? "",
       });
-      toast.success("状态已更新。");
+      toast.success(copy.statusUpdated);
     } catch {
-      toast.error("更新失败。");
+      toast.error(copy.updateFailed);
     } finally {
       setUpdating(false);
     }
@@ -438,7 +437,7 @@ function CaseDetailModal({
         userCode,
         deviceId: localStorage.getItem("ksc_device_id") ?? "",
       });
-      toast.success("案件已删除。");
+      toast.success(copy.caseDeleted);
       onClose();
     } catch (err) {
       if (err instanceof ConvexError)
@@ -509,7 +508,7 @@ function CaseDetailModal({
                     color: "oklch(0.75 0.02 240)",
                   }}
                 >
-                  {CATEGORY_LABEL[caseData.category] ?? caseData.category}
+                  {getCategoryLabel(copy, caseData.category)}
                 </span>
               </div>
             </div>
@@ -525,7 +524,7 @@ function CaseDetailModal({
               <div className="flex items-start gap-2 text-sm">
                 <User size={14} className="text-white/40 mt-0.5 shrink-0" />
                 <div>
-                  <span className="text-white/40 text-xs">负责人：</span>
+                  <span className="text-white/40 text-xs">{copy.assigneeLabel}</span>
                   <span className="text-white/80">{caseData.assignedName}</span>
                 </div>
               </div>
@@ -538,9 +537,9 @@ function CaseDetailModal({
               <div className="flex items-start gap-2 text-sm">
                 <Clock size={14} className="text-white/40 mt-0.5 shrink-0" />
                 <div>
-                  <span className="text-white/40 text-xs">创建时间：</span>
+                  <span className="text-white/40 text-xs">{copy.createdAtLabel}</span>
                   <span className="text-white/60 text-xs">
-                    {new Date(caseData.createdAt).toLocaleString("zh-CN")}
+                    {new Date(caseData.createdAt).toLocaleString()}
                   </span>
                 </div>
               </div>
@@ -549,7 +548,7 @@ function CaseDetailModal({
             {/* Description */}
             <div className="space-y-2">
               <p className="text-xs text-white/40 tracking-wide uppercase font-semibold">
-                案件摘要
+                {copy.summaryTitle}
               </p>
               <p className="text-sm text-white/80 leading-relaxed">
                 {caseData.description}
@@ -569,7 +568,7 @@ function CaseDetailModal({
                   className="text-xs font-semibold tracking-wide uppercase"
                   style={{ color: "oklch(0.75 0.15 25)" }}
                 >
-                  涉案人员信息
+                  {copy.suspectInfoTitle}
                 </p>
                 {caseData.suspectName && (
                   <div className="flex items-center gap-2 text-sm">
@@ -594,7 +593,7 @@ function CaseDetailModal({
             {isOwner && (
               <div className="space-y-2">
                 <p className="text-xs text-white/40 tracking-wide uppercase font-semibold">
-                  更改状态
+                  {copy.changeStatus}
                 </p>
                 <div className="grid grid-cols-2 gap-2">
                   {(
@@ -623,7 +622,7 @@ function CaseDetailModal({
                     >
                       <span className="flex items-center justify-center gap-1.5">
                         {STATUS_ICON[s]}
-                        {STATUS_LABEL[s]}
+                        {getStatusLabel(copy, s)}
                       </span>
                     </button>
                   ))}
@@ -643,7 +642,7 @@ function CaseDetailModal({
                 }}
               >
                 <Trash2 size={15} />
-                删除案件
+                {copy.deleteCase}
               </button>
             )}
           </div>
@@ -661,6 +660,7 @@ type Props = {
 };
 
 export default function CasesPage({ userCode, userName, onBack }: Props) {
+  const copy = useCasesPageCopy();
   const deviceId = localStorage.getItem("ksc_device_id") ?? "";
   const canManage = localStorage.getItem("ksc_session_role") === "admin";
   const [searchQuery, setSearchQuery] = useState("");
@@ -721,9 +721,9 @@ export default function CasesPage({ userCode, userName, onBack }: Props) {
             <ArrowLeft size={20} className="text-white" />
           </button>
           <div>
-            <h1 className="text-sm font-bold text-white">案件管理</h1>
+            <h1 className="text-sm font-bold text-white">{copy.pageTitle}</h1>
             <p className="text-[10px] text-white/40">
-              共 {results.length} 个案件
+              {copy.totalCases(results.length)}
             </p>
           </div>
         </div>
@@ -738,7 +738,7 @@ export default function CasesPage({ userCode, userName, onBack }: Props) {
             }}
           >
             <Plus size={14} />
-            新建案件
+            {copy.newCase}
           </button>
         )}
       </div>
@@ -760,7 +760,7 @@ export default function CasesPage({ userCode, userName, onBack }: Props) {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="按案件名称、编号或涉案人员搜索"
+            placeholder={copy.searchPlaceholder}
             className="flex-1 bg-transparent outline-none text-xs text-white placeholder:text-white/30"
           />
           {searchQuery && (
@@ -797,7 +797,7 @@ export default function CasesPage({ userCode, userName, onBack }: Props) {
             }
           >
             <Filter size={10} />
-            我的案件
+            {copy.myCases}
           </button>
 
           {/* Status filters */}
@@ -833,7 +833,7 @@ export default function CasesPage({ userCode, userName, onBack }: Props) {
                     }
               }
             >
-              {s === "all" ? "全部" : STATUS_LABEL[s as CaseStatus]}
+              {s === "all" ? copy.statuses.all : getStatusLabel(copy, s as CaseStatus)}
             </button>
           ))}
         </div>
@@ -844,9 +844,9 @@ export default function CasesPage({ userCode, userName, onBack }: Props) {
         {displayCases.length === 0 && (
           <div className="flex flex-col items-center justify-center h-52 gap-3 opacity-30">
             <FileText size={32} className="text-white" />
-            <p className="text-sm text-white">未找到案件</p>
+            <p className="text-sm text-white">{copy.emptyTitle}</p>
             {searchQuery && (
-              <p className="text-xs text-white">请尝试更改搜索条件</p>
+              <p className="text-xs text-white">{copy.emptyHint}</p>
             )}
           </div>
         )}
@@ -883,13 +883,13 @@ export default function CasesPage({ userCode, userName, onBack }: Props) {
                     color: "oklch(0.65 0.02 240)",
                   }}
                 >
-                  {CATEGORY_LABEL[c.category] ?? c.category}
+                  {getCategoryLabel(copy, c.category)}
                 </span>
               </div>
               <div className="flex items-center gap-2 text-[10px] text-white/30">
                 <span className="font-mono">{c.caseNumber}</span>
                 <span>•</span>
-                <span>{new Date(c.createdAt).toLocaleDateString("zh-CN")}</span>
+                  <span>{new Date(c.createdAt).toLocaleDateString()}</span>
               </div>
             </div>
           </motion.button>
@@ -901,7 +901,7 @@ export default function CasesPage({ userCode, userName, onBack }: Props) {
               onClick={() => loadMore(30)}
               className="text-xs text-white/40 cursor-pointer hover:text-white/70 transition-colors"
             >
-              加载更多
+              {copy.loadMore}
             </button>
           </div>
         )}

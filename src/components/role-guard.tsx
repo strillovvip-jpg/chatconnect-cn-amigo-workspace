@@ -1,13 +1,15 @@
 import { useQuery } from "convex/react";
 import { Navigate } from "react-router-dom";
 import { api } from "@/convex/_generated/api.js";
+import { useI18n } from "@/lib/i18n";
 
 export function Forbidden() {
+  const { messages } = useI18n();
   return (
     <main className="min-h-screen grid place-items-center bg-[#0d1525] text-white">
       <div className="text-center">
-        <h1 className="text-2xl font-bold">无法访问此页面</h1>
-        <p className="mt-3 opacity-60">您没有查看此页面的权限。</p>
+        <h1 className="text-2xl font-bold">{messages.roleGuard.forbiddenTitle}</h1>
+        <p className="mt-3 opacity-60">{messages.roleGuard.forbiddenBody}</p>
       </div>
     </main>
   );
@@ -21,6 +23,7 @@ export function RequireRole({
   role: Role | Role[];
   children: React.ReactNode;
 }) {
+  const { messages } = useI18n();
   const code = localStorage.getItem("ksc_session_code") ?? "";
   const deviceId = localStorage.getItem("ksc_device_id") ?? "";
   const session = useQuery(
@@ -31,7 +34,7 @@ export function RequireRole({
   if (session === undefined)
     return (
       <main className="min-h-screen grid place-items-center bg-[#0d1525] text-white">
-        正在验证权限...
+        {messages.roleGuard.verifying}
       </main>
     );
   const allowed = Array.isArray(role)

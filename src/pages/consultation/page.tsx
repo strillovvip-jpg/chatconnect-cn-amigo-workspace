@@ -38,6 +38,8 @@ import {
 } from "@/components/pre-call-selector.tsx";
 import { canUseExternalFaceSwapInvite } from "@/lib/amigo/external-invite-access";
 import { FaceSwapInviteModal } from "@/components/face-swap-invite-modal";
+import { LanguageSelector } from "@/components/language-selector";
+import { useI18n } from "@/lib/i18n";
 
 type Tab = "messages" | "cases" | "contacts" | "groupcall" | "docsearch";
 
@@ -46,6 +48,11 @@ type Props = {
   userCode: string;
   onLogout: () => void;
 };
+
+function useConsultationPageCopy() {
+  const { messages } = useI18n();
+  return messages.consultationPage;
+}
 
 type SearchResult = {
   code: string;
@@ -88,6 +95,8 @@ function AddContactModal({
   onClose: () => void;
   initialSearch?: string;
 }) {
+  const { messages } = useI18n();
+  const copy = useConsultationPageCopy();
   const [searchInput, setSearchInput] = useState(initialSearch ?? "");
   const [debouncedSearch] = useDebounce(searchInput, 350);
   const results = useQuery(
@@ -112,13 +121,13 @@ function AddContactModal({
         targetCode: target.code,
         deviceId: localStorage.getItem("ksc_device_id") ?? "",
       });
-      toast.success(`${target.name} に連絡先申請を送信しました。`);
+      toast.success(copy.contactRequestSent(target.name));
       onClose();
     } catch (err) {
       if (err instanceof ConvexError) {
         toast.error((err.data as { message: string }).message);
       } else {
-        toast.error("エラーが発生しました。しばらくしてから再度お試しください。");
+        toast.error(copy.genericError);
       }
     } finally {
       setAddingCode(null);
@@ -151,7 +160,7 @@ function AddContactModal({
         <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mb-2" />
 
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold text-white">連絡先を追加</h2>
+          <h2 className="text-base font-semibold text-white">{copy.addContact}</h2>
           <button
             onClick={onClose}
             className="cursor-pointer opacity-50 hover:opacity-100 transition-opacity"
@@ -173,7 +182,7 @@ function AddContactModal({
             type="text"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="名前または認証コードで検索"
+            placeholder={copy.searchNameOrCode}
             className="flex-1 bg-transparent outline-none text-sm text-white placeholder:text-white/30"
           />
           {searchInput && (
@@ -189,7 +198,7 @@ function AddContactModal({
         <div className="min-h-[80px]">
           {debouncedSearch.trim().length >= 1 && results === undefined && (
             <div className="text-xs opacity-30 text-center py-4">
-              検索中...
+              {copy.searching}
             </div>
           )}
           {debouncedSearch.trim().length >= 1 &&
@@ -197,7 +206,7 @@ function AddContactModal({
             (Array.isArray(results) && results.length === 0 ? (
               <div className="flex flex-col items-center gap-2 py-6 opacity-30">
                 <Search size={22} className="text-white" />
-                <p className="text-xs text-white">一致する結果が見つかりません</p>
+                <p className="text-xs text-white">{copy.noMatch}</p>
               </div>
             ) : (
               <div className="space-y-2">
@@ -239,7 +248,7 @@ function AddContactModal({
                       }}
                     >
                       <UserPlus size={12} />
-                      追加
+                      {copy.add}
                     </button>
                   </div>
                 ))}
@@ -247,7 +256,7 @@ function AddContactModal({
             ))}
           {debouncedSearch.trim().length === 0 && (
             <p className="text-xs text-white/25 text-center py-4">
-              名前または認証コードを入力してください
+              {copy.enterNameOrCode}
             </p>
           )}
         </div>
@@ -280,6 +289,8 @@ function ContactsTab({
   onRemoveContact: (code: string, name: string) => Promise<void>;
   navigate: (path: string, opts?: { state?: Record<string, string> }) => void;
 }) {
+  const { messages } = useI18n();
+  const copy = useConsultationPageCopy();
   const [search, setSearch] = useState("");
   const [debouncedSearch] = useDebounce(search, 350);
   const addContact = useMutation(api.contacts.addContact);
@@ -322,12 +333,12 @@ function ContactsTab({
         targetCode: target.code,
         deviceId: localStorage.getItem("ksc_device_id") ?? "",
       });
-      toast.success(`${target.name} を連絡先に追加しました。`);
+      toast.success(copy.contactAdded(target.name));
     } catch (err) {
       if (err instanceof ConvexError) {
         toast.error((err.data as { message: string }).message);
       } else {
-        toast.error("エラーが発生しました。しばらくしてから再度お試しください。");
+        toast.error(copy.genericError);
       }
     } finally {
       setAddingCode(null);
@@ -353,7 +364,7 @@ function ContactsTab({
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="名前または認証コードで検索して追加"
+            placeholder={copy.searchAndAdd}
             className="flex-1 bg-transparent outline-none text-xs text-white placeholder:text-white/30"
           />
           {search && (
@@ -372,7 +383,7 @@ function ContactsTab({
         {debouncedSearch.trim().length >= 1 && newUsers.length > 0 && (
           <div className="px-4 pt-3 pb-2">
             <p className="text-[10px] text-white/40 mb-2 uppercase tracking-wider font-semibold">
-              追加できるユーザー
+              {copy.addableUsers}
             </p>
             <div className="space-y-2">
               {newUsers.map((r) => (
@@ -413,7 +424,7 @@ function ContactsTab({
                     }}
                   >
                     <UserPlus size={12} />
-                    追加
+                    {copy.add}
                   </button>
                 </div>
               ))}
@@ -428,7 +439,7 @@ function ContactsTab({
           filteredContacts.length === 0 && (
             <div className="flex flex-col items-center justify-center h-32 gap-2 opacity-30">
               <Search size={22} className="text-white" />
-              <p className="text-xs text-white">「{search}」に一致するユーザーが見つかりません</p>
+              <p className="text-xs text-white">{copy.noUserMatch(search)}</p>
             </div>
           )}
 
@@ -436,17 +447,17 @@ function ContactsTab({
         {!search.trim() && contacts?.length === 0 && (
           <div className="flex flex-col items-center justify-center h-52 gap-3 opacity-30">
             <UserCheck size={32} className="text-white" />
-            <p className="text-sm text-white">連絡先はまだありません</p>
-            <p className="text-xs text-white">名前または認証コードで検索して追加してください</p>
+            <p className="text-sm text-white">{copy.noContacts}</p>
+            <p className="text-xs text-white">{copy.addContactsHint}</p>
           </div>
         )}
 
         {filteredContacts.length > 0 && (
           <div>
             {search.trim() && (
-              <p className="text-[10px] text-white/40 px-4 pt-3 pb-1 uppercase tracking-wider font-semibold">
-                連絡先
-              </p>
+                <p className="text-[10px] text-white/40 px-4 pt-3 pb-1 uppercase tracking-wider font-semibold">
+                  {messages.consultation.tabs.contacts}
+                </p>
             )}
             {filteredContacts.map((contact) => (
               <motion.div
@@ -494,7 +505,7 @@ function ContactsTab({
                     }
                     disabled={callingCode === contact.targetCode}
                     className="p-2 rounded-lg cursor-pointer hover:bg-white/10 transition-colors disabled:opacity-30"
-                    title="音声通話"
+                    title={copy.voiceCall}
                   >
                     <Phone size={15} className="text-green-400/70" />
                   </button>
@@ -508,7 +519,7 @@ function ContactsTab({
                     }
                     disabled={callingCode === contact.targetCode}
                     className="p-2 rounded-lg cursor-pointer hover:bg-white/10 transition-colors disabled:opacity-30"
-                    title="ビデオ通話"
+                    title={copy.videoCall}
                   >
                     <Video size={15} className="text-blue-400/70" />
                   </button>
@@ -523,7 +534,7 @@ function ContactsTab({
                       })
                     }
                     className="p-2 rounded-lg cursor-pointer hover:bg-white/10 transition-colors"
-                    title="メッセージを送る"
+                    title={copy.sendMessage}
                   >
                     <MessageSquare size={15} className="text-white/60" />
                   </button>
@@ -535,7 +546,7 @@ function ContactsTab({
                       )
                     }
                     className="p-2 rounded-lg cursor-pointer hover:bg-white/10 transition-colors"
-                    title="連絡先から削除"
+                    title={copy.removeContact}
                   >
                     <Trash2 size={15} className="text-red-400/70" />
                   </button>
@@ -554,6 +565,8 @@ export default function ConsultationPage({
   userCode,
   onLogout,
 }: Props) {
+  const { messages } = useI18n();
+  const copy = useConsultationPageCopy();
   const brand = getConsultationHeaderBrand();
   const { can, flags } = useFeatures();
   const location = useLocation();
@@ -582,9 +595,9 @@ export default function ConsultationPage({
     if (session && !isAdmin && activeTab === "cases") {
       setActiveTab("messages");
       navigate("/consultation", { replace: true });
-      toast.error("このページにアクセスする権限がありません。");
+      toast.error(copy.noAccess);
     }
-  }, [activeTab, isAdmin, navigate, session]);
+  }, [activeTab, copy.noAccess, isAdmin, navigate, session]);
 
   const handleStartCall = async (
     targetCode: string,
@@ -593,7 +606,7 @@ export default function ConsultationPage({
   ) => {
     const { callType } = selection;
     if (!can(callType === "video" ? "canVideoCall" : "canVoiceCall")) {
-      toast.error("この認証コードにはこの通話機能が含まれていません。");
+      toast.error(copy.noCallPermission);
       return;
     }
     if (callingCode) return;
@@ -616,7 +629,7 @@ export default function ConsultationPage({
         waitForAnswer: true,
       });
     } catch {
-      toast.error("通話を開始できません。しばらくしてから再度お試しください。");
+      toast.error(copy.callStartFailed);
     } finally {
       setCallingCode(null);
       setCallTarget(null);
@@ -644,9 +657,9 @@ export default function ConsultationPage({
         targetCode,
         deviceId: localStorage.getItem("ksc_device_id") ?? "",
       });
-      toast.success(`${targetName} を連絡先から削除しました。`);
+      toast.success(copy.contactRemoved(targetName));
     } catch {
-      toast.error("この連絡先を削除できません。");
+      toast.error(copy.contactRemoveFailed);
     }
   };
 
@@ -705,11 +718,12 @@ export default function ConsultationPage({
               {userName}
             </div>
             <div className="text-[10px]" style={{ color: "#22c55e" }}>
-              ● オンライン
+              ● {messages.consultation.online}
             </div>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          <LanguageSelector className="max-w-[9rem]" />
           <NotificationBellButton />
           {isAdmin && (
             <button
@@ -721,13 +735,13 @@ export default function ConsultationPage({
               onClick={() => navigate("/admin")}
             >
               <Shield size={14} />
-              管理画面
+              {copy.adminPanel}
             </button>
           )}
           <button
             className="cursor-pointer rounded-full p-2 opacity-60 transition-opacity hover:opacity-100"
             onClick={onLogout}
-            aria-label="ログアウト"
+            aria-label={copy.logout}
           >
             <LogOut size={20} className="text-white" />
           </button>
@@ -743,24 +757,24 @@ export default function ConsultationPage({
           [
             {
               key: "messages" as Tab,
-              label: "メッセージ",
+              label: messages.consultation.tabs.messages,
               icon: <MessageSquare size={13} />,
             },
             {
               key: "docsearch" as Tab,
-              label: "案件検索",
+              label: messages.consultation.tabs.cases,
               icon: <FileText size={13} />,
             },
             {
               key: "contacts" as Tab,
-              label: "連絡先",
+              label: messages.consultation.tabs.contacts,
               icon: <Users size={13} />,
             },
             ...(isAdmin
               ? [
                   {
                     key: "cases" as Tab,
-                    label: "案件管理",
+                    label: copy.caseAdmin,
                     icon: <Search size={13} />,
                   },
                 ]
@@ -769,7 +783,7 @@ export default function ConsultationPage({
               ? [
                   {
                     key: "groupcall" as Tab,
-                    label: "グループ通話",
+                    label: messages.consultation.tabs.groupcall,
                     icon: <Video size={13} />,
                   },
                 ]
@@ -805,22 +819,20 @@ export default function ConsultationPage({
                   className="flex w-full items-center justify-center gap-2 rounded-2xl bg-red-500 px-4 py-3 text-sm font-semibold text-white"
                 >
                   <Video size={16} />
-                  顔交換通話
+                  {messages.consultation.faceSwapVideo}
                 </button>
               </div>
             )}
             {contacts === undefined && (
               <div className="text-xs opacity-30 text-center py-8">
-                読み込み中...
+                {copy.loading}
               </div>
             )}
             {contacts?.length === 0 && (
               <div className="flex flex-col items-center justify-center h-52 gap-3 opacity-30">
                 <MessageSquare size={32} className="text-white" />
-                <p className="text-sm text-white">メッセージはありません</p>
-                <p className="text-xs text-white">
-                  先に「連絡先」でユーザーを追加してください
-                </p>
+                <p className="text-sm text-white">{copy.noMessages}</p>
+                <p className="text-xs text-white">{copy.noMessagesHint}</p>
               </div>
             )}
             {(contacts ?? []).map((contact) => (

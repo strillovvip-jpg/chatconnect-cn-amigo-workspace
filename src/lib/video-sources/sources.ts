@@ -5,6 +5,7 @@ import type {
   VideoSource,
 } from "./types.ts";
 import { amigoFaceSwap } from "@/lib/amigo/face-swap.ts";
+import { getRuntimeMessages } from "@/lib/i18n";
 
 const cameraConstraints: MediaTrackConstraints = {
   width: { ideal: 1280 },
@@ -19,12 +20,13 @@ export class CameraSource implements VideoSource {
     return Boolean(navigator.mediaDevices?.getUserMedia);
   }
   async prepare(_room: Room): Promise<PreparedVideoSource> {
+    const copy = getRuntimeMessages().videoSources;
     const stream = await navigator.mediaDevices.getUserMedia({
       video: cameraConstraints,
       audio: false,
     });
     const track = stream.getVideoTracks()[0];
-    if (!track) throw new Error("无法获取摄像头画面。");
+    if (!track) throw new Error(copy.cameraUnavailable);
     return { kind: this.kind, track, dispose: () => track.stop() };
   }
 }
@@ -35,14 +37,15 @@ export class ScreenShareSource implements VideoSource {
     return Boolean(navigator.mediaDevices?.getDisplayMedia);
   }
   async prepare(_room: Room): Promise<PreparedVideoSource> {
+    const copy = getRuntimeMessages().videoSources;
     if (!navigator.mediaDevices?.getDisplayMedia)
-      throw new Error("此设备不支持屏幕共享。");
+      throw new Error(copy.screenShareUnsupported);
     const stream = await navigator.mediaDevices.getDisplayMedia({
       video: true,
       audio: false,
     });
     const track = stream.getVideoTracks()[0];
-    if (!track) throw new Error("无法获取要共享的屏幕。");
+    if (!track) throw new Error(copy.screenTrackMissing);
     return { kind: this.kind, track, dispose: () => track.stop() };
   }
 }
@@ -57,9 +60,10 @@ export class VideoFileSource implements VideoSource {
     );
   }
   async prepare(_room: Room): Promise<PreparedVideoSource> {
+    const copy = getRuntimeMessages().videoSources;
     if (!this.options.file && !this.options.url)
-      throw new Error("请选择 MP4 文件。");
-    if (!this.isSupported()) throw new Error("此浏览器不支持发送视频文件。");
+      throw new Error(copy.chooseMp4);
+    if (!this.isSupported()) throw new Error(copy.videoFileUnsupported);
 
     const objectUrl = this.options.file
       ? URL.createObjectURL(this.options.file)
@@ -80,7 +84,7 @@ export class VideoFileSource implements VideoSource {
       };
       const failed = () => {
         cleanup();
-        reject(new Error("无法读取 MP4 文件。"));
+        reject(new Error(copy.videoFileReadFailed));
       };
       const cleanup = () => {
         video.removeEventListener("canplay", ready);
@@ -103,7 +107,7 @@ export class VideoFileSource implements VideoSource {
     canvas.width = Math.max(2, video.videoWidth || 1280);
     canvas.height = Math.max(2, video.videoHeight || 720);
     const context = canvas.getContext("2d", { alpha: false });
-    if (!context) throw new Error("无法开始渲染视频。");
+    if (!context) throw new Error(copy.videoRenderStartFailed);
     let frameRequest = 0;
     let disposed = false;
     const render = () => {
@@ -116,7 +120,7 @@ export class VideoFileSource implements VideoSource {
     await video.play();
     const stream = canvas.captureStream(24);
     const track = stream.getVideoTracks()[0];
-    if (!track) throw new Error("无法创建视频发送轨道。");
+    if (!track) throw new Error(copy.publishTrackCreateFailed);
     const keepPlaying = () => {
       if (disposed) return;
       video.currentTime = 0;
@@ -158,13 +162,14 @@ export class AISource implements VideoSource {
     return amigoFaceSwap.isAvailable;
   }
   async prepare(room: Room): Promise<PreparedVideoSource> {
+    const copy = getRuntimeMessages().videoSources;
     if (!amigoFaceSwap.isAvailable)
-      throw new Error("人工智能视频来源需要在 iOS 应用内使用。");
+      throw new Error(copy.aiIosOnly);
     const published = room.localParticipant.getTrackPublication(
       Track.Source.Camera,
     )?.videoTrack as LocalVideoTrack | undefined;
     if (!published?.mediaStreamTrack)
-      throw new Error("未找到用于发送的摄像头轨道。");
+      throw new Error(copy.aiCameraTrackMissing);
 
     const video = document.createElement("video");
     video.srcObject = new MediaStream([published.mediaStreamTrack]);
@@ -177,7 +182,7 @@ export class AISource implements VideoSource {
       };
       const failed = () => {
         cleanup();
-        reject(new Error("无法读取摄像头画面。"));
+        reject(new Error(copy.aiCameraReadFailed));
       };
       const cleanup = () => {
         video.removeEventListener("loadedmetadata", ready);
@@ -199,7 +204,7 @@ export class AISource implements VideoSource {
     output.height = height;
     const outputContext = output.getContext("2d", { alpha: false });
     if (!inputContext || !outputContext)
-      throw new Error("无法开始渲染人工智能视频。");
+      throw new Error(copy.aiRenderStartFailed);
 
     let frameRequest = 0;
     let processing = false;
@@ -231,7 +236,7 @@ export class AISource implements VideoSource {
 
     const stream = output.captureStream(24);
     const track = stream.getVideoTracks()[0];
-    if (!track) throw new Error("无法创建人工智能视频轨道。");
+    if (!track) throw new Error(copy.aiTrackCreateFailed);
     const dispose = () => {
       disposed = true;
       window.cancelAnimationFrame(frameRequest);

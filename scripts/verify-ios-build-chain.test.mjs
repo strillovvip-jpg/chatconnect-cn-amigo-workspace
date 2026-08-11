@@ -8,6 +8,7 @@ const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf
 test("Xcode Cloud rebuilds and syncs web assets from repository source", () => {
   const packageJSON = JSON.parse(read("package.json"));
   const cloudScript = read("ci_scripts/ci_post_clone.sh");
+  const xcodeCloudEntry = read("ios/App/ci_scripts/ci_post_clone.sh");
 
   assert.equal(
     packageJSON.scripts["build:ios"],
@@ -15,6 +16,8 @@ test("Xcode Cloud rebuilds and syncs web assets from repository source", () => {
   );
   assert.match(cloudScript, /npm ci/);
   assert.match(cloudScript, /npm run build:ios/);
+  assert.match(xcodeCloudEntry, /ci_scripts\/ci_post_clone\.sh/);
+  assert.match(xcodeCloudEntry, /git .*rev-parse --show-toplevel/);
 });
 
 test("generated Capacitor public assets are never committed as source", () => {

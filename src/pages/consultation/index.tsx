@@ -1,5 +1,6 @@
 import { useLocation, useNavigate } from "react-router-dom";
 import { useI18n } from "@/lib/i18n";
+import { logoutToLogin } from "@/lib/session-storage";
 import ConsultationPage from "./page.tsx";
 
 function getDeviceId(): string {
@@ -28,10 +29,7 @@ export default function ConsultationRoute() {
     state?.userCode ?? localStorage.getItem(`ksc_session_code`) ?? "";
 
   const handleLogout = () => {
-    localStorage.removeItem("ksc_session_code");
-    localStorage.removeItem("ksc_session_role");
-    window.dispatchEvent(new Event("chatconnect-session-changed"));
-    navigate("/");
+    logoutToLogin();
   };
 
   if (!userCode) {

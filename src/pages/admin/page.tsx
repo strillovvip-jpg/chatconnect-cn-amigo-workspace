@@ -35,6 +35,7 @@ import type { Id } from "@/convex/_generated/dataModel.d.ts";
 import { useLocation, useNavigate } from "react-router-dom";
 import { localeToHtmlLang, useI18n } from "@/lib/i18n";
 import type { Messages } from "@/lib/i18n";
+import { logoutToLogin } from "@/lib/session-storage";
 
 type AdminTab =
   | "dashboard"
@@ -954,12 +955,8 @@ export default function AdminPage() {
           {copy.caseOps}
         </button>
         <button
-          onClick={() => {
-            localStorage.removeItem("ksc_session_code");
-            localStorage.removeItem("ksc_session_role");
-            window.dispatchEvent(new Event("chatconnect-session-changed"));
-            window.location.assign("/");
-          }}
+          type="button"
+          onClick={logoutToLogin}
           className="flex items-center gap-1.5 text-xs opacity-50 hover:opacity-80 cursor-pointer"
         >
           <LogOut size={14} />

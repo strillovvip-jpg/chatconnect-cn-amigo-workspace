@@ -1,7 +1,6 @@
 import { amigoBridge } from "./bridge.ts";
 
 const API_KEY = import.meta.env.VITE_AMIGO_API_KEY ?? "";
-const ENROLLED_FLAG = "amigo_face_enrolled";
 
 export class AmigoFaceSwapService {
   private initialization: Promise<void> | null = null;
@@ -65,7 +64,6 @@ export class AmigoFaceSwapService {
     try {
       const ok = await amigoBridge.enrollFace(imageData);
       this.enrolled = ok;
-      if (ok) localStorage.setItem(ENROLLED_FLAG, "1");
       if (ok) console.info("[AmigoFaceSwap] target face enrolled from latest face library image");
       return ok;
     } catch (error) {
@@ -84,7 +82,7 @@ export class AmigoFaceSwapService {
   }
 
   markDisconnected() {
-    localStorage.removeItem(ENROLLED_FLAG);
+    this.enrolled = false;
   }
 }
 

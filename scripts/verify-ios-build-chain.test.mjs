@@ -36,3 +36,12 @@ test("generated Capacitor public assets are never committed as source", () => {
   assert.doesNotMatch(gitignore, /^!ios\/App\/App\/public/m);
   assert.equal(trackedPublic, "");
 });
+
+test("TestFlight export compliance is declared in the iOS bundle", () => {
+  const infoPlist = read("ios/App/App/Info.plist");
+
+  assert.match(
+    infoPlist,
+    /<key>ITSAppUsesNonExemptEncryption<\/key>\s*<false\s*\/>/,
+  );
+});

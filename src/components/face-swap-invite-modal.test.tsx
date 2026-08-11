@@ -78,6 +78,15 @@ vi.mock("@/lib/i18n", () => ({
         photoSaveBusy: "Saving...",
         photoReady: "Photo saved",
         photoEnrollFailed: "Photo could not be enabled",
+        photoErrorFileRead: "The saved photo could not be read.",
+        photoErrorDecode: "The saved photo could not be decoded.",
+        photoErrorFormat: "This image format is not supported.",
+        photoErrorNoFace: "No face was detected in this photo.",
+        photoErrorSdkNotReady: "The image processor is not ready.",
+        photoErrorAuthorization: "Image processing authorization failed.",
+        photoErrorNetwork: "Connect to the internet and try again.",
+        photoErrorQuota: "The image processing limit has been reached.",
+        photoErrorEnroll: "The saved photo could not be enabled.",
         createBusy: "Creating...",
         createIdle: "Create call",
         inviteLink: "Invite link",
@@ -283,11 +292,43 @@ describe("FaceSwapInviteModal", () => {
 
     await waitFor(() =>
       expect(mocks.toastError).toHaveBeenCalledWith(
-        "Photo could not be enabled",
+        "The saved photo could not be decoded.",
       ),
     );
     expect(mocks.toastSuccess).not.toHaveBeenCalledWith("Photo saved");
     expect(mocks.enrollFaceFile).not.toHaveBeenCalled();
+  });
+
+  it("shows the native no-face error instead of the generic photo-quality error", async () => {
+    mocks.enrollFaceFile.mockRejectedValue(
+      Object.assign(new Error("No face was detected in the provided image."), {
+        name: "FaceSwapError",
+        code: "FACE_NOT_DETECTED",
+        stage: "enroll",
+      }),
+    );
+    const { container } = render(
+      <FaceSwapInviteModal
+        open
+        onClose={() => undefined}
+        userCode="QQAUF"
+        deviceId="device-1"
+      />,
+    );
+    const file = new File(["face"], "face.jpeg", { type: "image/jpeg" });
+    const input = container.querySelector('input[type="file"]');
+
+    fireEvent.change(input!, { target: { files: [file] } });
+    fireEvent.click(screen.getByRole("button", { name: "Save photo" }));
+
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "No face was detected in this photo.",
+      ),
+    );
+    expect(mocks.toastError).not.toHaveBeenCalledWith(
+      "Photo could not be enabled",
+    );
   });
 
   it("reads the same persisted photo again after the modal is closed and reopened", async () => {

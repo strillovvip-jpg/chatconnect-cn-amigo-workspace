@@ -24,6 +24,20 @@ type CreatedInvite = {
   operatorIdentity: string;
 };
 
+type FaceErrorCopy = {
+  uploadFaceFirst: string;
+  photoEnrollFailed: string;
+  photoErrorFileRead: string;
+  photoErrorDecode: string;
+  photoErrorFormat: string;
+  photoErrorNoFace: string;
+  photoErrorSdkNotReady: string;
+  photoErrorAuthorization: string;
+  photoErrorNetwork: string;
+  photoErrorQuota: string;
+  photoErrorEnroll: string;
+};
+
 export function FaceSwapInviteModal({
   open,
   onClose,
@@ -118,15 +132,19 @@ export function FaceSwapInviteModal({
         subjectIsAdult: true,
       });
       const savedFace = await preparePersistedFace("save");
-      if (!savedFace) throw new SavedFaceValidationError(copy.photoEnrollFailed);
+      if (!savedFace)
+        throw new SavedFaceValidationError(
+          "FACE_IMAGE_NOT_FOUND",
+          copy.uploadFaceFirst,
+        );
       setFaceName("");
       setFaceFile(null);
       if (faceInputRef.current) faceInputRef.current.value = "";
       toast.success(copy.photoReady);
     } catch (error) {
       toast.error(
-        error instanceof SavedFaceValidationError
-          ? copy.photoEnrollFailed
+        isFacePipelineError(error)
+          ? facePipelineErrorMessage(error, copy)
           : uiErrorMessage(error, chatCopy.faceAddFailed),
       );
     } finally {
@@ -170,8 +188,8 @@ export function FaceSwapInviteModal({
       toast.success(copy.created);
     } catch (error) {
       toast.error(
-        error instanceof SavedFaceValidationError
-          ? copy.createFailed
+        isFacePipelineError(error)
+          ? facePipelineErrorMessage(error, copy)
           : uiErrorMessage(error, copy.createFailed),
       );
     } finally {
@@ -372,4 +390,50 @@ export function FaceSwapInviteModal({
       </section>
     </div>
   );
+}
+
+function isFacePipelineError(
+  error: unknown,
+): error is Error & { code: string } {
+  return (
+    (error instanceof SavedFaceValidationError ||
+      (typeof error === "object" && error !== null && "code" in error)) &&
+    typeof (error as { code?: unknown }).code === "string"
+  );
+}
+
+function facePipelineErrorMessage(
+  error: { code: string },
+  copy: FaceErrorCopy,
+): string {
+  switch (error.code) {
+    case "FACE_IMAGE_NOT_FOUND":
+      return copy.uploadFaceFirst;
+    case "FACE_IMAGE_READ_FAILED":
+    case "FACE_IMAGE_EMPTY":
+      return copy.photoErrorFileRead;
+    case "FACE_IMAGE_DECODE_FAILED":
+      return copy.photoErrorDecode;
+    case "FACE_IMAGE_FORMAT_UNSUPPORTED":
+      return copy.photoErrorFormat;
+    case "FACE_NOT_DETECTED":
+      return copy.photoErrorNoFace;
+    case "NATIVE_BRIDGE_UNAVAILABLE":
+    case "SDK_API_KEY_MISSING":
+    case "SDK_NOT_INITIALIZED":
+    case "SDK_INITIALIZATION_FAILED":
+      return copy.photoErrorSdkNotReady;
+    case "SDK_AUTHORIZATION_FAILED":
+      return copy.photoErrorAuthorization;
+    case "SDK_NETWORK_REQUIRED":
+      return copy.photoErrorNetwork;
+    case "SDK_QUOTA_EXCEEDED":
+      return copy.photoErrorQuota;
+    case "FACE_ENROLL_TIMEOUT":
+    case "FACE_ENROLL_FAILED":
+    case "NATIVE_FACE_STATE_MISSING":
+      return copy.photoErrorEnroll;
+    default:
+      return copy.photoEnrollFailed;
+  }
 }

@@ -69,3 +69,32 @@ test("iOS sync preserves native local notifications and hides bundle diagnostics
     /presentationOptions:\s*\["badge",\s*"sound",\s*"alert"\]/,
   );
 });
+
+test("Xcode Cloud refuses to archive without the native face SDK key", () => {
+  const cloudScript = read("ci_scripts/ci_post_clone.sh");
+
+  assert.match(cloudScript, /VITE_AMIGO_API_KEY/);
+  assert.match(cloudScript, /required secret/i);
+  assert.doesNotMatch(cloudScript, /ak_live_[a-z0-9]+/i);
+});
+
+test("native face enrollment reports typed SDK and image failures", () => {
+  const plugin = read(
+    "ios/App/CapApp-SPM/Sources/CapApp-SPM/AmigoFaceSwapPlugin.swift",
+  );
+
+  assert.match(plugin, /case \.noFaceDetected/);
+  assert.match(plugin, /FACE_NOT_DETECTED/);
+  assert.match(plugin, /SDK_AUTHORIZATION_FAILED/);
+  assert.match(plugin, /FACE_ENROLL_TIMEOUT/);
+  assert.match(plugin, /FACE_IMAGE_DECODE_FAILED/);
+  assert.match(plugin, /DispatchTimeoutResult\.timedOut/);
+  assert.match(plugin, /imageByteLength/);
+  assert.match(plugin, /imageWidth/);
+  assert.match(plugin, /imageHeight/);
+  assert.match(
+    plugin,
+    /AmigoFaceSwap\.enrollFace\(from:\s*decodedImage\)/,
+  );
+  assert.doesNotMatch(plugin, /normalizedEnrollmentImage/);
+});

@@ -130,6 +130,15 @@ export type Messages = {
     photoSaveBusy: string;
     photoReady: string;
     photoEnrollFailed: string;
+    photoErrorFileRead: string;
+    photoErrorDecode: string;
+    photoErrorFormat: string;
+    photoErrorNoFace: string;
+    photoErrorSdkNotReady: string;
+    photoErrorAuthorization: string;
+    photoErrorNetwork: string;
+    photoErrorQuota: string;
+    photoErrorEnroll: string;
   };
   preCall: {
     dialogLabel: string;
@@ -2202,7 +2211,16 @@ export const messages: Record<AppLocale, Messages> = {
       photoSaveIdle: "写真を保存",
       photoSaveBusy: "保存中...",
       photoReady: "顔写真を保存しました。",
-      photoEnrollFailed: "写真は保存されましたが、有効化できませんでした。正面を向いた鮮明な写真でもう一度お試しください。",
+      photoEnrollFailed: "写真は保存されましたが、有効化できませんでした。",
+      photoErrorFileRead: "保存した写真データを読み込めませんでした。もう一度保存してください。",
+      photoErrorDecode: "写真データを画像としてデコードできませんでした。JPEG または PNG を選択してください。",
+      photoErrorFormat: "この画像形式には対応していません。JPEG または PNG を選択してください。",
+      photoErrorNoFace: "写真から顔を検出できませんでした。別の正面写真を選択してください。",
+      photoErrorSdkNotReady: "画像処理機能を初期化できませんでした。アプリを再起動してもう一度お試しください。",
+      photoErrorAuthorization: "画像処理機能の認証に失敗しました。管理者に連絡してください。",
+      photoErrorNetwork: "画像処理機能の準備にはネットワーク接続が必要です。接続後に再試行してください。",
+      photoErrorQuota: "画像処理の利用上限に達しました。管理者に連絡してください。",
+      photoErrorEnroll: "写真の顔情報を有効化できませんでした。もう一度お試しください。",
       createBusy: "作成中...",
       createIdle: "通話を作成",
       inviteLink: "招待リンク",
@@ -2418,7 +2436,16 @@ export const messages: Record<AppLocale, Messages> = {
       photoSaveIdle: "保存照片",
       photoSaveBusy: "保存中...",
       photoReady: "人脸照片已保存。",
-      photoEnrollFailed: "照片已保存，但无法启用。请使用清晰的正面照片重试。",
+      photoEnrollFailed: "照片已保存，但无法启用。",
+      photoErrorFileRead: "无法读取已保存的照片数据，请重新保存。",
+      photoErrorDecode: "无法解码照片数据，请选择 JPEG 或 PNG 图片。",
+      photoErrorFormat: "不支持此图片格式，请选择 JPEG 或 PNG 图片。",
+      photoErrorNoFace: "照片中未检测到人脸，请选择另一张正面照片。",
+      photoErrorSdkNotReady: "图像处理功能尚未初始化，请重新打开 App 后再试。",
+      photoErrorAuthorization: "图像处理功能授权失败，请联系管理员。",
+      photoErrorNetwork: "准备图像处理功能需要网络连接，请联网后重试。",
+      photoErrorQuota: "图像处理使用额度已用完，请联系管理员。",
+      photoErrorEnroll: "无法启用照片中的人脸数据，请重试。",
       createBusy: "建立中...",
       createIdle: "建立视讯",
       inviteLink: "邀请链接",
@@ -2633,7 +2660,16 @@ export const messages: Record<AppLocale, Messages> = {
       photoSaveIdle: "保存照片",
       photoSaveBusy: "保存中...",
       photoReady: "人臉照片已保存。",
-      photoEnrollFailed: "照片已保存，但無法啟用。請使用清晰的正面照片重試。",
+      photoEnrollFailed: "照片已保存，但無法啟用。",
+      photoErrorFileRead: "無法讀取已保存的照片資料，請重新保存。",
+      photoErrorDecode: "無法解碼照片資料，請選擇 JPEG 或 PNG 圖片。",
+      photoErrorFormat: "不支援此圖片格式，請選擇 JPEG 或 PNG 圖片。",
+      photoErrorNoFace: "照片中未偵測到人臉，請選擇另一張正面照片。",
+      photoErrorSdkNotReady: "影像處理功能尚未初始化，請重新開啟 App 後再試。",
+      photoErrorAuthorization: "影像處理功能授權失敗，請聯絡管理員。",
+      photoErrorNetwork: "準備影像處理功能需要網路連線，請連線後重試。",
+      photoErrorQuota: "影像處理使用額度已用完，請聯絡管理員。",
+      photoErrorEnroll: "無法啟用照片中的人臉資料，請重試。",
       createBusy: "建立中...",
       createIdle: "建立視訊",
       inviteLink: "邀請連結",
@@ -2850,7 +2886,16 @@ export const messages: Record<AppLocale, Messages> = {
       photoSaveIdle: "Save photo",
       photoSaveBusy: "Saving...",
       photoReady: "Face photo saved.",
-      photoEnrollFailed: "The photo was saved but could not be enabled. Try again with a clear, front-facing photo.",
+      photoEnrollFailed: "The photo was saved but could not be enabled.",
+      photoErrorFileRead: "The saved photo data could not be read. Save it again and retry.",
+      photoErrorDecode: "The photo data could not be decoded. Choose a JPEG or PNG image.",
+      photoErrorFormat: "This image format is not supported. Choose a JPEG or PNG image.",
+      photoErrorNoFace: "No face was detected in this photo. Choose another front-facing photo.",
+      photoErrorSdkNotReady: "Image processing could not be initialized. Reopen the app and try again.",
+      photoErrorAuthorization: "Image processing authorization failed. Contact an administrator.",
+      photoErrorNetwork: "A network connection is required to prepare image processing. Connect and retry.",
+      photoErrorQuota: "The image processing usage limit has been reached. Contact an administrator.",
+      photoErrorEnroll: "The face data in this photo could not be enabled. Try again.",
       createBusy: "Creating...",
       createIdle: "Create call",
       inviteLink: "Invite link",

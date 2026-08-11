@@ -37,6 +37,7 @@ tsconfig.tsbuildinfo
 # Environment variables
 .env*
 !.env.example
+!.env.production
 
 # Credentials and private keys
 *.pem

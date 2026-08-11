@@ -25,6 +25,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { MonitorOff, MonitorUp } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { uiErrorMessage } from "@/lib/utils.ts";
+import { OVERLAY_LAYERS } from "@/lib/ui/overlay-layers";
 
 function formatDuration(s: number) {
   const m = Math.floor(s / 60)
@@ -1021,7 +1022,10 @@ export function GlobalTransferNotification() {
 
   if (!pending) return null;
   return (
-    <div className="fixed inset-0 z-[61000] flex items-center justify-center bg-[#0d1525]/95 p-5 text-white backdrop-blur-sm">
+    <div
+      className="fixed inset-0 flex items-center justify-center bg-[#0d1525]/95 p-5 text-white backdrop-blur-sm"
+      style={{ zIndex: OVERLAY_LAYERS.transferModal }}
+    >
       <div className="w-full max-w-sm rounded-3xl border border-white/15 bg-[#16233b] p-6 text-center shadow-2xl">
         <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-blue-600/25">
           <ArrowRightLeft size={34} />

@@ -8,6 +8,7 @@ import { amigoFaceSwap } from "@/lib/amigo/face-swap";
 import { nativeAmigoRoom } from "@/lib/amigo/native-room";
 import { uiErrorMessage } from "@/lib/utils";
 import type { Id } from "@/convex/_generated/dataModel";
+import { OVERLAY_LAYERS } from "@/lib/ui/overlay-layers";
 
 type CreatedInvite = {
   inviteId: string;
@@ -210,7 +211,8 @@ export function FaceSwapInviteModal({
 
   return (
     <div
-      className="fixed inset-0 z-[61000] flex items-end justify-center bg-black/70 p-3 pb-[max(1rem,var(--app-safe-area-bottom))] sm:items-center"
+      className="fixed inset-0 flex items-end justify-center bg-black/70 p-3 pb-[max(1rem,var(--app-safe-area-bottom))] sm:items-center"
+      style={{ zIndex: OVERLAY_LAYERS.featureModal }}
       onClick={() => {
         if (!invite) onClose();
       }}

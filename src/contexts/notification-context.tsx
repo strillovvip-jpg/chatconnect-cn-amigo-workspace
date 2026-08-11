@@ -32,6 +32,7 @@ import type { Id } from "@/convex/_generated/dataModel.js";
 import { useLocation, useNavigate } from "react-router-dom";
 import { getNotificationChannel } from "@/lib/notifications/capabilities";
 import { appBuildInfo } from "@/lib/build-info";
+import { OVERLAY_LAYERS } from "@/lib/ui/overlay-layers";
 
 type NotificationContextValue = { unreadCount: number; openCenter: () => void };
 const NotificationContext = createContext<NotificationContextValue>({
@@ -835,7 +836,10 @@ export function GlobalNotificationProvider({
         </div>
       )}
       {activeUrgent && callState === "idle" && (
-        <div className="fixed inset-0 z-[40000] flex items-center justify-center bg-[#08101f]/95 p-6 text-white">
+        <div
+          className="fixed inset-0 flex items-center justify-center bg-[#08101f]/95 p-6 text-white"
+          style={{ zIndex: OVERLAY_LAYERS.urgentIncoming }}
+        >
           <div className="flex w-full max-w-sm flex-col items-center text-center">
             <div className="mb-6 flex h-28 w-28 animate-pulse items-center justify-center rounded-full bg-blue-600/25 ring-8 ring-blue-500/10">
               {activeUrgent.type === "video_call" ? (

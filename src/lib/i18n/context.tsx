@@ -21,6 +21,13 @@ export function getRuntimeMessages(): Messages {
   return messages[resolveActiveLocale()];
 }
 
+export function applyDocumentLocale(locale: AppLocale) {
+  const root = document.documentElement;
+  root.lang = localeToHtmlLang(locale);
+  root.translate = false;
+  root.classList.add("notranslate");
+}
+
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [preference, setPreferenceState] = useState<LocalePreference>(() => readStoredLocalePreference());
   const [systemLocale, setSystemLocale] = useState<AppLocale>(() => resolveLocaleFromNavigator());
@@ -42,7 +49,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   }, [preference]);
 
   useEffect(() => {
-    document.documentElement.lang = localeToHtmlLang(locale);
+    applyDocumentLocale(locale);
   }, [locale]);
 
   const value = useMemo<I18nContextValue>(

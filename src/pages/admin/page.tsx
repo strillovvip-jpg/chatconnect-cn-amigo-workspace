@@ -934,7 +934,7 @@ export default function AdminPage() {
       {/* Header */}
       <div
         data-app-header
-        className="flex flex-wrap items-center gap-2 px-4 py-3 border-b shrink-0"
+        className="flex flex-wrap items-center gap-2 py-3 pl-4 pr-[4.75rem] border-b shrink-0"
         style={{ borderColor: "oklch(1 0 0 / 8%)" }}
       >
         <div className="flex items-center gap-3">

@@ -6,6 +6,8 @@ import {
   useRef,
   useState,
 } from "react";
+import { Capacitor } from "@capacitor/core";
+import { LocalNotifications } from "@capacitor/local-notifications";
 import { useAction, useMutation, useQuery } from "convex/react";
 import {
   Bell,
@@ -28,6 +30,7 @@ import { uiErrorMessage } from "@/lib/utils.ts";
 import { useCall } from "@/contexts/call-context.tsx";
 import type { Id } from "@/convex/_generated/dataModel.js";
 import { useLocation, useNavigate } from "react-router-dom";
+import { getNotificationChannel } from "@/lib/notifications/capabilities";
 
 type NotificationContextValue = { unreadCount: number; openCenter: () => void };
 const NotificationContext = createContext<NotificationContextValue>({
@@ -78,6 +81,8 @@ const RINGTONE_ENABLED_KEY = "chatconnect-ringtone-enabled";
 const RINGTONE_VOLUME_KEY = "chatconnect-ringtone-volume";
 const RINGTONE_CUSTOM_KEY = "chatconnect-ringtone-custom";
 const NOTIFICATION_SOUND_KEY = "chatconnect-notification-sound-enabled";
+const NATIVE_NOTIFICATION_ENABLED_KEY =
+  "chatconnect-native-notifications-enabled";
 
 type RingtonePlayer = { stop: () => void };
 function startRingtone(
@@ -215,10 +220,21 @@ export function GlobalNotificationProvider({
   const [notificationSoundEnabled, setNotificationSoundEnabled] = useState(
     () => localStorage.getItem(NOTIFICATION_SOUND_KEY) !== "false",
   );
+  const [nativePushEnabled, setNativePushEnabled] = useState(
+    () => localStorage.getItem(NATIVE_NOTIFICATION_ENABLED_KEY) === "true",
+  );
   const [busy, setBusy] = useState(false);
   const toasted = useRef(new Set<string>());
   const outgoingHandled = useRef<string | null>(null);
   const outgoingJoining = useRef<string | null>(null);
+  const notificationChannel = getNotificationChannel({
+    nativeApp: Capacitor.isNativePlatform(),
+    hasServiceWorker: "serviceWorker" in navigator,
+    hasPushManager: "PushManager" in window,
+    hasNotificationApi: "Notification" in window,
+  });
+  const notificationEnabled =
+    notificationChannel === "native" ? nativePushEnabled : Boolean(pushEnabled);
 
   useEffect(() => {
     if (!enabled) return;
@@ -236,7 +252,23 @@ export function GlobalNotificationProvider({
   }, [enabled, credentials, heartbeat]);
 
   const configurePush = async () => {
+    if (notificationChannel === "native") {
+      if (nativePushEnabled) {
+        localStorage.setItem(NATIVE_NOTIFICATION_ENABLED_KEY, "false");
+        setNativePushEnabled(false);
+        toast.success(copy.pushDisabled);
+        return;
+      }
+      const permission = await LocalNotifications.requestPermissions();
+      if (permission.display !== "granted")
+        throw new Error(copy.permissionDenied);
+      localStorage.setItem(NATIVE_NOTIFICATION_ENABLED_KEY, "true");
+      setNativePushEnabled(true);
+      toast.success(copy.pushEnabled);
+      return;
+    }
     if (
+      notificationChannel === "unsupported" ||
       !("serviceWorker" in navigator) ||
       !("PushManager" in window) ||
       !("Notification" in window)
@@ -668,9 +700,9 @@ export function GlobalNotificationProvider({
             >
               <span>{copy.pushToggle}</span>
               <span
-                className={pushEnabled ? "text-green-400" : "text-white/45"}
+                className={notificationEnabled ? "text-green-400" : "text-white/45"}
               >
-                {pushEnabled ? copy.enabled : copy.disabled}
+                {notificationEnabled ? copy.enabled : copy.disabled}
               </span>
             </button>
             <label className="flex items-center justify-between rounded-xl bg-white/5 px-4 py-3">

@@ -123,6 +123,12 @@ export type Messages = {
     endIdle: string;
     linkLabel: string;
     passwordLabel: string;
+    manageFaces: string;
+    manageFacesHint: string;
+    photoName: string;
+    photoSaveIdle: string;
+    photoSaveBusy: string;
+    photoReady: string;
   };
   preCall: {
     dialogLabel: string;
@@ -2172,7 +2178,13 @@ export const messages: Record<AppLocale, Messages> = {
       subtitle:
         "全機能認証コードのみ、外部向け 1 対 1 の換顔通話招待を作成できます。",
       body:
-        "App に保存済みの顔写真を利用し、iPhone ネイティブ側から Amigo 処理後の映像トラックを公開します。",
+        "保存済みの顔写真を使って、相手には加工後の映像だけを表示します。",
+      manageFaces: "顔写真をアップロード",
+      manageFacesHint: "通話を作成する前に、ここで顔写真を保存してください。",
+      photoName: "写真名（任意）",
+      photoSaveIdle: "写真を保存",
+      photoSaveBusy: "保存中...",
+      photoReady: "顔写真を保存しました。",
       createBusy: "作成中...",
       createIdle: "通話を作成",
       inviteLink: "招待リンク",
@@ -2381,7 +2393,13 @@ export const messages: Record<AppLocale, Messages> = {
       title: "换脸视讯",
       subtitle: "只有全功能授权码可以建立对外的一对一换脸视讯邀请。",
       body:
-        "系统会使用 App 内已保存的人脸照片，并从 iPhone 原生侧发布 Amigo 处理后的视讯轨道。",
+        "系统会使用已保存的人脸照片，只把处理后的画面发送给对方。",
+      manageFaces: "上传人脸照片",
+      manageFacesHint: "请先在这里保存一张人脸照片，再建立视讯。",
+      photoName: "照片名称（选填）",
+      photoSaveIdle: "保存照片",
+      photoSaveBusy: "保存中...",
+      photoReady: "人脸照片已保存。",
       createBusy: "建立中...",
       createIdle: "建立视讯",
       inviteLink: "邀请链接",
@@ -2589,7 +2607,13 @@ export const messages: Record<AppLocale, Messages> = {
       title: "換臉視訊",
       subtitle: "只有全功能授權碼可以建立對外的一對一換臉視訊邀請。",
       body:
-        "系統會使用 App 內已保存的人臉照片，並從 iPhone 原生端發布 Amigo 處理後的視訊軌道。",
+        "系統會使用已保存的人臉照片，只把處理後的畫面傳送給對方。",
+      manageFaces: "上傳人臉照片",
+      manageFacesHint: "請先在這裡保存一張人臉照片，再建立視訊。",
+      photoName: "照片名稱（選填）",
+      photoSaveIdle: "保存照片",
+      photoSaveBusy: "保存中...",
+      photoReady: "人臉照片已保存。",
       createBusy: "建立中...",
       createIdle: "建立視訊",
       inviteLink: "邀請連結",
@@ -2799,7 +2823,13 @@ export const messages: Record<AppLocale, Messages> = {
       subtitle:
         "Only full-access authorization codes can create an external one-to-one face swap call invite.",
       body:
-        "The app uses a saved face photo and publishes the Amigo-processed video track from native iPhone code.",
+        "The app uses a saved face photo and shows only the processed video to the other person.",
+      manageFaces: "Upload face photo",
+      manageFacesHint: "Save a face photo here before creating the call.",
+      photoName: "Photo name (optional)",
+      photoSaveIdle: "Save photo",
+      photoSaveBusy: "Saving...",
+      photoReady: "Face photo saved.",
       createBusy: "Creating...",
       createIdle: "Create call",
       inviteLink: "Invite link",

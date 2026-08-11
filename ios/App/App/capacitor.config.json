@@ -12,6 +12,7 @@
 		"AmigoFaceSwap": {}
 	},
 	"packageClassList": [
+		"LocalNotificationsPlugin",
 		"AmigoFaceSwapPlugin"
 	]
 }

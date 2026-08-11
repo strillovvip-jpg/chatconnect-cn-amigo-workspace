@@ -40,4 +40,10 @@ describe('messages multilingual coverage', () => {
     expect(messages.ja.callUi.sourceTitle).toBe('映像ソース');
   });
 
+  it('keeps face-swap invite copy free of internal vendor names', () => {
+    for (const locale of ['en', 'ja', 'zh-Hans', 'zh-Hant'] as const) {
+      expect(messages[locale].faceSwapInvite.body).not.toMatch(/Amigo|LiveKit|SDK|native/i);
+    }
+  });
+
 });

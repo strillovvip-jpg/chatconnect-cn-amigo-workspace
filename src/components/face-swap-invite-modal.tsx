@@ -1,11 +1,12 @@
-import { useState } from "react";
-import { useAction } from "convex/react";
+import { useRef, useState } from "react";
+import { useAction, useMutation } from "convex/react";
 import { Copy, Share2, Video, X } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api.js";
 import { useI18n } from "@/lib/i18n";
 import { nativeAmigoRoom } from "@/lib/amigo/native-room";
 import { uiErrorMessage } from "@/lib/utils";
+import type { Id } from "@/convex/_generated/dataModel";
 
 type CreatedInvite = {
   inviteId: string;
@@ -30,13 +31,87 @@ export function FaceSwapInviteModal({
 }) {
   const { messages } = useI18n();
   const copy = messages.faceSwapInvite;
+  const chatCopy = messages.chatPage;
   const createInvite = useAction(api.calls.createFaceSwapInvite);
   const endInvite = useAction(api.calls.endFaceSwapInvite);
+  const generateFaceUploadUrl = useMutation(api.faceLibrary.generateUploadUrl);
+  const addFace = useMutation(api.faceLibrary.addFace);
   const [creating, setCreating] = useState(false);
   const [ending, setEnding] = useState(false);
+  const [savingFace, setSavingFace] = useState(false);
+  const [faceName, setFaceName] = useState("");
+  const [faceFile, setFaceFile] = useState<File | null>(null);
   const [invite, setInvite] = useState<CreatedInvite | null>(null);
+  const faceInputRef = useRef<HTMLInputElement | null>(null);
 
   if (!open) return null;
+
+  const handleSaveFace = async () => {
+    if (!faceFile) {
+      toast.error(chatCopy.chooseImageFile);
+      return;
+    }
+    if (!faceFile.type.startsWith("image/")) {
+      toast.error(chatCopy.chooseImageFile);
+      return;
+    }
+    if (faceFile.size > 10 * 1024 * 1024) {
+      toast.error(chatCopy.imageMaxSize);
+      return;
+    }
+    setSavingFace(true);
+    try {
+      const uploadResult = (await generateFaceUploadUrl({
+        code: userCode,
+        deviceId,
+      })) as string | { uploadUrl: string; requestId: string };
+      const uploadUrl =
+        typeof uploadResult === "string" ? uploadResult : uploadResult.uploadUrl;
+      const uploadRequestId =
+        typeof uploadResult === "string" ? undefined : uploadResult.requestId;
+      const response = await fetch(uploadUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": faceFile.type || "application/octet-stream",
+        },
+        body: faceFile,
+      });
+      if (!response.ok)
+        throw new Error(chatCopy.imageUploadFailed(response.status));
+      const { storageId } = (await response.json()) as {
+        storageId?: Id<"_storage">;
+      };
+      if (!storageId) throw new Error(chatCopy.imageIdMissing);
+      if (!uploadRequestId) throw new Error(chatCopy.uploadRequestMissing);
+      await (
+        addFace as unknown as (args: {
+          code: string;
+          deviceId: string;
+          name: string;
+          storageId: Id<"_storage">;
+          uploadRequestId: string;
+          hasConsent: boolean;
+          subjectIsAdult: boolean;
+        }) => Promise<unknown>
+      )({
+        code: userCode,
+        deviceId,
+        name: faceName.trim() || `Face ${new Date().toLocaleDateString()}`,
+        storageId,
+        uploadRequestId,
+        hasConsent: true,
+        subjectIsAdult: true,
+      });
+      setFaceName("");
+      setFaceFile(null);
+      if (faceInputRef.current) faceInputRef.current.value = "";
+      toast.success(copy.photoReady);
+    } catch (error) {
+      toast.error(uiErrorMessage(error, chatCopy.faceAddFailed));
+    } finally {
+      setSavingFace(false);
+    }
+  };
 
   const handleCreate = async () => {
     if (!nativeAmigoRoom.isAvailable) {
@@ -162,6 +237,47 @@ export function FaceSwapInviteModal({
           <div className="mt-5 space-y-4">
             <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/75">
               {copy.body}
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+              <div className="space-y-3">
+                <div>
+                  <p className="text-sm font-medium text-white">{copy.manageFaces}</p>
+                  <p className="mt-1 text-xs text-white/55">
+                    {copy.manageFacesHint}
+                  </p>
+                </div>
+                <input
+                  type="text"
+                  value={faceName}
+                  onChange={(event) => setFaceName(event.target.value)}
+                  placeholder={copy.photoName}
+                  className="w-full rounded-xl border border-white/10 bg-[#0d1524] px-3 py-2 text-sm text-white outline-none"
+                />
+                <input
+                  ref={faceInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(event) =>
+                    setFaceFile(event.target.files?.[0] ?? null)
+                  }
+                />
+                <button
+                  type="button"
+                  onClick={() => faceInputRef.current?.click()}
+                  className="w-full rounded-xl bg-white/10 px-3 py-2 text-sm font-medium text-white"
+                >
+                  {faceFile?.name || copy.manageFaces}
+                </button>
+                <button
+                  type="button"
+                  disabled={!faceFile || savingFace}
+                  onClick={() => void handleSaveFace()}
+                  className="w-full rounded-xl bg-white/10 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                >
+                  {savingFace ? copy.photoSaveBusy : copy.photoSaveIdle}
+                </button>
+              </div>
             </div>
             <button
               type="button"

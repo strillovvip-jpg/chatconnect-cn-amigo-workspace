@@ -22,6 +22,7 @@ import type {
 import { useFeatures } from "@/contexts/feature-context.tsx";
 import { CallComplianceAgent } from "@/components/call-compliance-agent.tsx";
 import { useI18n } from "@/lib/i18n";
+import { setParticipantCameraEnabled } from "@/lib/calls/camera-control";
 
 type CallMode = "p2p" | "group";
 type CallState =
@@ -518,10 +519,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         }
         if (info.callType === "video") {
           try {
-            await nextRoom.localParticipant.setCameraEnabled(true, {
-              resolution: { width: 1280, height: 720, frameRate: 24 },
-              facingMode: "user",
-            });
+            await setParticipantCameraEnabled(
+              nextRoom.localParticipant,
+              true,
+            );
             const camera = nextRoom.localParticipant.getTrackPublication(
               Track.Source.Camera,
             );
@@ -612,7 +613,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       if (micEnded)
         await activeRoom.localParticipant.setMicrophoneEnabled(false);
       if (cameraEnded)
-        await activeRoom.localParticipant.setCameraEnabled(false);
+        await setParticipantCameraEnabled(
+          activeRoom.localParticipant,
+          false,
+        );
       if (
         wantedMicRef.current &&
         (!activeRoom.localParticipant.isMicrophoneEnabled || micEnded)
@@ -624,7 +628,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         wantedCamRef.current &&
         (!activeRoom.localParticipant.isCameraEnabled || cameraEnded)
       ) {
-        await activeRoom.localParticipant.setCameraEnabled(true);
+        await setParticipantCameraEnabled(
+          activeRoom.localParticipant,
+          true,
+        );
       }
     } catch {
       toast.error(copy.mediaStopped, {
@@ -768,21 +775,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     const activeRoom = roomRef.current;
     if (!activeRoom) return;
     try {
-      const published = activeRoom.localParticipant.getTrackPublication(
-        Track.Source.Camera,
-      )?.videoTrack;
-      if (published) {
-        await (next ? published.unmute() : published.mute());
-      } else {
-        await activeRoom.localParticipant.setCameraEnabled(next);
-      }
-      if (
-        next &&
-        !activeRoom.localParticipant.getTrackPublication(Track.Source.Camera)
-          ?.track
-      ) {
-        throw new Error("camera track was not published");
-      }
+      await setParticipantCameraEnabled(activeRoom.localParticipant, next);
       if (next) toast.dismiss("livekit-camera-permission");
     } catch {
       wantedCamRef.current = activeRoom.localParticipant.isCameraEnabled;

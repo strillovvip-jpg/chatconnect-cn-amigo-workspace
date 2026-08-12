@@ -5,6 +5,7 @@ import AVFoundation
 import CoreImage
 import CoreVideo
 import Vision
+import ObjectiveC.runtime
 import AmigoFaceSwapSDK
 import LiveKit
 
@@ -52,6 +53,93 @@ private enum AmigoSDKDiagnostics {
             "domain=\(nativeError.domain) nativeCode=\(nativeError.code) " +
             "message=\(nativeError.localizedDescription) debug=\(String(reflecting: error))"
         )
+    }
+}
+
+/// AmigoFaceSwapSDK 1.0.2 creates its internal
+/// `VNDetectFaceLandmarksRequest` with plain `init`. On affected iOS 26
+/// runtimes Vision's default revision fails in `performRequests:error:` with
+/// error 9 ("Could not create inference context"). Keep the workaround scoped
+/// to the exact request subclass used by the closed-source SDK and force the
+/// compatible revision on both Objective-C initialization paths.
+private enum AmigoVisionLandmarksCompatibility {
+    private static let lock = NSLock()
+    private static var installed = false
+    private static var retainedImplementations: [IMP] = []
+
+    static func install() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !installed else { return }
+
+        let didInstallPlain = installPlainInitializer()
+        let didInstallCompletion = installCompletionInitializer()
+        installed = didInstallPlain || didInstallCompletion
+
+        AmigoSDKDiagnostics.record(
+            "[AmigoSDK] stage=visionCompatibility result=\(installed ? "success" : "error") " +
+            "plainInit=\(didInstallPlain) completionInit=\(didInstallCompletion) " +
+            "faceLandmarksRevision=2"
+        )
+    }
+
+    private static func installPlainInitializer() -> Bool {
+        let selector = NSSelectorFromString("init")
+        guard let method = class_getInstanceMethod(VNDetectFaceLandmarksRequest.self, selector) else {
+            return false
+        }
+        let originalIMP = method_getImplementation(method)
+        typealias Original = @convention(c) (AnyObject, Selector) -> AnyObject
+        let replacement: @convention(block) (AnyObject) -> AnyObject = { object in
+            let initialized = unsafeBitCast(originalIMP, to: Original.self)(object, selector)
+            if let request = initialized as? VNDetectFaceLandmarksRequest {
+                request.revision = 2
+            }
+            return initialized
+        }
+        return replace(method: method, selector: selector, block: replacement)
+    }
+
+    private static func installCompletionInitializer() -> Bool {
+        let selector = NSSelectorFromString("initWithCompletionHandler:")
+        guard let method = class_getInstanceMethod(VNDetectFaceLandmarksRequest.self, selector) else {
+            return false
+        }
+        let originalIMP = method_getImplementation(method)
+        typealias Original = @convention(c) (
+            AnyObject,
+            Selector,
+            VNRequestCompletionHandler?
+        ) -> AnyObject
+        let replacement: @convention(block) (
+            AnyObject,
+            VNRequestCompletionHandler?
+        ) -> AnyObject = { object, completionHandler in
+            let initialized = unsafeBitCast(originalIMP, to: Original.self)(
+                object,
+                selector,
+                completionHandler
+            )
+            if let request = initialized as? VNDetectFaceLandmarksRequest {
+                request.revision = 2
+            }
+            return initialized
+        }
+        return replace(method: method, selector: selector, block: replacement)
+    }
+
+    private static func replace<T>(method: Method, selector: Selector, block: T) -> Bool {
+        let implementation = imp_implementationWithBlock(block)
+        retainedImplementations.append(implementation)
+        if !class_addMethod(
+            VNDetectFaceLandmarksRequest.self,
+            selector,
+            implementation,
+            method_getTypeEncoding(method)
+        ) {
+            method_setImplementation(method, implementation)
+        }
+        return true
     }
 }
 
@@ -122,6 +210,7 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc override public func load() {
         AmigoSDKDiagnostics.record("[AmigoSDK] stage=pluginLoad result=success")
+        AmigoVisionLandmarksCompatibility.install()
         // Initialization is owned by the awaited JavaScript bridge call below.
         // Starting a second fire-and-forget initialization here races explicit
         // enrollment and can leave JS and native state disagreeing.

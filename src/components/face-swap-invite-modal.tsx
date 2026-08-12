@@ -1,13 +1,11 @@
-import { useEffect, useRef, useState } from "react";
-import { useAction, useMutation } from "convex/react";
+import { useEffect, useState } from "react";
+import { useAction } from "convex/react";
 import { Copy, Share2, Video, X } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api.js";
 import { useI18n } from "@/lib/i18n";
-import { amigoFaceSwap } from "@/lib/amigo/face-swap";
 import { nativeAmigoRoom } from "@/lib/amigo/native-room";
 import { uiErrorMessage } from "@/lib/utils";
-import type { Id } from "@/convex/_generated/dataModel";
 import { OVERLAY_LAYERS } from "@/lib/ui/overlay-layers";
 import { SavedFaceValidationError } from "@/lib/amigo/saved-face";
 import { OperationTimeoutError, withTimeout } from "@/lib/async/with-timeout";
@@ -44,158 +42,41 @@ export function FaceSwapInviteModal({
   onClose,
   userCode,
   deviceId,
+  faceReady,
+  onFaceReadyChange,
 }: {
   open: boolean;
   onClose: () => void;
   userCode: string;
   deviceId: string;
+  faceReady: boolean;
+  onFaceReadyChange: (ready: boolean) => void;
 }) {
   const { messages } = useI18n();
   const copy = messages.faceSwapInvite;
-  const chatCopy = messages.chatPage;
   const createInvite = useAction(api.calls.createFaceSwapInvite);
   const endInvite = useAction(api.calls.endFaceSwapInvite);
-  const generateFaceUploadUrl = useMutation(api.faceLibrary.generateUploadUrl);
-  const addFace = useMutation(api.faceLibrary.addFace);
   const [creating, setCreating] = useState(false);
   const [ending, setEnding] = useState(false);
-  const [savingFace, setSavingFace] = useState(false);
-  const [faceName, setFaceName] = useState("");
-  const [faceFile, setFaceFile] = useState<File | null>(null);
-  const [faceReady, setFaceReady] = useState(false);
   const [invite, setInvite] = useState<CreatedInvite | null>(null);
-  const faceInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!open || !nativeAmigoRoom.isAvailable) {
-      setFaceReady(false);
+      if (open) onFaceReadyChange(false);
       return;
     }
-    void Promise.all([
-      nativeAmigoRoom.requestMediaPermissions({ openSettingsIfDenied: false }),
-      nativeAmigoRoom.getStatus(),
-    ])
-      .then(([, status]) => setFaceReady(status.hasTargetFace === true))
+    void nativeAmigoRoom.getStatus()
+      .then((status) => onFaceReadyChange(status.hasTargetFace === true))
       .catch((error) => {
-        setFaceReady(false);
+        onFaceReadyChange(false);
         console.error("[FaceSwap:status] native readiness check failed", error);
       });
-  }, [open]);
+  }, [onFaceReadyChange, open]);
 
   if (!open) return null;
 
-  const handleSaveFace = async () => {
-    if (savingFace || creating) return;
-    if (!faceFile) {
-      toast.error(chatCopy.chooseImageFile);
-      return;
-    }
-    if (!faceFile.type.startsWith("image/")) {
-      toast.error(chatCopy.chooseImageFile);
-      return;
-    }
-    if (faceFile.size > 10 * 1024 * 1024) {
-      toast.error(chatCopy.imageMaxSize);
-      return;
-    }
-    setSavingFace(true);
-    setFaceReady(false);
-    try {
-      await verifySelectedImageDecodes(faceFile);
-      const uploadResult = (await withTimeout(
-        generateFaceUploadUrl({ code: userCode, deviceId }),
-        NETWORK_STEP_TIMEOUT_MS,
-        "create-face-upload-url",
-      )) as string | { uploadUrl: string; requestId: string };
-      const uploadUrl =
-        typeof uploadResult === "string"
-          ? uploadResult
-          : uploadResult.uploadUrl;
-      const uploadRequestId =
-        typeof uploadResult === "string" ? undefined : uploadResult.requestId;
-      const response = await withTimeout(
-        fetch(uploadUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": faceFile.type || "application/octet-stream",
-          },
-          body: faceFile,
-        }),
-        NETWORK_STEP_TIMEOUT_MS,
-        "upload-face-photo",
-      );
-      if (!response.ok)
-        throw new Error(chatCopy.imageUploadFailed(response.status));
-      const { storageId } = (await response.json()) as {
-        storageId?: Id<"_storage">;
-      };
-      if (!storageId) throw new Error(chatCopy.imageIdMissing);
-      if (!uploadRequestId) throw new Error(chatCopy.uploadRequestMissing);
-      await withTimeout(
-        (
-          addFace as unknown as (args: {
-            code: string;
-            deviceId: string;
-            name: string;
-            storageId: Id<"_storage">;
-            uploadRequestId: string;
-            hasConsent: boolean;
-            subjectIsAdult: boolean;
-          }) => Promise<unknown>
-        )({
-          code: userCode,
-          deviceId,
-          name: faceName.trim() || `Face ${new Date().toLocaleDateString()}`,
-          storageId,
-          uploadRequestId,
-          hasConsent: true,
-          subjectIsAdult: true,
-        }),
-        NETWORK_STEP_TIMEOUT_MS,
-        "persist-face-photo",
-      );
-      // The persisted server copy and the native FaceLatent are separate
-      // results. Only the exact selected bytes are enrolled, exactly once.
-      const enrolled = await amigoFaceSwap.enrollFaceFile(faceFile);
-      if (!enrolled)
-        throw new SavedFaceValidationError(
-          "NATIVE_FACE_STATE_MISSING",
-          "Native enrollment did not return a retained FaceLatent.",
-        );
-      const nativeStatus = await nativeAmigoRoom.getStatus();
-      if (!nativeStatus.hasTargetFace)
-        throw new SavedFaceValidationError(
-          "NATIVE_FACE_STATE_MISSING",
-          "Native enrollment completed without retaining a FaceLatent.",
-        );
-      console.info("[savedFace:save:success]", {
-        "savedFace.exists": true,
-        "savedFace.path/key": String(storageId),
-        "savedFace.byteLength": faceFile.size,
-        "savedFace.updatedAt": Date.now(),
-        "savedFace.nativeHasTargetFace": nativeStatus.hasTargetFace,
-      });
-      setFaceReady(true);
-      setFaceName("");
-      setFaceFile(null);
-      if (faceInputRef.current) faceInputRef.current.value = "";
-      toast.success(copy.photoReady);
-    } catch (error) {
-      setFaceReady(false);
-      toast.error(
-        error instanceof OperationTimeoutError
-          ? copy.operationTimedOut
-          : isFacePipelineError(error)
-            ? facePipelineErrorMessage(error, copy)
-            : uiErrorMessage(error, chatCopy.faceAddFailed),
-      );
-    } finally {
-      setSavingFace(false);
-    }
-  };
-
   const handleCreate = async () => {
-    if (creating || savingFace) return;
+    if (creating) return;
     if (!nativeAmigoRoom.isAvailable) {
       toast.error(copy.nativeOnly);
       return;
@@ -221,7 +102,7 @@ export function FaceSwapInviteModal({
       }
       const nativeStatus = await nativeAmigoRoom.getStatus();
       if (!nativeStatus.hasTargetFace) {
-        setFaceReady(false);
+        onFaceReadyChange(false);
         throw new SavedFaceValidationError(
           "NATIVE_FACE_STATE_MISSING",
           "The native FaceLatent is no longer available. Select the photo again.",
@@ -360,53 +241,9 @@ export function FaceSwapInviteModal({
             <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/75">
               {copy.body}
             </div>
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-              <div className="space-y-3">
-                <div>
-                  <p className="text-sm font-medium text-white">
-                    {copy.manageFaces}
-                  </p>
-                  <p className="mt-1 text-xs text-white/55">
-                    {copy.manageFacesHint}
-                  </p>
-                </div>
-                <input
-                  type="text"
-                  value={faceName}
-                  onChange={(event) => setFaceName(event.target.value)}
-                  placeholder={copy.photoName}
-                  className="w-full rounded-xl border border-white/10 bg-[#0d1524] px-3 py-2 text-sm text-white outline-none"
-                />
-                <input
-                  ref={faceInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(event) => {
-                    setFaceFile(event.target.files?.[0] ?? null);
-                    setFaceReady(false);
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() => faceInputRef.current?.click()}
-                  className="w-full rounded-xl bg-white/10 px-3 py-2 text-sm font-medium text-white"
-                >
-                  {faceFile?.name || copy.manageFaces}
-                </button>
-                <button
-                  type="button"
-                  disabled={!faceFile || savingFace || creating}
-                  onClick={() => void handleSaveFace()}
-                  className="w-full rounded-xl bg-white/10 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-                >
-                  {savingFace ? copy.photoSaveBusy : copy.photoSaveIdle}
-                </button>
-              </div>
-            </div>
             <button
               type="button"
-              disabled={creating || savingFace || !faceReady}
+              disabled={creating || !faceReady}
               onClick={() => void handleCreate()}
               className="flex w-full items-center justify-center gap-2 rounded-2xl bg-red-500 px-4 py-3 text-sm font-semibold disabled:opacity-50"
             >
@@ -537,20 +374,5 @@ function facePipelineErrorMessage(
       return copy.photoErrorEnroll;
     default:
       return copy.photoEnrollFailed;
-  }
-}
-
-async function verifySelectedImageDecodes(file: File): Promise<void> {
-  try {
-    const bitmap = await createImageBitmap(file);
-    const valid = bitmap.width > 0 && bitmap.height > 0;
-    bitmap.close();
-    if (!valid) throw new Error("Decoded image has no pixels.");
-  } catch (error) {
-    throw new SavedFaceValidationError(
-      "FACE_IMAGE_DECODE_FAILED",
-      "The selected photo could not be decoded.",
-      { cause: error },
-    );
   }
 }

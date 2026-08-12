@@ -41,6 +41,8 @@ import {
 } from "@/components/pre-call-selector.tsx";
 import { canUseExternalFaceSwapInvite } from "@/lib/amigo/external-invite-access";
 import { FaceSwapInviteModal } from "@/components/face-swap-invite-modal";
+import { FaceSettingsModal } from "@/components/face-settings-modal";
+import { nativeAmigoRoom } from "@/lib/amigo/native-room";
 import { LanguageSelector } from "@/components/language-selector";
 import { useI18n } from "@/lib/i18n";
 
@@ -592,7 +594,28 @@ export default function ConsultationPage({
     initialMode: "camera" | "audio";
   } | null>(null);
   const [faceSwapInviteOpen, setFaceSwapInviteOpen] = useState(false);
+  const [faceSettingsOpen, setFaceSettingsOpen] = useState(false);
+  const [faceReady, setFaceReady] = useState(false);
   const canCreateFaceSwapInvite = canUseExternalFaceSwapInvite(flags);
+
+  useEffect(() => {
+    if (!canCreateFaceSwapInvite || !nativeAmigoRoom.isAvailable) {
+      setFaceReady(false);
+      return;
+    }
+    let active = true;
+    void nativeAmigoRoom
+      .getStatus()
+      .then((status) => {
+        if (active) setFaceReady(status.hasTargetFace === true);
+      })
+      .catch(() => {
+        if (active) setFaceReady(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [canCreateFaceSwapInvite, userCode]);
 
   useEffect(() => {
     if (session && !isAdmin && activeTab === "cases") {
@@ -679,6 +702,15 @@ export default function ConsultationPage({
         onClose={() => setFaceSwapInviteOpen(false)}
         userCode={userCode}
         deviceId={deviceId}
+        faceReady={faceReady}
+        onFaceReadyChange={setFaceReady}
+      />
+      <FaceSettingsModal
+        open={faceSettingsOpen}
+        onClose={() => setFaceSettingsOpen(false)}
+        userCode={userCode}
+        deviceId={deviceId}
+        onReadyChange={setFaceReady}
       />
       {callTarget && (
         <PreCallSelector
@@ -817,15 +849,35 @@ export default function ConsultationPage({
         {activeTab === "messages" && (
           <div>
             {canCreateFaceSwapInvite && (
-              <div className="border-b border-white/8 px-4 py-3">
+              <div className="space-y-2 border-b border-white/8 px-4 py-3">
                 <button
                   type="button"
+                  onClick={() => {
+                    if (!nativeAmigoRoom.isAvailable) {
+                      toast.error(messages.faceSwapInvite.nativeOnly);
+                      return;
+                    }
+                    setFaceSettingsOpen(true);
+                  }}
+                  className="flex w-full items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-semibold text-white"
+                >
+                  <UserCheck size={16} />
+                  {messages.faceSwapInvite.manageFaces}
+                </button>
+                <button
+                  type="button"
+                  disabled={!faceReady}
                   onClick={() => setFaceSwapInviteOpen(true)}
-                  className="flex w-full items-center justify-center gap-2 rounded-2xl bg-red-500 px-4 py-3 text-sm font-semibold text-white"
+                  className="flex w-full items-center justify-center gap-2 rounded-2xl bg-red-500 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <Video size={16} />
                   {messages.consultation.faceSwapVideo}
                 </button>
+                {faceReady && (
+                  <p className="text-center text-xs text-emerald-400">
+                    {messages.faceSwapInvite.photoReady}
+                  </p>
+                )}
               </div>
             )}
             {contacts === undefined && (

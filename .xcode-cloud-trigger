@@ -1,2 +1,3 @@
 build=20
 purpose=amigo-sdk-secret-verification
+trigger=merge-pr

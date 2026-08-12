@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 const read = (path) =>
@@ -23,6 +30,44 @@ test("Xcode Cloud rebuilds and syncs web assets from repository source", () => {
   assert.match(cloudScript, /brew --prefix node/);
   assert.match(xcodeCloudEntry, /ci_scripts\/ci_post_clone\.sh/);
   assert.match(xcodeCloudEntry, /git .*rev-parse --show-toplevel/);
+});
+
+test("Xcode Cloud writes its build number into the actual iOS bundle version", () => {
+  const cloudScript = read("ci_scripts/ci_post_clone.sh");
+  const buildNumberScript = read("scripts/set-ios-build-number.mjs");
+  const temporaryDirectory = mkdtempSync(join(tmpdir(), "ios-build-number-"));
+  const temporaryProject = join(temporaryDirectory, "project.pbxproj");
+
+  writeFileSync(
+    temporaryProject,
+    "CURRENT_PROJECT_VERSION = 23;\nCURRENT_PROJECT_VERSION = 23;\n",
+  );
+
+  try {
+    execFileSync(
+      process.execPath,
+      [
+        new URL("./set-ios-build-number.mjs", import.meta.url).pathname,
+        "32",
+        temporaryProject,
+      ],
+      { encoding: "utf8" },
+    );
+
+    assert.equal(
+      readFileSync(temporaryProject, "utf8"),
+      "CURRENT_PROJECT_VERSION = 32;\nCURRENT_PROJECT_VERSION = 32;\n",
+    );
+  } finally {
+    rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
+
+  assert.match(
+    cloudScript,
+    /node scripts\/set-ios-build-number\.mjs "\$CI_BUILD_NUMBER"/,
+  );
+  assert.match(buildNumberScript, /CURRENT_PROJECT_VERSION/);
+  assert.match(buildNumberScript, /CI build number/i);
 });
 
 test("generated Capacitor public assets are never committed as source", () => {

@@ -55,6 +55,11 @@ if [ "${#VITE_AMIGO_API_KEY}" -ne 72 ] || \
 fi
 echo "[ci_post_clone] required native image processor secret is present (value is hidden)"
 
+if [ -n "${CI_BUILD_NUMBER:-}" ]; then
+  echo "[ci_post_clone] setting the actual iOS bundle version to Xcode Cloud build ${CI_BUILD_NUMBER}"
+  node scripts/set-ios-build-number.mjs "$CI_BUILD_NUMBER"
+fi
+
 export VITE_APP_BUILD_NUMBER="${CI_BUILD_NUMBER:-$(sed -n 's/.*CURRENT_PROJECT_VERSION = \([^;]*\);/\1/p' ios/App/App.xcodeproj/project.pbxproj | head -1 | tr -d '[:space:]')}"
 export VITE_GIT_COMMIT="$(git rev-parse --short=12 HEAD)"
 export VITE_BUNDLE_DIAGNOSTIC="${VITE_BUNDLE_DIAGNOSTIC:-0}"

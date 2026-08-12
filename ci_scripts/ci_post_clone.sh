@@ -31,6 +31,9 @@ fi
 node --version
 npm --version
 
+echo "[ci_post_clone] installing JavaScript dependencies"
+npm ci
+
 if [ -z "${VITE_AMIGO_API_KEY:-}" ]; then
   echo "[ci_post_clone] required secret VITE_AMIGO_API_KEY is not configured" >&2
   exit 1
@@ -41,9 +44,6 @@ export VITE_APP_BUILD_NUMBER="${CI_BUILD_NUMBER:-$(sed -n 's/.*CURRENT_PROJECT_V
 export VITE_GIT_COMMIT="$(git rev-parse --short=12 HEAD)"
 export VITE_BUNDLE_DIAGNOSTIC="${VITE_BUNDLE_DIAGNOSTIC:-0}"
 echo "[ci_post_clone] bundle fingerprint: build=${VITE_APP_BUILD_NUMBER} commit=${VITE_GIT_COMMIT} diagnostic=${VITE_BUNDLE_DIAGNOSTIC}"
-
-echo "[ci_post_clone] installing JavaScript dependencies"
-npm ci
 
 echo "[ci_post_clone] building and syncing the current source into iOS"
 npm run build:ios

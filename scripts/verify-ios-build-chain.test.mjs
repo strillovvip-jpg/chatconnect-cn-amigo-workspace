@@ -101,10 +101,20 @@ test("iOS sync preserves native local notifications and hides bundle diagnostics
 
 test("Xcode Cloud refuses to archive without the native face SDK key", () => {
   const cloudScript = read("ci_scripts/ci_post_clone.sh");
+  const dependencyInstallIndex = cloudScript.indexOf("npm ci");
+  const secretValidationIndex = cloudScript.indexOf(
+    'if [ -z "${VITE_AMIGO_API_KEY:-}" ]',
+  );
 
   assert.match(cloudScript, /VITE_AMIGO_API_KEY/);
   assert.match(cloudScript, /required secret/i);
   assert.doesNotMatch(cloudScript, /ak_live_[a-z0-9]+/i);
+  assert.ok(dependencyInstallIndex >= 0);
+  assert.ok(secretValidationIndex >= 0);
+  assert.ok(
+    dependencyInstallIndex < secretValidationIndex,
+    "npm dependencies must exist before Xcode Cloud validates secrets so the project can be cataloged even when a secret is missing",
+  );
 });
 
 test("native face enrollment awaits the official async SDK without blocking it", () => {

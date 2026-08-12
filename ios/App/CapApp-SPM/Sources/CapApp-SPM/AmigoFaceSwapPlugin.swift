@@ -5,7 +5,6 @@ import AVFoundation
 import CoreImage
 import CoreVideo
 import Vision
-import ObjectiveC.runtime
 import AmigoFaceSwapSDK
 import LiveKit
 
@@ -52,71 +51,6 @@ private enum AmigoSDKDiagnostics {
             "sdkCase=\(AmigoFaceSwapPlugin.officialSDKCase(error)) " +
             "domain=\(nativeError.domain) nativeCode=\(nativeError.code) " +
             "message=\(nativeError.localizedDescription) debug=\(String(reflecting: error))"
-        )
-    }
-}
-
-/// Amigo 1.0.2 creates `VNDetectFaceLandmarksRequest` with Vision's default
-/// revision. On affected iOS runtimes revision 3 fails before face enrollment
-/// with `com.apple.Vision` error 9 ("Could not create inference context").
-/// Revision 2 detects the same face and landmarks successfully, so constrain
-/// only this request subclass before the closed-source SDK creates it.
-private enum AmigoVisionLandmarksCompatibility {
-    private static let lock = NSLock()
-    private static var installed = false
-    private static var replacementIMP: IMP?
-
-    static func install() {
-        lock.lock()
-        defer { lock.unlock() }
-
-        guard !installed else { return }
-
-        let selector = NSSelectorFromString("initWithCompletionHandler:")
-        guard let method = class_getInstanceMethod(
-            VNDetectFaceLandmarksRequest.self,
-            selector
-        ) else {
-            AmigoSDKDiagnostics.record(
-                "[AmigoSDK] stage=visionCompatibility result=error code=VISION_INITIALIZER_NOT_FOUND"
-            )
-            return
-        }
-
-        let originalIMP = method_getImplementation(method)
-        typealias InitImplementation = @convention(c) (
-            AnyObject,
-            Selector,
-            VNRequestCompletionHandler?
-        ) -> AnyObject
-        let replacement: @convention(block) (
-            AnyObject,
-            VNRequestCompletionHandler?
-        ) -> AnyObject = { object, completionHandler in
-            let initialized = unsafeBitCast(originalIMP, to: InitImplementation.self)(
-                object,
-                selector,
-                completionHandler
-            )
-            if let request = initialized as? VNDetectFaceLandmarksRequest {
-                request.revision = 2
-            }
-            return initialized
-        }
-
-        let imp = imp_implementationWithBlock(replacement)
-        replacementIMP = imp
-        if !class_addMethod(
-            VNDetectFaceLandmarksRequest.self,
-            selector,
-            imp,
-            method_getTypeEncoding(method)
-        ) {
-            method_setImplementation(method, imp)
-        }
-        installed = true
-        AmigoSDKDiagnostics.record(
-            "[AmigoSDK] stage=visionCompatibility result=success faceLandmarksRevision=2"
         )
     }
 }
@@ -195,8 +129,6 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func initialize(_ call: CAPPluginCall) {
-        AmigoVisionLandmarksCompatibility.install()
-
         initializationStateLock.lock()
         if didInitialize {
             initializationStateLock.unlock()
@@ -327,6 +259,16 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
             AmigoSDKDiagnostics.record("[AmigoSDK] stage=enrollFace result=started")
             let latent: FaceLatent
             do {
+                // Amigo 1.0.2 can fail inside Vision with error 9 ("Could not
+                // create inference context") on affected iOS runtimes. A
+                // CPU-only public Vision preflight initializes the exact face
+                // detector/landmark pipeline successfully before the closed
+                // SDK performs enrollment. This was verified against the same
+                // production SDK, API key and source image before integration.
+                let detectedFaceCount = try Self.prepareVisionForEnrollment(decodedImage)
+                AmigoSDKDiagnostics.record(
+                    "[AmigoSDK] stage=visionPreflight result=success usesCPUOnly=true faceCount=\(detectedFaceCount)"
+                )
                 // Match the official Amigo sample exactly: decode the selected
                 // bytes to UIImage and await enrollFace directly. Do not block
                 // the SDK's async model download/inference work with a semaphore.
@@ -410,6 +352,42 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
                 verifier.start()
             }
             #endif
+        }
+    }
+
+    private static func prepareVisionForEnrollment(_ image: UIImage) throws -> Int {
+        guard let cgImage = image.cgImage else {
+            throw NSError(
+                domain: "AmigoFaceSwapPlugin.VisionPreflight",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "The selected image has no CGImage backing data."]
+            )
+        }
+        let orientation = cgImageOrientation(from: image.imageOrientation)
+
+        let rectangles = VNDetectFaceRectanglesRequest()
+        rectangles.usesCPUOnly = true
+        try VNImageRequestHandler(cgImage: cgImage, orientation: orientation).perform([rectangles])
+        let detectedFaceCount = rectangles.results?.count ?? 0
+
+        let landmarks = VNDetectFaceLandmarksRequest()
+        landmarks.usesCPUOnly = true
+        try VNImageRequestHandler(cgImage: cgImage, orientation: orientation).perform([landmarks])
+
+        return detectedFaceCount
+    }
+
+    private static func cgImageOrientation(from orientation: UIImage.Orientation) -> CGImagePropertyOrientation {
+        switch orientation {
+        case .up: return .up
+        case .upMirrored: return .upMirrored
+        case .down: return .down
+        case .downMirrored: return .downMirrored
+        case .left: return .left
+        case .leftMirrored: return .leftMirrored
+        case .right: return .right
+        case .rightMirrored: return .rightMirrored
+        @unknown default: return .up
         }
     }
 

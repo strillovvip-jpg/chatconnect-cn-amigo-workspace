@@ -96,34 +96,10 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc override public func load() {
         AmigoSDKDiagnostics.record("[AmigoSDK] stage=pluginLoad result=success")
-        let apiKey = getConfig().getString("apiKey")
-        if let apiKey, !apiKey.isEmpty {
-            AmigoSDKDiagnostics.record("[AmigoSDK] stage=initialize source=capacitorConfig result=started")
-            initializeSDK(apiKey: apiKey)
-        } else {
-            AmigoSDKDiagnostics.record("[AmigoSDK] stage=initialize source=javascript result=waiting")
-        }
-    }
-
-    private func initializeSDK(apiKey: String) {
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await AmigoFaceSwap.initialize(apiKey: apiKey) { progress in
-                    AmigoSDKDiagnostics.record(
-                        "[AmigoSDK] stage=initialize source=capacitorConfig result=progress value=\(progress)"
-                    )
-                }
-                self.didInitialize = true
-                AmigoSDKDiagnostics.record(
-                    "[AmigoSDK] stage=initialize source=capacitorConfig result=success initialized=true"
-                )
-            } catch {
-                self.didInitialize = false
-                let mapped = Self.mappedSDKError(error, stage: "initialize")
-                self.logNativeError(stage: "initialize", error: error, mappedCode: mapped.code)
-            }
-        }
+        // Initialization is owned by the awaited JavaScript bridge call below.
+        // Starting a second fire-and-forget initialization here races explicit
+        // enrollment and can leave JS and native state disagreeing.
+        AmigoSDKDiagnostics.record("[AmigoSDK] stage=initialize source=javascript result=waiting")
     }
 
     @objc func initialize(_ call: CAPPluginCall) {
@@ -143,7 +119,7 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
             )
             return
         }
-        Task { [weak self] in
+        Task { @MainActor [weak self] in
             guard let self else {
                 call.reject("The native image processor plugin was released.", "SDK_PLUGIN_RELEASED")
                 return
@@ -222,7 +198,7 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
         enrollmentGeneration += 1
         let requestGeneration = enrollmentGeneration
         enrollmentStateLock.unlock()
-        Task { [weak self] in
+        Task { @MainActor [weak self] in
             guard let self else {
                 call.reject("The native image processor plugin was released.", "SDK_PLUGIN_RELEASED")
                 return
@@ -243,9 +219,8 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
                 )
                 return
             }
-            // More than one caller can request enrollment during boot
-            // rehydration and an explicit photo save. Only the newest request
-            // may replace the face used by the live video publisher.
+            // Only the newest explicit photo selection may replace the face
+            // used by the live video publisher.
             self.enrollmentStateLock.lock()
             guard requestGeneration == self.enrollmentGeneration else {
                 self.enrollmentStateLock.unlock()
@@ -273,7 +248,9 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
                 "targetLatentStored=true nativeSessionUpdated=true"
             )
             var success = imageDetails
+            success["success"] = true
             success["enrolled"] = true
+            success["hasTargetFace"] = true
             success["latentHash"] = latent.hashValue
             call.resolve(success)
 
@@ -321,7 +298,10 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
             call.resolve(["swapped": false, "imageData": NSNull()])
             return
         }
-        guard let latent = targetLatent else {
+        enrollmentStateLock.lock()
+        let latent = targetLatent
+        enrollmentStateLock.unlock()
+        guard let latent else {
             AmigoSDKDiagnostics.record("[AmigoSDK] stage=processFrame result=error mappedCode=NATIVE_FACE_STATE_MISSING")
             call.resolve(["swapped": false, "imageData": NSNull()])
             return
@@ -517,7 +497,7 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
             call,
             stage: stage,
             code: mapped.code,
-            message: mapped.message,
+            message: error.localizedDescription,
             error: error,
             details: details
         )

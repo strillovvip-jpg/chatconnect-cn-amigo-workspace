@@ -149,9 +149,8 @@ export class AmigoFaceSwapService {
   }
 
   private async enrollFaceData(imageData: string): Promise<boolean> {
-    // Boot rehydration and a user-initiated save can reach this bridge at the
-    // same time. The vendor SDK owns process-wide model state, so never invoke
-    // enrollFace concurrently. Chaining also makes the last requested photo
+    // The vendor SDK owns process-wide model state, so never invoke enrollFace
+    // concurrently. Chaining makes the last explicitly selected photo
     // deterministically become the live FaceLatent.
     const enrollment = this.enrollmentQueue.then(() =>
       this.enrollFaceDataWithRecovery(imageData, true),
@@ -168,16 +167,26 @@ export class AmigoFaceSwapService {
     allowInitializationRecovery: boolean,
   ): Promise<boolean> {
     try {
-      const ok = await amigoBridge.enrollFace(imageData);
-      this.enrolled = ok;
-      if (!ok)
+      const result = await amigoBridge.enrollFace(imageData);
+      const ready =
+        result.success === true &&
+        result.enrolled === true &&
+        result.hasTargetFace === true;
+      this.enrolled = ready;
+      if (!ready)
         throw new FaceSwapError(
           "FACE_ENROLL_FAILED",
           "enroll",
-          "The native SDK returned enrolled=false.",
+          "The native SDK did not retain the enrolled FaceLatent.",
+          { result },
         );
-      console.info("[FaceSwap:enroll] target face enrolled from saved image");
-      return ok;
+      console.info("[FaceSwap:enroll] native FaceLatent retained", {
+        success: result.success,
+        enrolled: result.enrolled,
+        hasTargetFace: result.hasTargetFace,
+        latentHash: result.latentHash,
+      });
+      return true;
     } catch (error) {
       this.enrolled = false;
       const normalized = normalizeFaceSwapError(

@@ -1,13 +1,12 @@
 import { useEffect, useState } from "react";
-import { useQuery } from "convex/react";
 import { useLocation } from "react-router-dom";
-import { api } from "@/convex/_generated/api.js";
 import { amigoFaceSwap } from "./face-swap.ts";
 
 /**
  * Mounted once at app root. Initializes the Amigo Face Swap SDK at launch
- * and, after a successful login, enrolls the most recent face-library photo
- * so the AI video source has a target FaceLatent.
+ * after a successful login. FaceLatent is intentionally session-only because
+ * the installed SDK exposes no supported serialization accessor. A cold app
+ * start therefore stays not-ready until the user explicitly selects a photo.
  */
 export function AmigoFaceSwapBoot() {
   const location = useLocation();
@@ -39,22 +38,6 @@ export function AmigoFaceSwapBoot() {
     }, 0);
     return () => window.clearTimeout(timer);
   }, [credentials.code, credentials.deviceId, location.pathname]);
-
-  const faces = useQuery(
-    api.faceLibrary.listMine,
-    credentials.code && credentials.deviceId ? credentials : "skip",
-  );
-
-  useEffect(() => {
-    if (!faces || faces.length === 0) return;
-    const latest = faces[0];
-    if (!latest.imageUrl) return;
-    // enrollFace awaits initialization itself. The previous early return raced
-    // the async SDK startup and left an already-saved photo unenrolled forever.
-    void amigoFaceSwap.enrollFace(latest.imageUrl).catch((error) => {
-      console.error("[FaceSwap:boot] saved face enrollment failed", error);
-    });
-  }, [faces]);
 
   return null;
 }

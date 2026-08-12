@@ -18,7 +18,11 @@ vi.mock("./bridge.ts", () => ({
 describe("AmigoFaceSwapService", () => {
   beforeEach(() => {
     mocks.initialize.mockReset().mockResolvedValue(undefined);
-    mocks.enrollFace.mockReset().mockResolvedValue(true);
+    mocks.enrollFace.mockReset().mockResolvedValue({
+      success: true,
+      enrolled: true,
+      hasTargetFace: true,
+    });
     vi.stubGlobal("localStorage", {
       setItem: vi.fn(),
       removeItem: vi.fn(),
@@ -34,6 +38,36 @@ describe("AmigoFaceSwapService", () => {
     expect(mocks.initialize).toHaveBeenCalledWith("api-key");
     expect(mocks.enrollFace).toHaveBeenCalledTimes(1);
     expect(service.hasTargetFace).toBe(true);
+  });
+
+  it("only becomes ready after native confirms a retained FaceLatent", async () => {
+    mocks.enrollFace.mockResolvedValueOnce({
+      success: true,
+      enrolled: true,
+      hasTargetFace: true,
+      latentHash: 42,
+    });
+    const service = new AmigoFaceSwapService("api-key");
+    const file = new File(["face"], "face.jpeg", { type: "image/jpeg" });
+
+    await expect(service.enrollFaceFile(file)).resolves.toBe(true);
+    expect(service.hasTargetFace).toBe(true);
+  });
+
+  it("stays not ready when native does not retain the enrolled FaceLatent", async () => {
+    mocks.enrollFace.mockResolvedValueOnce({
+      success: true,
+      enrolled: true,
+      hasTargetFace: false,
+    });
+    const service = new AmigoFaceSwapService("api-key");
+    const file = new File(["face"], "face.jpeg", { type: "image/jpeg" });
+
+    await expect(service.enrollFaceFile(file)).rejects.toMatchObject({
+      code: "FACE_ENROLL_FAILED",
+      stage: "enroll",
+    });
+    expect(service.hasTargetFace).toBe(false);
   });
 
   it("rejects with an explicit configuration error when the SDK key is missing", async () => {
@@ -125,7 +159,11 @@ describe("AmigoFaceSwapService", () => {
           data: { stage: "enroll" },
         }),
       )
-      .mockResolvedValueOnce(true);
+      .mockResolvedValueOnce({
+        success: true,
+        enrolled: true,
+        hasTargetFace: true,
+      });
     const service = new AmigoFaceSwapService("api-key");
     const file = new File(["face"], "face.jpeg", { type: "image/jpeg" });
 
@@ -137,15 +175,24 @@ describe("AmigoFaceSwapService", () => {
   });
 
   it("serializes overlapping enrollments so the native SDK receives one photo at a time", async () => {
-    let resolveFirst: ((value: boolean) => void) | undefined;
+    type EnrollmentResult = {
+      success: boolean;
+      enrolled: boolean;
+      hasTargetFace: boolean;
+    };
+    let resolveFirst: ((value: EnrollmentResult) => void) | undefined;
     mocks.enrollFace
       .mockImplementationOnce(
         () =>
-          new Promise<boolean>((resolve) => {
+          new Promise<EnrollmentResult>((resolve) => {
             resolveFirst = resolve;
           }),
       )
-      .mockResolvedValueOnce(true);
+      .mockResolvedValueOnce({
+        success: true,
+        enrolled: true,
+        hasTargetFace: true,
+      });
     const service = new AmigoFaceSwapService("api-key");
 
     const first = service.enrollFaceFile(
@@ -156,7 +203,7 @@ describe("AmigoFaceSwapService", () => {
     );
     await vi.waitFor(() => expect(mocks.enrollFace).toHaveBeenCalledTimes(1));
 
-    resolveFirst?.(true);
+    resolveFirst?.({ success: true, enrolled: true, hasTargetFace: true });
     await expect(first).resolves.toBe(true);
     await expect(second).resolves.toBe(true);
 

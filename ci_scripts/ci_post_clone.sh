@@ -38,6 +38,21 @@ if [ -z "${VITE_AMIGO_API_KEY:-}" ]; then
   echo "[ci_post_clone] required secret VITE_AMIGO_API_KEY is not configured" >&2
   exit 1
 fi
+
+case "$VITE_AMIGO_API_KEY" in
+  ak_live_[0-9A-Fa-f][0-9A-Fa-f]*)
+    ;;
+  *)
+    echo "[ci_post_clone] native image processor secret has an invalid format; expected an ak_live_ production key (value is hidden)" >&2
+    exit 1
+    ;;
+esac
+
+if [ "${#VITE_AMIGO_API_KEY}" -ne 72 ] || \
+   ! printf '%s' "$VITE_AMIGO_API_KEY" | LC_ALL=C grep -Eq '^ak_live_[0-9A-Fa-f]{64}$'; then
+  echo "[ci_post_clone] native image processor secret has an invalid format; expected an ak_live_ production key (value is hidden)" >&2
+  exit 1
+fi
 echo "[ci_post_clone] required native image processor secret is present (value is hidden)"
 
 export VITE_APP_BUILD_NUMBER="${CI_BUILD_NUMBER:-$(sed -n 's/.*CURRENT_PROJECT_VERSION = \([^;]*\);/\1/p' ios/App/App.xcodeproj/project.pbxproj | head -1 | tr -d '[:space:]')}"

@@ -54,6 +54,29 @@ private enum AmigoSDKDiagnostics {
     }
 }
 
+/// The SDK reports model-download progress very frequently. Persisting every
+/// callback blocks the download/compile path with thousands of synchronous
+/// file open/write/close operations, so retain only 5% milestones.
+private final class AmigoInitializationProgressLogger: @unchecked Sendable {
+    private let lock = NSLock()
+    private var lastBucket = -5
+
+    func record(_ progress: Float) {
+        let bucket = min(100, max(0, Int(progress * 100))) / 5 * 5
+        lock.lock()
+        guard bucket > lastBucket else {
+            lock.unlock()
+            return
+        }
+        lastBucket = bucket
+        lock.unlock()
+
+        AmigoSDKDiagnostics.record(
+            "[AmigoSDK] stage=initialize source=javascript result=progress percent=\(bucket)"
+        )
+    }
+}
+
 /**
  * Native bridge for the Amigo Face Swap iOS SDK.
  *
@@ -85,6 +108,8 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
 
     private var targetLatent: FaceLatent?
     private var didInitialize = false
+    private let initializationStateLock = NSLock()
+    private var initializationTask: Task<Void, Error>?
     private var didLogFirstProcessedFrame = false
     private let enrollmentStateLock = NSLock()
     private var enrollmentGeneration = 0
@@ -103,11 +128,15 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func initialize(_ call: CAPPluginCall) {
+        initializationStateLock.lock()
         if didInitialize {
+            initializationStateLock.unlock()
             AmigoSDKDiagnostics.record("[AmigoSDK] stage=initialize source=javascript result=success initialized=true reused=true")
             call.resolve(["initialized": true, "reused": true])
             return
         }
+        initializationStateLock.unlock()
+
         let apiKey = call.getString("apiKey") ?? getConfig().getString("apiKey") ?? ""
         guard !apiKey.isEmpty else {
             AmigoSDKDiagnostics.record("[AmigoSDK] stage=initialize source=javascript result=error mappedCode=SDK_API_KEY_MISSING")
@@ -119,25 +148,48 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
             )
             return
         }
+
+        let task: Task<Void, Error>
+        let reusedTask: Bool
+        initializationStateLock.lock()
+        if let activeTask = initializationTask {
+            task = activeTask
+            reusedTask = true
+        } else {
+            let progressLogger = AmigoInitializationProgressLogger()
+            task = Task.detached(priority: .userInitiated) {
+                try await AmigoFaceSwap.initialize(apiKey: apiKey) { progress in
+                    progressLogger.record(progress)
+                }
+            }
+            initializationTask = task
+            reusedTask = false
+        }
+        initializationStateLock.unlock()
+
         Task { @MainActor [weak self] in
             guard let self else {
                 call.reject("The native image processor plugin was released.", "SDK_PLUGIN_RELEASED")
                 return
             }
-            AmigoSDKDiagnostics.record("[AmigoSDK] stage=initialize source=javascript result=started")
+            AmigoSDKDiagnostics.record(
+                "[AmigoSDK] stage=initialize source=javascript result=started reusedTask=\(reusedTask)"
+            )
             do {
-                try await AmigoFaceSwap.initialize(apiKey: apiKey) { progress in
-                    AmigoSDKDiagnostics.record(
-                        "[AmigoSDK] stage=initialize source=javascript result=progress value=\(progress)"
-                    )
-                }
+                try await task.value
+                self.initializationStateLock.lock()
                 self.didInitialize = true
+                self.initializationTask = nil
+                self.initializationStateLock.unlock()
                 AmigoSDKDiagnostics.record(
                     "[AmigoSDK] stage=initialize source=javascript result=success initialized=true"
                 )
-                call.resolve(["initialized": true])
+                call.resolve(["initialized": true, "reused": reusedTask])
             } catch {
+                self.initializationStateLock.lock()
                 self.didInitialize = false
+                self.initializationTask = nil
+                self.initializationStateLock.unlock()
                 self.rejectSDKError(call, stage: "initialize", error: error)
             }
         }

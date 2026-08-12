@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FaceSwapInviteModal } from "./face-swap-invite-modal";
 import type { ReactNode } from "react";
@@ -8,7 +14,6 @@ const mocks = vi.hoisted(() => ({
   endInvite: vi.fn(),
   generateUploadUrl: vi.fn(),
   addFace: vi.fn(),
-  query: vi.fn(),
   enrollFaceFile: vi.fn(),
   nativeGetStatus: vi.fn(),
   nativeRequestMediaPermissions: vi.fn(),
@@ -20,7 +25,6 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("convex/react", () => ({
-  useConvex: () => ({ query: mocks.query }),
   useAction: (name: string) =>
     name === "createFaceSwapInvite" ? mocks.createInvite : mocks.endInvite,
   useMutation: (name: string) =>
@@ -142,15 +146,6 @@ describe("FaceSwapInviteModal", () => {
       requestId: "request-1",
     });
     mocks.addFace.mockResolvedValue({ faceId: "face-1" });
-    mocks.query.mockResolvedValue([
-      {
-        _id: "face-db-1",
-        faceId: "FACE-1",
-        storageId: "storage-1",
-        imageUrl: "https://storage.example.test/face.jpeg",
-        createdAt: 1_754_900_000_000,
-      },
-    ]);
     mocks.enrollFaceFile.mockResolvedValue(true);
     mocks.nativeGetStatus.mockResolvedValue({
       connected: false,
@@ -250,17 +245,9 @@ describe("FaceSwapInviteModal", () => {
 
     await waitFor(() => expect(mocks.addFace).toHaveBeenCalledTimes(1));
     await waitFor(() =>
-      expect(mocks.query).toHaveBeenCalledWith("listMine", {
-        code: "QQAUF",
-        deviceId: "device-1",
-      }),
+      expect(mocks.enrollFaceFile).toHaveBeenCalledWith(file),
     );
-    await waitFor(() =>
-      expect(mocks.enrollFaceFile).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "image/jpeg" }),
-      ),
-    );
-    expect(mocks.nativeGetStatus).toHaveBeenCalledTimes(1);
+    expect(mocks.nativeGetStatus).toHaveBeenCalled();
     expect(mocks.toastSuccess).toHaveBeenCalledWith("Photo saved");
   });
 
@@ -301,20 +288,7 @@ describe("FaceSwapInviteModal", () => {
     expect(mocks.toastSuccess).toHaveBeenCalledWith("Photo saved");
   });
 
-  it("times out a stalled persisted-photo download without timing out enrollment", async () => {
-    vi.useFakeTimers();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        if (String(input).includes("uploads.example.test")) {
-          return {
-            ok: true,
-            json: async () => ({ storageId: "storage-1" }),
-          };
-        }
-        return await new Promise<Response>(() => undefined);
-      }),
-    );
+  it("enrolls the selected bytes directly without downloading a second photo", async () => {
     const { container } = render(
       <FaceSwapInviteModal
         open
@@ -329,32 +303,21 @@ describe("FaceSwapInviteModal", () => {
     fireEvent.change(input!, { target: { files: [file] } });
     fireEvent.click(screen.getByRole("button", { name: "Save photo" }));
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1);
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(90_000);
-    });
-
-    expect(mocks.toastError).toHaveBeenCalledWith("The operation timed out.");
-    expect(mocks.enrollFaceFile).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(mocks.enrollFaceFile).toHaveBeenCalledWith(file),
+    );
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(String(vi.mocked(fetch).mock.calls[0]?.[0])).toContain(
+      "uploads.example.test",
+    );
   });
 
-  it("times out when persisted-photo response bytes never finish", async () => {
-    vi.useFakeTimers();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        if (String(input).includes("uploads.example.test")) {
-          return {
-            ok: true,
-            json: async () => ({ storageId: "storage-1" }),
-          };
-        }
-        return {
-          ok: true,
-          blob: () => new Promise<Blob>(() => undefined),
-        };
+  it("does not report save success until native retains a FaceLatent", async () => {
+    mocks.enrollFaceFile.mockRejectedValue(
+      Object.assign(new Error("The API key was revoked."), {
+        name: "FaceSwapError",
+        code: "SDK_REVOKED_API_KEY",
+        stage: "enroll",
       }),
     );
     const { container } = render(
@@ -371,15 +334,13 @@ describe("FaceSwapInviteModal", () => {
     fireEvent.change(input!, { target: { files: [file] } });
     fireEvent.click(screen.getByRole("button", { name: "Save photo" }));
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1);
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(90_000);
-    });
-
-    expect(mocks.toastError).toHaveBeenCalledWith("The operation timed out.");
-    expect(mocks.enrollFaceFile).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "[SDK_REVOKED_API_KEY] The API key was revoked.",
+      ),
+    );
+    expect(mocks.toastSuccess).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Create call" })).toBeDisabled();
   });
 
   it("prevents create while the face photo is still being saved", async () => {
@@ -403,24 +364,14 @@ describe("FaceSwapInviteModal", () => {
     expect(mocks.createInvite).not.toHaveBeenCalled();
   });
 
-  it("rehydrates the persisted face before creating a call when native memory is empty", async () => {
+  it("does not silently re-enroll or create when native memory is empty", async () => {
     mocks.nativeGetStatus.mockResolvedValue({
       connected: false,
       roomUrl: null,
       faceSwapEnabled: false,
-      hasTargetFace: true,
+      hasTargetFace: false,
       pipeline: "native-livekit",
     });
-    mocks.createInvite.mockResolvedValue({
-      inviteId: "invite-1",
-      inviteUrl: "https://example.test/video_call/invite-1",
-      password: "123456",
-      roomName: "room-1",
-      serverUrl: "wss://live.example.test",
-      operatorToken: "token-1",
-      operatorIdentity: "operator-1",
-    });
-
     render(
       <FaceSwapInviteModal
         open
@@ -430,12 +381,10 @@ describe("FaceSwapInviteModal", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Create call" }));
-
-    await waitFor(() => expect(mocks.query).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(mocks.enrollFaceFile).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(mocks.createInvite).toHaveBeenCalledTimes(1));
-    expect(mocks.toastError).not.toHaveBeenCalledWith("Upload first");
+    const createButton = screen.getByRole("button", { name: "Create call" });
+    await waitFor(() => expect(createButton).toBeDisabled());
+    expect(mocks.enrollFaceFile).not.toHaveBeenCalled();
+    expect(mocks.createInvite).not.toHaveBeenCalled();
   });
 
   it("does not report success when the persisted bytes cannot be decoded", async () => {
@@ -490,7 +439,7 @@ describe("FaceSwapInviteModal", () => {
 
     await waitFor(() =>
       expect(mocks.toastError).toHaveBeenCalledWith(
-        "No face was detected in this photo.",
+        "[FACE_NOT_DETECTED] No face was detected in the provided image.",
       ),
     );
     expect(mocks.toastError).not.toHaveBeenCalledWith(
@@ -498,7 +447,7 @@ describe("FaceSwapInviteModal", () => {
     );
   });
 
-  it("reads the same persisted photo again after the modal is closed and reopened", async () => {
+  it("reads native FaceLatent readiness after the modal is closed and reopened", async () => {
     mocks.createInvite.mockResolvedValue({
       inviteId: "invite-1",
       inviteUrl: "https://example.test/video_call/invite-1",
@@ -533,10 +482,12 @@ describe("FaceSwapInviteModal", () => {
         deviceId="device-1"
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Create call" }));
+    const createButton = screen.getByRole("button", { name: "Create call" });
+    await waitFor(() => expect(createButton).toBeEnabled());
+    fireEvent.click(createButton);
 
-    await waitFor(() => expect(mocks.query).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(mocks.createInvite).toHaveBeenCalledTimes(1));
+    expect(mocks.enrollFaceFile).not.toHaveBeenCalled();
     expect(mocks.toastError).not.toHaveBeenCalled();
   });
 });

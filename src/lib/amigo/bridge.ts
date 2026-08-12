@@ -20,23 +20,29 @@ export type NativeRoomStatus = {
 };
 
 export type NativeMediaPermission =
-  | "notDetermined"
-  | "restricted"
-  | "denied"
-  | "authorized"
-  | "unknown";
+  "notDetermined" | "restricted" | "denied" | "authorized" | "unknown";
 
 export type NativeMediaPermissionStatus = {
   camera: NativeMediaPermission;
   microphone: NativeMediaPermission;
 };
 
+export type NativeFaceEnrollmentResult = {
+  success: boolean;
+  enrolled: boolean;
+  hasTargetFace: boolean;
+  latentHash?: number;
+  imageByteLength?: number;
+  imageWidth?: number;
+  imageHeight?: number;
+};
+
 export type AmigoFaceSwapPlugin = {
   initialize(options: { apiKey: string }): Promise<void>;
-  enrollFace(options: { imageData: string }): Promise<{ enrolled: boolean }>;
-  processFrame(options: {
+  enrollFace(options: {
     imageData: string;
-  }): Promise<AmigoProcessedFrame>;
+  }): Promise<NativeFaceEnrollmentResult>;
+  processFrame(options: { imageData: string }): Promise<AmigoProcessedFrame>;
   clearModelCache(): Promise<void>;
   getPipelineCapabilities(): Promise<AmigoPipelineCapabilities>;
   connectNativeRoom(options: {
@@ -59,7 +65,7 @@ export interface AmigoBridge {
   readonly available: boolean;
   readonly platform: string;
   initialize(apiKey: string): Promise<void>;
-  enrollFace(imageData: string): Promise<boolean>;
+  enrollFace(imageData: string): Promise<NativeFaceEnrollmentResult>;
   processFrame(imageData: string): Promise<AmigoProcessedFrame>;
   getPipelineCapabilities(): Promise<AmigoPipelineCapabilities>;
   connectNativeRoom(options: {
@@ -91,8 +97,7 @@ class CapacitorAmigoBridge implements AmigoBridge {
   constructor() {
     const platform = Capacitor.getPlatform();
     this.platform = platform;
-    this.available =
-      Capacitor.isNativePlatform() && platform === "ios";
+    this.available = Capacitor.isNativePlatform() && platform === "ios";
   }
 
   async initialize(apiKey: string): Promise<void> {
@@ -100,15 +105,14 @@ class CapacitorAmigoBridge implements AmigoBridge {
     await plugin.initialize({ apiKey });
   }
 
-  async enrollFace(imageData: string): Promise<boolean> {
-    if (!this.available) return false;
-    const result = await plugin.enrollFace({ imageData });
-    return result.enrolled;
+  async enrollFace(imageData: string): Promise<NativeFaceEnrollmentResult> {
+    if (!this.available)
+      return { success: false, enrolled: false, hasTargetFace: false };
+    return await plugin.enrollFace({ imageData });
   }
 
   async processFrame(imageData: string): Promise<AmigoProcessedFrame> {
-    if (!this.available)
-      return { swapped: false, imageData: null };
+    if (!this.available) return { swapped: false, imageData: null };
     try {
       return await plugin.processFrame({ imageData });
     } catch {
@@ -187,11 +191,12 @@ class CapacitorAmigoBridge implements AmigoBridge {
     return plugin.getNativeRoomStatus();
   }
 
-  async requestMediaPermissions(options: {
-    openSettingsIfDenied?: boolean;
-  } = {}): Promise<NativeMediaPermissionStatus> {
-    if (!this.available)
-      return { camera: "unknown", microphone: "unknown" };
+  async requestMediaPermissions(
+    options: {
+      openSettingsIfDenied?: boolean;
+    } = {},
+  ): Promise<NativeMediaPermissionStatus> {
+    if (!this.available) return { camera: "unknown", microphone: "unknown" };
     return plugin.requestMediaPermissions(options);
   }
 }

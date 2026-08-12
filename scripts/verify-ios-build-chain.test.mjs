@@ -3,7 +3,8 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+const read = (path) =>
+  readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("Xcode Cloud rebuilds and syncs web assets from repository source", () => {
   const packageJSON = JSON.parse(read("package.json"));
@@ -138,14 +139,8 @@ test("native face enrollment awaits the official async SDK without blocking it",
   assert.match(plugin, /imageByteLength/);
   assert.match(plugin, /imageWidth/);
   assert.match(plugin, /imageHeight/);
-  assert.match(
-    plugin,
-    /AmigoFaceSwap\.enrollFace\(from:\s*decodedImage\)/,
-  );
-  assert.match(
-    plugin,
-    /try await AmigoFaceSwap\.initialize\(apiKey:\s*apiKey/,
-  );
+  assert.match(plugin, /AmigoFaceSwap\.enrollFace\(from:\s*decodedImage\)/);
+  assert.match(plugin, /try await AmigoFaceSwap\.initialize\(apiKey:\s*apiKey/);
   assert.doesNotMatch(plugin, /normalizedEnrollmentImage/);
   assert.match(plugin, /enrollmentGeneration/);
   assert.match(plugin, /guard requestGeneration == self\.enrollmentGeneration/);
@@ -158,6 +153,21 @@ test("native face enrollment awaits the official async SDK without blocking it",
     plugin,
     /targetLatent = nil[\s\S]{0,160}nativeSession\.setTargetLatent\(nil\)[\s\S]{0,160}enrollmentStateLock\.unlock\(\)/,
   );
+  assert.match(
+    plugin,
+    /success\["success"\] = true[\s\S]{0,200}success\["enrolled"\] = true[\s\S]{0,200}success\["hasTargetFace"\] = true/,
+    "Capacitor must resolve success only after the FaceLatent is retained",
+  );
+});
+
+test("app restart and call creation never silently re-enroll an old saved photo", () => {
+  const boot = read("src/lib/amigo/amigo-boot.tsx");
+  const inviteModal = read("src/components/face-swap-invite-modal.tsx");
+
+  assert.doesNotMatch(boot, /useQuery/);
+  assert.doesNotMatch(boot, /enrollFace\(/);
+  assert.doesNotMatch(inviteModal, /preparePersistedFace\("create"\)/);
+  assert.match(inviteModal, /disabled=\{[^}]*!faceReady/);
 });
 
 test("native external face-swap track fails closed instead of publishing raw camera frames", () => {

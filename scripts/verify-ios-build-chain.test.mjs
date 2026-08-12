@@ -65,14 +65,14 @@ test("Capacitor and every Xcode configuration use the established TestFlight bun
   assert.doesNotMatch(xcodeProject, /com\.chatconnect\.cn/);
 });
 
-test("every Xcode configuration uses a build number newer than App Store Connect build 18", () => {
+test("every Xcode configuration uses a build number newer than App Store Connect build 19", () => {
   const xcodeProject = read("ios/App/App.xcodeproj/project.pbxproj");
   const buildNumbers = [
     ...xcodeProject.matchAll(/CURRENT_PROJECT_VERSION = (\d+);/g),
   ].map((match) => Number(match[1]));
 
   assert.equal(buildNumbers.length, 2);
-  assert.ok(buildNumbers.every((buildNumber) => buildNumber > 18));
+  assert.ok(buildNumbers.every((buildNumber) => buildNumber > 19));
 });
 
 test("iOS sync preserves native local notifications and hides bundle diagnostics", () => {

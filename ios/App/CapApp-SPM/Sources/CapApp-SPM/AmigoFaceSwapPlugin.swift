@@ -74,11 +74,13 @@ private enum AmigoVisionLandmarksCompatibility {
 
         let didInstallPlain = installPlainInitializer()
         let didInstallCompletion = installCompletionInitializer()
-        installed = didInstallPlain || didInstallCompletion
+        let didInstallPerform = installRequestHandlerPerform()
+        installed = didInstallPlain || didInstallCompletion || didInstallPerform
 
         AmigoSDKDiagnostics.record(
             "[AmigoSDK] stage=visionCompatibility result=\(installed ? "success" : "error") " +
             "plainInit=\(didInstallPlain) completionInit=\(didInstallCompletion) " +
+            "performRequests=\(didInstallPerform) " +
             "faceLandmarksRevision=2"
         )
     }
@@ -139,6 +141,91 @@ private enum AmigoVisionLandmarksCompatibility {
         ) {
             method_setImplementation(method, implementation)
         }
+        return true
+    }
+
+    /// AmigoFaceSwapSDK 1.0.2 performs its private face enrollment with this
+    /// exact Objective-C call. Some iOS 26 devices reject the initially chosen
+    /// face-landmarks revision with VNError code 9 ("Could not create inference
+    /// context"). Retry only that exact failure with the other revisions Vision
+    /// reports as supported on the running device. All unrelated requests and
+    /// errors keep Vision's original behavior.
+    private static func installRequestHandlerPerform() -> Bool {
+        let selector = NSSelectorFromString("performRequests:error:")
+        guard let method = class_getInstanceMethod(VNImageRequestHandler.self, selector) else {
+            return false
+        }
+
+        let originalIMP = method_getImplementation(method)
+        typealias Original = @convention(c) (
+            AnyObject,
+            Selector,
+            NSArray,
+            UnsafeMutablePointer<NSError?>?
+        ) -> Bool
+
+        let replacement: @convention(block) (
+            AnyObject,
+            NSArray,
+            UnsafeMutablePointer<NSError?>?
+        ) -> Bool = { handler, requests, errorPointer in
+            let original = unsafeBitCast(originalIMP, to: Original.self)
+            let landmarksRequests = requests.compactMap { $0 as? VNDetectFaceLandmarksRequest }
+            guard !landmarksRequests.isEmpty else {
+                return original(handler, selector, requests, errorPointer)
+            }
+
+            var firstError: NSError?
+            if original(handler, selector, requests, &firstError) {
+                if let request = landmarksRequests.first {
+                    AmigoSDKDiagnostics.record(
+                        "[AmigoSDK] stage=visionLandmarksPerform result=success revision=\(request.revision) retried=false"
+                    )
+                }
+                errorPointer?.pointee = nil
+                return true
+            }
+
+            let initialRevision = landmarksRequests[0].revision
+            AmigoSDKDiagnostics.record(
+                "[AmigoSDK] stage=visionLandmarksPerform result=error revision=\(initialRevision) " +
+                "domain=\(firstError?.domain ?? "nil") nativeCode=\(firstError?.code ?? -1) " +
+                "message=\(firstError?.localizedDescription ?? "nil")"
+            )
+
+            guard firstError?.code == 9 else {
+                errorPointer?.pointee = firstError
+                return false
+            }
+
+            let supported = VNDetectFaceLandmarksRequest.supportedRevisions
+                .map { Int($0) }
+                .filter { $0 != initialRevision }
+                .sorted(by: >)
+
+            for revision in supported {
+                landmarksRequests.forEach { $0.revision = revision }
+                var retryError: NSError?
+                let succeeded = original(handler, selector, requests, &retryError)
+                AmigoSDKDiagnostics.record(
+                    "[AmigoSDK] stage=visionLandmarksPerform result=\(succeeded ? "success" : "error") " +
+                    "revision=\(revision) retried=true domain=\(retryError?.domain ?? "nil") " +
+                    "nativeCode=\(retryError?.code ?? 0) message=\(retryError?.localizedDescription ?? "nil")"
+                )
+                if succeeded {
+                    errorPointer?.pointee = nil
+                    return true
+                }
+            }
+
+            landmarksRequests.forEach { $0.revision = initialRevision }
+            errorPointer?.pointee = firstError
+            return false
+        }
+
+        let implementation = imp_implementationWithBlock(replacement)
+        retainedImplementations.append(implementation)
+        method_setImplementation(method, implementation)
         return true
     }
 }

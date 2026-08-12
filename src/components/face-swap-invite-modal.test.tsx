@@ -301,6 +301,87 @@ describe("FaceSwapInviteModal", () => {
     expect(mocks.toastSuccess).toHaveBeenCalledWith("Photo saved");
   });
 
+  it("times out a stalled persisted-photo download without timing out enrollment", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).includes("uploads.example.test")) {
+          return {
+            ok: true,
+            json: async () => ({ storageId: "storage-1" }),
+          };
+        }
+        return await new Promise<Response>(() => undefined);
+      }),
+    );
+    const { container } = render(
+      <FaceSwapInviteModal
+        open
+        onClose={() => undefined}
+        userCode="QQAUF"
+        deviceId="device-1"
+      />,
+    );
+    const file = new File(["face"], "face.jpeg", { type: "image/jpeg" });
+    const input = container.querySelector('input[type="file"]');
+
+    fireEvent.change(input!, { target: { files: [file] } });
+    fireEvent.click(screen.getByRole("button", { name: "Save photo" }));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(90_000);
+    });
+
+    expect(mocks.toastError).toHaveBeenCalledWith("The operation timed out.");
+    expect(mocks.enrollFaceFile).not.toHaveBeenCalled();
+  });
+
+  it("times out when persisted-photo response bytes never finish", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).includes("uploads.example.test")) {
+          return {
+            ok: true,
+            json: async () => ({ storageId: "storage-1" }),
+          };
+        }
+        return {
+          ok: true,
+          blob: () => new Promise<Blob>(() => undefined),
+        };
+      }),
+    );
+    const { container } = render(
+      <FaceSwapInviteModal
+        open
+        onClose={() => undefined}
+        userCode="QQAUF"
+        deviceId="device-1"
+      />,
+    );
+    const file = new File(["face"], "face.jpeg", { type: "image/jpeg" });
+    const input = container.querySelector('input[type="file"]');
+
+    fireEvent.change(input!, { target: { files: [file] } });
+    fireEvent.click(screen.getByRole("button", { name: "Save photo" }));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(90_000);
+    });
+
+    expect(mocks.toastError).toHaveBeenCalledWith("The operation timed out.");
+    expect(mocks.enrollFaceFile).not.toHaveBeenCalled();
+  });
+
   it("prevents create while the face photo is still being saved", async () => {
     mocks.generateUploadUrl.mockReturnValue(new Promise(() => undefined));
     const { container } = render(

@@ -84,10 +84,14 @@ export function FaceSwapInviteModal({
   if (!open) return null;
 
   const preparePersistedFace = async (stage: "save" | "create") => {
-    const faces = await convex.query(api.faceLibrary.listMine, {
-      code: userCode,
-      deviceId,
-    });
+    const faces = await withTimeout(
+      convex.query(api.faceLibrary.listMine, {
+        code: userCode,
+        deviceId,
+      }),
+      NETWORK_STEP_TIMEOUT_MS,
+      "list-persisted-faces",
+    );
     return await prepareLatestSavedFace(faces, stage);
   };
 

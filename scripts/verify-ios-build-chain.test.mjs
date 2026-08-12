@@ -137,6 +137,17 @@ test("native face enrollment awaits the official async SDK without blocking it",
     /try await AmigoFaceSwap\.initialize\(apiKey:\s*apiKey/,
   );
   assert.doesNotMatch(plugin, /normalizedEnrollmentImage/);
+  assert.match(plugin, /enrollmentGeneration/);
+  assert.match(plugin, /guard requestGeneration == self\.enrollmentGeneration/);
+  assert.match(plugin, /FACE_ENROLL_SUPERSEDED/);
+  assert.match(
+    plugin,
+    /self\.targetLatent = latent[\s\S]{0,500}self\.nativeSession\.setTargetLatent\(latent\)[\s\S]{0,160}self\.enrollmentStateLock\.unlock\(\)/,
+  );
+  assert.match(
+    plugin,
+    /targetLatent = nil[\s\S]{0,160}nativeSession\.setTargetLatent\(nil\)[\s\S]{0,160}enrollmentStateLock\.unlock\(\)/,
+  );
 });
 
 test("native external face-swap track fails closed instead of publishing raw camera frames", () => {

@@ -1,5 +1,11 @@
 import { amigoFaceSwap } from "./face-swap.ts";
 import { nativeAmigoRoom } from "./native-room.ts";
+import {
+  OperationTimeoutError,
+  withTimeout,
+} from "../async/with-timeout.ts";
+
+const PERSISTED_FACE_IO_TIMEOUT_MS = 90_000;
 
 export type PersistedFace = {
   _id?: string;
@@ -56,17 +62,25 @@ export async function prepareLatestSavedFace(
   let byteLength = 0;
   let exists = false;
   try {
-    const response = await fetch(face.imageUrl, {
-      cache: "no-store",
-      credentials: "omit",
-    });
+    const response = await withTimeout(
+      fetch(face.imageUrl, {
+        cache: "no-store",
+        credentials: "omit",
+      }),
+      PERSISTED_FACE_IO_TIMEOUT_MS,
+      "download-persisted-face",
+    );
     if (!response.ok)
       throw new SavedFaceValidationError(
         "FACE_IMAGE_READ_FAILED",
         `Saved face download failed (${response.status}).`,
       );
 
-    const blob = await response.blob();
+    const blob = await withTimeout(
+      response.blob(),
+      PERSISTED_FACE_IO_TIMEOUT_MS,
+      "read-persisted-face-bytes",
+    );
     byteLength = blob.size;
     if (byteLength === 0)
       throw new SavedFaceValidationError(
@@ -89,7 +103,11 @@ export async function prepareLatestSavedFace(
         "Saved face could not be enrolled.",
       );
 
-    const nativeStatus = await nativeAmigoRoom.getStatus();
+    const nativeStatus = await withTimeout(
+      nativeAmigoRoom.getStatus(),
+      PERSISTED_FACE_IO_TIMEOUT_MS,
+      "read-native-face-status",
+    );
     if (!nativeStatus.hasTargetFace)
       throw new SavedFaceValidationError(
         "NATIVE_FACE_STATE_MISSING",
@@ -121,6 +139,7 @@ export async function prepareLatestSavedFace(
       "savedFace.byteLength": byteLength,
       "savedFace.updatedAt": updatedAt,
     });
+    if (error instanceof OperationTimeoutError) throw error;
     if (
       error instanceof SavedFaceValidationError ||
       hasNativeFaceErrorCode(error)

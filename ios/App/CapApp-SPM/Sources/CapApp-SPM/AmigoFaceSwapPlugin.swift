@@ -86,6 +86,8 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
     private var targetLatent: FaceLatent?
     private var didInitialize = false
     private var didLogFirstProcessedFrame = false
+    private let enrollmentStateLock = NSLock()
+    private var enrollmentGeneration = 0
     #if DEBUG
     private var liveFrameVerifier: AmigoLiveFrameVerifier?
     #endif
@@ -216,6 +218,10 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
         AmigoSDKDiagnostics.record(
             "[AmigoSDK] stage=imageDecode result=success bytes=\(data.count) size=\(imageWidth)x\(imageHeight) orientation=\(decodedImage.imageOrientation.rawValue)"
         )
+        enrollmentStateLock.lock()
+        enrollmentGeneration += 1
+        let requestGeneration = enrollmentGeneration
+        enrollmentStateLock.unlock()
         Task { [weak self] in
             guard let self else {
                 call.reject("The native image processor plugin was released.", "SDK_PLUGIN_RELEASED")
@@ -237,8 +243,30 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
                 )
                 return
             }
+            // More than one caller can request enrollment during boot
+            // rehydration and an explicit photo save. Only the newest request
+            // may replace the face used by the live video publisher.
+            self.enrollmentStateLock.lock()
+            guard requestGeneration == self.enrollmentGeneration else {
+                self.enrollmentStateLock.unlock()
+                AmigoSDKDiagnostics.record(
+                    "[AmigoSDK] stage=enrollFace result=ignored mappedCode=FACE_ENROLL_SUPERSEDED generation=\(requestGeneration)"
+                )
+                self.reject(
+                    call,
+                    stage: "enroll",
+                    code: "FACE_ENROLL_SUPERSEDED",
+                    message: "A newer face enrollment request replaced this request.",
+                    details: imageDetails
+                )
+                return
+            }
             self.targetLatent = latent
+            // Commit both consumers while the generation guard is held. A
+            // concurrent clear must not leave the plugin empty while the
+            // publisher still retains the just-enrolled FaceLatent.
             self.nativeSession.setTargetLatent(latent)
+            self.enrollmentStateLock.unlock()
             AmigoSDKDiagnostics.record(
                 "[AmigoSDK] stage=enrollFace result=success faceLatentReceived=true " +
                 "latentType=\(String(reflecting: type(of: latent))) latentHash=\(latent.hashValue) " +
@@ -336,8 +364,11 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func clearModelCache(_ call: CAPPluginCall) {
         CAPLog.print("[AmigoFaceSwapPlugin] clearModelCache invoked")
         AmigoFaceSwap.clearModelCache()
+        enrollmentStateLock.lock()
+        enrollmentGeneration += 1
         targetLatent = nil
         nativeSession.setTargetLatent(nil)
+        enrollmentStateLock.unlock()
         call.resolve()
     }
 

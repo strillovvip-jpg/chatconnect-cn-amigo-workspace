@@ -1,3 +1,3 @@
-build=20
-purpose=amigo-sdk-secret-verification
-trigger=merge-pr
+build=36
+purpose=amigo-vision-cpu-preflight
+trigger=main-release

@@ -4,6 +4,8 @@ import UIKit
 import AVFoundation
 import CoreImage
 import CoreVideo
+import Vision
+import ObjectiveC.runtime
 import AmigoFaceSwapSDK
 import LiveKit
 
@@ -50,6 +52,71 @@ private enum AmigoSDKDiagnostics {
             "sdkCase=\(AmigoFaceSwapPlugin.officialSDKCase(error)) " +
             "domain=\(nativeError.domain) nativeCode=\(nativeError.code) " +
             "message=\(nativeError.localizedDescription) debug=\(String(reflecting: error))"
+        )
+    }
+}
+
+/// Amigo 1.0.2 creates `VNDetectFaceLandmarksRequest` with Vision's default
+/// revision. On affected iOS runtimes revision 3 fails before face enrollment
+/// with `com.apple.Vision` error 9 ("Could not create inference context").
+/// Revision 2 detects the same face and landmarks successfully, so constrain
+/// only this request subclass before the closed-source SDK creates it.
+private enum AmigoVisionLandmarksCompatibility {
+    private static let lock = NSLock()
+    private static var installed = false
+    private static var replacementIMP: IMP?
+
+    static func install() {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard !installed else { return }
+
+        let selector = NSSelectorFromString("initWithCompletionHandler:")
+        guard let method = class_getInstanceMethod(
+            VNDetectFaceLandmarksRequest.self,
+            selector
+        ) else {
+            AmigoSDKDiagnostics.record(
+                "[AmigoSDK] stage=visionCompatibility result=error code=VISION_INITIALIZER_NOT_FOUND"
+            )
+            return
+        }
+
+        let originalIMP = method_getImplementation(method)
+        typealias InitImplementation = @convention(c) (
+            AnyObject,
+            Selector,
+            VNRequestCompletionHandler?
+        ) -> AnyObject
+        let replacement: @convention(block) (
+            AnyObject,
+            VNRequestCompletionHandler?
+        ) -> AnyObject = { object, completionHandler in
+            let initialized = unsafeBitCast(originalIMP, to: InitImplementation.self)(
+                object,
+                selector,
+                completionHandler
+            )
+            if let request = initialized as? VNDetectFaceLandmarksRequest {
+                request.revision = 2
+            }
+            return initialized
+        }
+
+        let imp = imp_implementationWithBlock(replacement)
+        replacementIMP = imp
+        if !class_addMethod(
+            VNDetectFaceLandmarksRequest.self,
+            selector,
+            imp,
+            method_getTypeEncoding(method)
+        ) {
+            method_setImplementation(method, imp)
+        }
+        installed = true
+        AmigoSDKDiagnostics.record(
+            "[AmigoSDK] stage=visionCompatibility result=success faceLandmarksRevision=2"
         )
     }
 }
@@ -128,6 +195,8 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func initialize(_ call: CAPPluginCall) {
+        AmigoVisionLandmarksCompatibility.install()
+
         initializationStateLock.lock()
         if didInitialize {
             initializationStateLock.unlock()
@@ -933,7 +1002,7 @@ private final class AmigoLiveFrameVerifier: NSObject, AVCaptureVideoDataOutputSa
 }
 #endif
 
-private final class AmigoRealtimeVideoProcessor: NSObject, VideoProcessor {
+private final class AmigoRealtimeVideoProcessor: NSObject, LiveKit.VideoProcessor {
     private let stateLock = NSLock()
     private let ciContext = CIContext(options: nil)
     private var targetLatent: FaceLatent?

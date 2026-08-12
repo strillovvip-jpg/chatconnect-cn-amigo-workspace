@@ -23,6 +23,35 @@ test("model download diagnostics are throttled instead of writing every callback
   assert.match(plugin, /let bucket = min\(100, max\(0, Int\(progress \* 100\)\)\) \/ 5 \* 5/);
 });
 
+test("native enrollment installs the verified Vision revision 2 compatibility before SDK use", () => {
+  assert.match(plugin, /import Vision/);
+  assert.match(plugin, /import ObjectiveC\.runtime/);
+  assert.match(
+    plugin,
+    /VNDetectFaceLandmarksRequest[\s\S]*initWithCompletionHandler:/,
+  );
+  assert.match(plugin, /request\.revision = 2/);
+  assert.match(
+    plugin,
+    /AmigoRealtimeVideoProcessor: NSObject, LiveKit\.VideoProcessor/,
+    "importing Vision must not make the LiveKit VideoProcessor conformance ambiguous",
+  );
+  assert.match(
+    plugin,
+    /AmigoVisionLandmarksCompatibility\.install\(\)[\s\S]*AmigoFaceSwap\.initialize/,
+  );
+
+  const compatibility = plugin.match(
+    /private enum AmigoVisionLandmarksCompatibility[\s\S]*?\n}\n/,
+  )?.[0];
+  assert.ok(compatibility, "Vision compatibility implementation is missing");
+  assert.doesNotMatch(
+    compatibility,
+    /supportedRevisions/,
+    "checking supportedRevisions inside the swizzled initializer recurses in Vision",
+  );
+});
+
 test("Xcode Cloud rejects a missing or malformed Amigo production key", () => {
   assert.match(cloudScript, /case "\$VITE_AMIGO_API_KEY" in/);
   assert.match(cloudScript, /ak_live_\[0-9A-Fa-f\]\[0-9A-Fa-f\]\*/);

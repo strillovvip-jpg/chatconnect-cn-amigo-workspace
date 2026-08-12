@@ -86,6 +86,8 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
     private var targetLatent: FaceLatent?
     private var didInitialize = false
     private var didLogFirstProcessedFrame = false
+    private let enrollmentStateLock = NSLock()
+    private var enrollmentGeneration = 0
     #if DEBUG
     private var liveFrameVerifier: AmigoLiveFrameVerifier?
     #endif
@@ -104,27 +106,22 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     private func initializeSDK(apiKey: String) {
-        processingQueue.async {
-            let semaphore = DispatchSemaphore(value: 0)
-            var failure: Error?
-            Task {
-                do {
-                    try await AmigoFaceSwap.initialize(apiKey: apiKey, onProgress: nil)
-                    self.didInitialize = true
-                    AmigoSDKDiagnostics.record("[AmigoSDK] stage=initialize source=capacitorConfig result=success initialized=true")
-                } catch {
-                    self.didInitialize = false
-                    failure = error
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await AmigoFaceSwap.initialize(apiKey: apiKey) { progress in
+                    AmigoSDKDiagnostics.record(
+                        "[AmigoSDK] stage=initialize source=capacitorConfig result=progress value=\(progress)"
+                    )
                 }
-                semaphore.signal()
-            }
-            let waitResult = semaphore.wait(timeout: .now() + 120)
-            if waitResult == DispatchTimeoutResult.timedOut {
+                self.didInitialize = true
+                AmigoSDKDiagnostics.record(
+                    "[AmigoSDK] stage=initialize source=capacitorConfig result=success initialized=true"
+                )
+            } catch {
                 self.didInitialize = false
-                AmigoSDKDiagnostics.record("[AmigoSDK] stage=initialize source=capacitorConfig result=error mappedCode=SDK_INITIALIZATION_FAILED message=timeout")
-            } else if let failure {
-                let mapped = Self.mappedSDKError(failure, stage: "initialize")
-                self.logNativeError(stage: "initialize", error: failure, mappedCode: mapped.code)
+                let mapped = Self.mappedSDKError(error, stage: "initialize")
+                self.logNativeError(stage: "initialize", error: error, mappedCode: mapped.code)
             }
         }
     }
@@ -146,36 +143,26 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
             )
             return
         }
-        processingQueue.async {
-            AmigoSDKDiagnostics.record("[AmigoSDK] stage=initialize source=javascript result=started")
-            let semaphore = DispatchSemaphore(value: 0)
-            var failure: Error?
-            Task {
-                do {
-                    try await AmigoFaceSwap.initialize(apiKey: apiKey, onProgress: nil)
-                    self.didInitialize = true
-                    AmigoSDKDiagnostics.record("[AmigoSDK] stage=initialize source=javascript result=success initialized=true")
-                } catch {
-                    self.didInitialize = false
-                    failure = error
-                }
-                semaphore.signal()
-            }
-            let waitResult = semaphore.wait(timeout: .now() + 120)
-            if waitResult == DispatchTimeoutResult.timedOut {
-                self.didInitialize = false
-                self.reject(
-                    call,
-                    stage: "initialize",
-                    code: "SDK_INITIALIZATION_FAILED",
-                    message: "Native image processor initialization timed out."
-                )
+        Task { [weak self] in
+            guard let self else {
+                call.reject("The native image processor plugin was released.", "SDK_PLUGIN_RELEASED")
                 return
             }
-            if let failure {
-                self.rejectSDKError(call, stage: "initialize", error: failure)
-            } else {
+            AmigoSDKDiagnostics.record("[AmigoSDK] stage=initialize source=javascript result=started")
+            do {
+                try await AmigoFaceSwap.initialize(apiKey: apiKey) { progress in
+                    AmigoSDKDiagnostics.record(
+                        "[AmigoSDK] stage=initialize source=javascript result=progress value=\(progress)"
+                    )
+                }
+                self.didInitialize = true
+                AmigoSDKDiagnostics.record(
+                    "[AmigoSDK] stage=initialize source=javascript result=success initialized=true"
+                )
                 call.resolve(["initialized": true])
+            } catch {
+                self.didInitialize = false
+                self.rejectSDKError(call, stage: "initialize", error: error)
             }
         }
     }
@@ -231,54 +218,55 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
         AmigoSDKDiagnostics.record(
             "[AmigoSDK] stage=imageDecode result=success bytes=\(data.count) size=\(imageWidth)x\(imageHeight) orientation=\(decodedImage.imageOrientation.rawValue)"
         )
-        processingQueue.async {
-            AmigoSDKDiagnostics.record("[AmigoSDK] stage=enrollFace result=started")
-            let semaphore = DispatchSemaphore(value: 0)
-            var latent: FaceLatent?
-            var failure: Error?
-            Task {
-                do {
-                    // Match the official Amigo sample exactly: decode the
-                    // selected bytes to UIImage and pass that UIImage directly
-                    // to enrollFace without redrawing, cropping or recompressing.
-                    latent = try await AmigoFaceSwap.enrollFace(from: decodedImage)
-                } catch {
-                    failure = error
-                }
-                semaphore.signal()
-            }
-            let waitResult = semaphore.wait(timeout: .now() + 60)
-            if waitResult == DispatchTimeoutResult.timedOut {
-                self.reject(
-                    call,
-                    stage: "enroll",
-                    code: "FACE_ENROLL_TIMEOUT",
-                    message: "Enrolling the selected face timed out.",
-                    details: imageDetails
-                )
+        enrollmentStateLock.lock()
+        enrollmentGeneration += 1
+        let requestGeneration = enrollmentGeneration
+        enrollmentStateLock.unlock()
+        Task { [weak self] in
+            guard let self else {
+                call.reject("The native image processor plugin was released.", "SDK_PLUGIN_RELEASED")
                 return
             }
-            if let failure {
+            AmigoSDKDiagnostics.record("[AmigoSDK] stage=enrollFace result=started")
+            let latent: FaceLatent
+            do {
+                // Match the official Amigo sample exactly: decode the selected
+                // bytes to UIImage and await enrollFace directly. Do not block
+                // the SDK's async model download/inference work with a semaphore.
+                latent = try await AmigoFaceSwap.enrollFace(from: decodedImage)
+            } catch {
                 self.rejectSDKError(
                     call,
                     stage: "enroll",
-                    error: failure,
+                    error: error,
                     details: imageDetails
                 )
                 return
             }
-            guard let latent else {
+            // More than one caller can request enrollment during boot
+            // rehydration and an explicit photo save. Only the newest request
+            // may replace the face used by the live video publisher.
+            self.enrollmentStateLock.lock()
+            guard requestGeneration == self.enrollmentGeneration else {
+                self.enrollmentStateLock.unlock()
+                AmigoSDKDiagnostics.record(
+                    "[AmigoSDK] stage=enrollFace result=ignored mappedCode=FACE_ENROLL_SUPERSEDED generation=\(requestGeneration)"
+                )
                 self.reject(
                     call,
                     stage: "enroll",
-                    code: "FACE_ENROLL_FAILED",
-                    message: "The native image processor returned no enrolled face.",
+                    code: "FACE_ENROLL_SUPERSEDED",
+                    message: "A newer face enrollment request replaced this request.",
                     details: imageDetails
                 )
                 return
             }
             self.targetLatent = latent
+            // Commit both consumers while the generation guard is held. A
+            // concurrent clear must not leave the plugin empty while the
+            // publisher still retains the just-enrolled FaceLatent.
             self.nativeSession.setTargetLatent(latent)
+            self.enrollmentStateLock.unlock()
             AmigoSDKDiagnostics.record(
                 "[AmigoSDK] stage=enrollFace result=success faceLatentReceived=true " +
                 "latentType=\(String(reflecting: type(of: latent))) latentHash=\(latent.hashValue) " +
@@ -376,8 +364,11 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func clearModelCache(_ call: CAPPluginCall) {
         CAPLog.print("[AmigoFaceSwapPlugin] clearModelCache invoked")
         AmigoFaceSwap.clearModelCache()
+        enrollmentStateLock.lock()
+        enrollmentGeneration += 1
         targetLatent = nil
         nativeSession.setTargetLatent(nil)
+        enrollmentStateLock.unlock()
         call.resolve()
     }
 

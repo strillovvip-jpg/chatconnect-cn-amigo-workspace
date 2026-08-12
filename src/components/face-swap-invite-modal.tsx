@@ -14,12 +14,11 @@ import {
   SavedFaceValidationError,
 } from "@/lib/amigo/saved-face";
 import {
-  createDeadline,
   OperationTimeoutError,
+  withTimeout,
 } from "@/lib/async/with-timeout";
 
-const SAVE_FACE_TIMEOUT_MS = 90_000;
-const CREATE_CALL_TIMEOUT_MS = 90_000;
+const NETWORK_STEP_TIMEOUT_MS = 90_000;
 
 type CreatedInvite = {
   inviteId: string;
@@ -85,10 +84,14 @@ export function FaceSwapInviteModal({
   if (!open) return null;
 
   const preparePersistedFace = async (stage: "save" | "create") => {
-    const faces = await convex.query(api.faceLibrary.listMine, {
-      code: userCode,
-      deviceId,
-    });
+    const faces = await withTimeout(
+      convex.query(api.faceLibrary.listMine, {
+        code: userCode,
+        deviceId,
+      }),
+      NETWORK_STEP_TIMEOUT_MS,
+      "list-persisted-faces",
+    );
     return await prepareLatestSavedFace(faces, stage);
   };
 
@@ -107,10 +110,11 @@ export function FaceSwapInviteModal({
       return;
     }
     setSavingFace(true);
-    const deadline = createDeadline(SAVE_FACE_TIMEOUT_MS, "save-face");
     try {
-      const uploadResult = (await deadline.run(
+      const uploadResult = (await withTimeout(
         generateFaceUploadUrl({ code: userCode, deviceId }),
+        NETWORK_STEP_TIMEOUT_MS,
+        "create-face-upload-url",
       )) as string | { uploadUrl: string; requestId: string };
       const uploadUrl =
         typeof uploadResult === "string"
@@ -118,7 +122,7 @@ export function FaceSwapInviteModal({
           : uploadResult.uploadUrl;
       const uploadRequestId =
         typeof uploadResult === "string" ? undefined : uploadResult.requestId;
-      const response = await deadline.run(
+      const response = await withTimeout(
         fetch(uploadUrl, {
           method: "POST",
           headers: {
@@ -126,6 +130,8 @@ export function FaceSwapInviteModal({
           },
           body: faceFile,
         }),
+        NETWORK_STEP_TIMEOUT_MS,
+        "upload-face-photo",
       );
       if (!response.ok)
         throw new Error(chatCopy.imageUploadFailed(response.status));
@@ -134,7 +140,7 @@ export function FaceSwapInviteModal({
       };
       if (!storageId) throw new Error(chatCopy.imageIdMissing);
       if (!uploadRequestId) throw new Error(chatCopy.uploadRequestMissing);
-      await deadline.run(
+      await withTimeout(
         (
           addFace as unknown as (args: {
             code: string;
@@ -154,8 +160,12 @@ export function FaceSwapInviteModal({
           hasConsent: true,
           subjectIsAdult: true,
         }),
+        NETWORK_STEP_TIMEOUT_MS,
+        "persist-face-photo",
       );
-      const savedFace = await deadline.run(preparePersistedFace("save"));
+      // Do not put first-run model download and official SDK enrollment inside
+      // the upload deadline. Await the SDK so its real AmigoError reaches UI.
+      const savedFace = await preparePersistedFace("save");
       if (!savedFace)
         throw new SavedFaceValidationError(
           "FACE_IMAGE_NOT_FOUND",
@@ -185,12 +195,13 @@ export function FaceSwapInviteModal({
       return;
     }
     setCreating(true);
-    const deadline = createDeadline(CREATE_CALL_TIMEOUT_MS, "create-call");
     try {
-      const permissions = await deadline.run(
+      const permissions = await withTimeout(
         nativeAmigoRoom.requestMediaPermissions({
           openSettingsIfDenied: true,
         }),
+        NETWORK_STEP_TIMEOUT_MS,
+        "request-media-permissions",
       );
       if (
         permissions.camera !== "authorized" ||
@@ -198,24 +209,32 @@ export function FaceSwapInviteModal({
       ) {
         throw new Error(copy.mediaPermissionRequired);
       }
-      const savedFace = await deadline.run(preparePersistedFace("create"));
+      const savedFace = await preparePersistedFace("create");
       if (!savedFace) throw new Error(copy.uploadFaceFirst);
-      const created = await deadline.run(
+      const created = await withTimeout(
         createInvite({
           code: userCode,
           deviceId,
           origin: window.location.origin,
         }),
+        NETWORK_STEP_TIMEOUT_MS,
+        "create-face-swap-invite",
       );
       try {
-        await deadline.run(nativeAmigoRoom.setFaceSwapEnabled(true));
-        await deadline.run(
+        await withTimeout(
+          nativeAmigoRoom.setFaceSwapEnabled(true),
+          NETWORK_STEP_TIMEOUT_MS,
+          "enable-native-face-swap",
+        );
+        await withTimeout(
           nativeAmigoRoom.connect({
             url: created.serverUrl,
             token: created.operatorToken,
             enableMicrophone: true,
             enableCamera: true,
           }),
+          NETWORK_STEP_TIMEOUT_MS,
+          "connect-native-room",
         );
       } catch (error) {
         await nativeAmigoRoom.setFaceSwapEnabled(false).catch(() => undefined);

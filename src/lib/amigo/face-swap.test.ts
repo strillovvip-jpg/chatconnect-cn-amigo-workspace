@@ -135,4 +135,32 @@ describe("AmigoFaceSwapService", () => {
     expect(mocks.enrollFace).toHaveBeenCalledTimes(2);
     expect(service.hasTargetFace).toBe(true);
   });
+
+  it("serializes overlapping enrollments so the native SDK receives one photo at a time", async () => {
+    let resolveFirst: ((value: boolean) => void) | undefined;
+    mocks.enrollFace
+      .mockImplementationOnce(
+        () =>
+          new Promise<boolean>((resolve) => {
+            resolveFirst = resolve;
+          }),
+      )
+      .mockResolvedValueOnce(true);
+    const service = new AmigoFaceSwapService("api-key");
+
+    const first = service.enrollFaceFile(
+      new File(["first"], "first.jpeg", { type: "image/jpeg" }),
+    );
+    const second = service.enrollFaceFile(
+      new File(["second"], "second.jpeg", { type: "image/jpeg" }),
+    );
+    await vi.waitFor(() => expect(mocks.enrollFace).toHaveBeenCalledTimes(1));
+
+    resolveFirst?.(true);
+    await expect(first).resolves.toBe(true);
+    await expect(second).resolves.toBe(true);
+
+    expect(mocks.enrollFace).toHaveBeenCalledTimes(2);
+    expect(service.hasTargetFace).toBe(true);
+  });
 });

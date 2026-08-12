@@ -43,6 +43,7 @@ export class FaceSwapError extends Error {
 
 export class AmigoFaceSwapService {
   private initialization: Promise<void> | null = null;
+  private enrollmentQueue: Promise<void> = Promise.resolve();
   private initialized = false;
   private enrolled = false;
 
@@ -148,7 +149,18 @@ export class AmigoFaceSwapService {
   }
 
   private async enrollFaceData(imageData: string): Promise<boolean> {
-    return this.enrollFaceDataWithRecovery(imageData, true);
+    // Boot rehydration and a user-initiated save can reach this bridge at the
+    // same time. The vendor SDK owns process-wide model state, so never invoke
+    // enrollFace concurrently. Chaining also makes the last requested photo
+    // deterministically become the live FaceLatent.
+    const enrollment = this.enrollmentQueue.then(() =>
+      this.enrollFaceDataWithRecovery(imageData, true),
+    );
+    this.enrollmentQueue = enrollment.then(
+      () => undefined,
+      () => undefined,
+    );
+    return enrollment;
   }
 
   private async enrollFaceDataWithRecovery(

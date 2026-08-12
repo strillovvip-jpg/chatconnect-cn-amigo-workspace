@@ -107,7 +107,7 @@ test("Xcode Cloud refuses to archive without the native face SDK key", () => {
   assert.doesNotMatch(cloudScript, /ak_live_[a-z0-9]+/i);
 });
 
-test("native face enrollment reports typed SDK and image failures", () => {
+test("native face enrollment awaits the official async SDK without blocking it", () => {
   const plugin = read(
     "ios/App/CapApp-SPM/Sources/CapApp-SPM/AmigoFaceSwapPlugin.swift",
   );
@@ -122,9 +122,9 @@ test("native face enrollment reports typed SDK and image failures", () => {
   assert.match(plugin, /SDK_QUOTA_EXCEEDED/);
   assert.match(plugin, /case \.networkRequired/);
   assert.match(plugin, /SDK_NETWORK_REQUIRED/);
-  assert.match(plugin, /FACE_ENROLL_TIMEOUT/);
   assert.match(plugin, /FACE_IMAGE_DECODE_FAILED/);
-  assert.match(plugin, /DispatchTimeoutResult\.timedOut/);
+  assert.doesNotMatch(plugin, /DispatchSemaphore/);
+  assert.doesNotMatch(plugin, /\.wait\(timeout:/);
   assert.match(plugin, /imageByteLength/);
   assert.match(plugin, /imageWidth/);
   assert.match(plugin, /imageHeight/);
@@ -132,7 +132,22 @@ test("native face enrollment reports typed SDK and image failures", () => {
     plugin,
     /AmigoFaceSwap\.enrollFace\(from:\s*decodedImage\)/,
   );
+  assert.match(
+    plugin,
+    /try await AmigoFaceSwap\.initialize\(apiKey:\s*apiKey/,
+  );
   assert.doesNotMatch(plugin, /normalizedEnrollmentImage/);
+  assert.match(plugin, /enrollmentGeneration/);
+  assert.match(plugin, /guard requestGeneration == self\.enrollmentGeneration/);
+  assert.match(plugin, /FACE_ENROLL_SUPERSEDED/);
+  assert.match(
+    plugin,
+    /self\.targetLatent = latent[\s\S]{0,500}self\.nativeSession\.setTargetLatent\(latent\)[\s\S]{0,160}self\.enrollmentStateLock\.unlock\(\)/,
+  );
+  assert.match(
+    plugin,
+    /targetLatent = nil[\s\S]{0,160}nativeSession\.setTargetLatent\(nil\)[\s\S]{0,160}enrollmentStateLock\.unlock\(\)/,
+  );
 });
 
 test("native external face-swap track fails closed instead of publishing raw camera frames", () => {

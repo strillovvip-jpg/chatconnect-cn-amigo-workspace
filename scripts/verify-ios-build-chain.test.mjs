@@ -179,11 +179,12 @@ test("native face enrollment awaits the official async SDK without blocking it",
   assert.match(plugin, /imageByteLength/);
   assert.match(plugin, /imageWidth/);
   assert.match(plugin, /imageHeight/);
-  assert.match(plugin, /latent = try await Self\.enrollWithFallbacks\(/);
   assert.match(
     plugin,
-    /return try await AmigoFaceSwap\.enrollFace\(from:\s*candidate\)/,
+    /latent = try await AmigoFaceSwap\.enrollFace\(from:\s*decodedImage\)/,
   );
+  assert.doesNotMatch(plugin, /latent = try await Self\.enrollWithFallbacks\(/);
+  assert.doesNotMatch(plugin, /private static func enrollWithFallbacks/);
   assert.match(plugin, /try await AmigoFaceSwap\.initialize\(apiKey:\s*apiKey/);
   assert.doesNotMatch(plugin, /normalizedEnrollmentImage/);
   assert.match(plugin, /enrollmentGeneration/);

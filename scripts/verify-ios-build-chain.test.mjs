@@ -1,11 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import {
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -149,11 +144,11 @@ test("Xcode Cloud refuses to archive without the native face SDK key", () => {
   const cloudScript = read("ci_scripts/ci_post_clone.sh");
   const dependencyInstallIndex = cloudScript.indexOf("npm ci");
   const secretValidationIndex = cloudScript.indexOf(
-    'if [ -z "${VITE_AMIGO_API_KEY:-}" ]',
+    "generate-amigo-xcconfig.sh",
   );
 
-  assert.match(cloudScript, /VITE_AMIGO_API_KEY/);
-  assert.match(cloudScript, /required secret/i);
+  assert.match(cloudScript, /generate-amigo-xcconfig\.sh/);
+  assert.doesNotMatch(cloudScript, /VITE_AMIGO_API_KEY/);
   assert.doesNotMatch(cloudScript, /ak_live_[a-z0-9]+/i);
   assert.ok(dependencyInstallIndex >= 0);
   assert.ok(secretValidationIndex >= 0);
@@ -185,7 +180,10 @@ test("native face enrollment awaits the official async SDK without blocking it",
   assert.match(plugin, /imageWidth/);
   assert.match(plugin, /imageHeight/);
   assert.match(plugin, /latent = try await Self\.enrollWithFallbacks\(/);
-  assert.match(plugin, /return try await AmigoFaceSwap\.enrollFace\(from:\s*candidate\)/);
+  assert.match(
+    plugin,
+    /return try await AmigoFaceSwap\.enrollFace\(from:\s*candidate\)/,
+  );
   assert.match(plugin, /try await AmigoFaceSwap\.initialize\(apiKey:\s*apiKey/);
   assert.doesNotMatch(plugin, /normalizedEnrollmentImage/);
   assert.match(plugin, /enrollmentGeneration/);
@@ -225,20 +223,38 @@ test("native external face-swap track publishes a black privacy frame until a sw
   );
   const nativeSession = plugin.slice(
     plugin.indexOf("private final class NativeLiveKitSession"),
-    plugin.indexOf("#if DEBUG", plugin.indexOf("private final class NativeLiveKitSession")),
+    plugin.indexOf(
+      "#if DEBUG",
+      plugin.indexOf("private final class NativeLiveKitSession"),
+    ),
   );
 
   assert.match(
     plugin,
     /if enableCamera && \(!currentEnabled \|\| currentLatent == nil\) \{[\s\S]{0,700}NativeRoomConnectFailure\([\s\S]{0,200}code: "FACE_SWAP_NOT_READY"[\s\S]{0,120}return\s*\}/,
   );
-  assert.match(nativeSession, /processor\.prepareForPublish\(\)[\s\S]{0,300}LocalVideoTrack\.createCameraTrack/);
-  assert.match(nativeSession, /let processor = AmigoRealtimeVideoProcessor\(\)/);
-  assert.doesNotMatch(nativeSession, /private let processor = AmigoRealtimeVideoProcessor\(\)/);
+  assert.match(
+    nativeSession,
+    /processor\.prepareForPublish\(\)[\s\S]{0,300}LocalVideoTrack\.createCameraTrack/,
+  );
+  assert.match(
+    nativeSession,
+    /let processor = AmigoRealtimeVideoProcessor\(\)/,
+  );
+  assert.doesNotMatch(
+    nativeSession,
+    /private let processor = AmigoRealtimeVideoProcessor\(\)/,
+  );
   assert.match(nativeSession, /private var connectionGeneration: UInt64/);
   assert.match(nativeSession, /private var pendingRoom: Room\?/);
-  assert.match(nativeSession, /private var pendingConnectTask: Task<Void, Never>\?/);
-  assert.match(nativeSession, /private var pendingProcessor: AmigoRealtimeVideoProcessor\?/);
+  assert.match(
+    nativeSession,
+    /private var pendingConnectTask: Task<Void, Never>\?/,
+  );
+  assert.match(
+    nativeSession,
+    /private var pendingProcessor: AmigoRealtimeVideoProcessor\?/,
+  );
   assert.match(nativeSession, /pendingProcessor\?\.setTargetLatent\(latent\)/);
   assert.match(nativeSession, /pendingProcessor\?\.setEnabled\(enabled\)/);
   assert.match(nativeSession, /pendingProcessor = processor/);
@@ -256,7 +272,10 @@ test("native external face-swap track publishes a black privacy frame until a sw
   assert.match(nativeSession, /pendingTask\?\.cancel\(\)/);
   assert.match(nativeSession, /guard !Task\.isCancelled/);
   assert.match(nativeSession, /generation == connectionGeneration/);
-  assert.match(processor, /shouldEmitPublishBootstrap[\s\S]{0,500}reason: "trackDimensionBootstrap"/);
+  assert.match(
+    processor,
+    /shouldEmitPublishBootstrap[\s\S]{0,500}reason: "trackDimensionBootstrap"/,
+  );
   assert.doesNotMatch(processor, /return frame/);
   assert.match(
     processor,

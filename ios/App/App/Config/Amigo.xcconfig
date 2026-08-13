@@ -1,0 +1,4 @@
+// The production value is generated locally or by Xcode Cloud and is never
+// committed. The optional include keeps a clean clone loadable before CI runs.
+AMIGO_API_KEY =
+#include? "AmigoSecrets.generated.xcconfig"

@@ -20,7 +20,10 @@ test("native initialization shares one SDK task and does not run on MainActor", 
 test("model download diagnostics are throttled instead of writing every callback", () => {
   assert.match(plugin, /AmigoInitializationProgressLogger/);
   assert.match(plugin, /progressLogger\.record\(progress\)/);
-  assert.match(plugin, /let bucket = min\(100, max\(0, Int\(progress \* 100\)\)\) \/ 5 \* 5/);
+  assert.match(
+    plugin,
+    /let bucket = min\(100, max\(0, Int\(progress \* 100\)\)\) \/ 5 \* 5/,
+  );
 });
 
 test("native enrollment installs the verified Vision revision 2 compatibility before SDK use", () => {
@@ -53,7 +56,11 @@ test("native enrollment installs the verified Vision revision 2 compatibility be
 });
 
 test("Xcode Cloud rejects a missing or malformed Amigo production key", () => {
-  assert.match(cloudScript, /case "\$VITE_AMIGO_API_KEY" in/);
-  assert.match(cloudScript, /ak_live_\[0-9A-Fa-f\]\[0-9A-Fa-f\]\*/);
-  assert.match(cloudScript, /native image processor secret has an invalid format/);
+  assert.match(cloudScript, /generate-amigo-xcconfig\.sh/);
+  assert.doesNotMatch(cloudScript, /VITE_AMIGO_API_KEY/);
+
+  const generator = read("scripts/generate-amigo-xcconfig.sh");
+  assert.match(generator, /AMIGO_API_KEY/);
+  assert.match(generator, /ak_live_\[0-9A-Fa-f\]/);
+  assert.match(generator, /invalid format/);
 });

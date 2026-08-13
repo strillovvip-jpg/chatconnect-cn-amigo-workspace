@@ -410,7 +410,7 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         initializationStateLock.unlock()
 
-        let apiKey = call.getString("apiKey") ?? getConfig().getString("apiKey") ?? ""
+        let apiKey = Self.releaseAPIKey()
         guard !apiKey.isEmpty else {
             AmigoSDKDiagnostics.record("[AmigoSDK] stage=initialize source=javascript result=error mappedCode=SDK_API_KEY_MISSING")
             reject(
@@ -466,6 +466,17 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
                 self.rejectSDKError(call, stage: "initialize", error: error)
             }
         }
+    }
+
+    private static func releaseAPIKey() -> String {
+        guard let configured = Bundle.main.object(forInfoDictionaryKey: "AmigoAPIKey") as? String else {
+            return ""
+        }
+        let key = configured.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty, !key.contains("$(") else {
+            return ""
+        }
+        return key
     }
 
     @objc func enrollFace(_ call: CAPPluginCall) {

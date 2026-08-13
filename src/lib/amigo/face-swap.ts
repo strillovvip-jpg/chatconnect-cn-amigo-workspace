@@ -1,7 +1,5 @@
 import { amigoBridge } from "./bridge.ts";
 
-const API_KEY = import.meta.env.VITE_AMIGO_API_KEY ?? "";
-
 export type FaceSwapStage = "initialize" | "read" | "decode" | "enroll";
 
 export type FaceSwapErrorCode =
@@ -48,8 +46,6 @@ export class AmigoFaceSwapService {
   private initialized = false;
   private enrolled = false;
 
-  constructor(private readonly apiKey = API_KEY) {}
-
   get isAvailable() {
     return amigoBridge.available;
   }
@@ -85,14 +81,7 @@ export class AmigoFaceSwapService {
   }
 
   private async doInitialize(): Promise<void> {
-    if (!this.apiKey) {
-      throw new FaceSwapError(
-        "SDK_API_KEY_MISSING",
-        "initialize",
-        "The native image processor API key is missing from this build.",
-      );
-    }
-    await amigoBridge.initialize(this.apiKey);
+    await amigoBridge.initialize();
     this.initialized = true;
     console.info("[FaceSwap:init] native SDK initialized");
   }
@@ -281,7 +270,7 @@ function normalizeFaceSwapError(
       ? data.code
       : typeof data.sdkCode === "number"
         ? "SDK_UNKNOWN_ERROR"
-      : fallbackCode;
+        : fallbackCode;
   const stage = isFaceSwapStage(data.stage) ? data.stage : fallbackStage;
   const message =
     typeof record.message === "string" && record.message.trim()

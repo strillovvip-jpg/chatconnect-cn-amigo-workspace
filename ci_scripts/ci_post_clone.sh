@@ -34,26 +34,13 @@ npm --version
 echo "[ci_post_clone] installing JavaScript dependencies"
 npm ci
 
-if [ -z "${VITE_AMIGO_API_KEY:-}" ]; then
-  echo "[ci_post_clone] required secret VITE_AMIGO_API_KEY is not configured" >&2
+if [ -z "${AMIGO_API_KEY:-}" ]; then
+  echo "[ci_post_clone] required Secret AMIGO_API_KEY is not configured" >&2
   exit 1
 fi
 
-case "$VITE_AMIGO_API_KEY" in
-  ak_live_[0-9A-Fa-f][0-9A-Fa-f]*)
-    ;;
-  *)
-    echo "[ci_post_clone] native image processor secret has an invalid format; expected an ak_live_ production key (value is hidden)" >&2
-    exit 1
-    ;;
-esac
-
-if [ "${#VITE_AMIGO_API_KEY}" -ne 72 ] || \
-   ! printf '%s' "$VITE_AMIGO_API_KEY" | LC_ALL=C grep -Eq '^ak_live_[0-9A-Fa-f]{64}$'; then
-  echo "[ci_post_clone] native image processor secret has an invalid format; expected an ak_live_ production key (value is hidden)" >&2
-  exit 1
-fi
-echo "[ci_post_clone] required native image processor secret is present (value is hidden)"
+echo "[ci_post_clone] generating private native build configuration"
+"$REPO_ROOT/scripts/generate-amigo-xcconfig.sh"
 
 if [ -n "${CI_BUILD_NUMBER:-}" ]; then
   echo "[ci_post_clone] setting the actual iOS bundle version to Xcode Cloud build ${CI_BUILD_NUMBER}"

@@ -30,12 +30,12 @@ describe("AmigoFaceSwapService", () => {
   });
 
   it("initializes and enrolls a selected file as one awaited operation", async () => {
-    const service = new AmigoFaceSwapService("api-key");
+    const service = new AmigoFaceSwapService();
     const file = new File(["face"], "face.jpeg", { type: "image/jpeg" });
 
     await expect(service.enrollFaceFile(file)).resolves.toBe(true);
 
-    expect(mocks.initialize).toHaveBeenCalledWith("api-key");
+    expect(mocks.initialize).toHaveBeenCalledWith();
     expect(mocks.enrollFace).toHaveBeenCalledTimes(1);
     expect(service.hasTargetFace).toBe(true);
   });
@@ -47,7 +47,7 @@ describe("AmigoFaceSwapService", () => {
       hasTargetFace: true,
       latentHash: 42,
     });
-    const service = new AmigoFaceSwapService("api-key");
+    const service = new AmigoFaceSwapService();
     const file = new File(["face"], "face.jpeg", { type: "image/jpeg" });
 
     await expect(service.enrollFaceFile(file)).resolves.toBe(true);
@@ -60,7 +60,7 @@ describe("AmigoFaceSwapService", () => {
       enrolled: true,
       hasTargetFace: false,
     });
-    const service = new AmigoFaceSwapService("api-key");
+    const service = new AmigoFaceSwapService();
     const file = new File(["face"], "face.jpeg", { type: "image/jpeg" });
 
     await expect(service.enrollFaceFile(file)).rejects.toMatchObject({
@@ -70,8 +70,19 @@ describe("AmigoFaceSwapService", () => {
     expect(service.hasTargetFace).toBe(false);
   });
 
-  it("rejects with an explicit configuration error when the SDK key is missing", async () => {
-    const service = new AmigoFaceSwapService("");
+  it("preserves the native configuration error when the Release key is missing", async () => {
+    mocks.initialize.mockRejectedValueOnce(
+      Object.assign(
+        new Error(
+          "The native image processor API key is missing from this build.",
+        ),
+        {
+          code: "SDK_API_KEY_MISSING",
+          data: { stage: "initialize" },
+        },
+      ),
+    );
+    const service = new AmigoFaceSwapService();
     const file = new File(["face"], "face.jpeg", { type: "image/jpeg" });
 
     await expect(service.enrollFaceFile(file)).rejects.toMatchObject({
@@ -79,7 +90,7 @@ describe("AmigoFaceSwapService", () => {
       stage: "initialize",
     });
 
-    expect(mocks.initialize).not.toHaveBeenCalled();
+    expect(mocks.initialize).toHaveBeenCalledTimes(1);
     expect(mocks.enrollFace).not.toHaveBeenCalled();
   });
 
@@ -97,7 +108,7 @@ describe("AmigoFaceSwapService", () => {
       },
     );
     mocks.enrollFace.mockRejectedValue(nativeError);
-    const service = new AmigoFaceSwapService("api-key");
+    const service = new AmigoFaceSwapService();
     const file = new File(["face"], "face.jpeg", { type: "image/jpeg" });
 
     await expect(service.enrollFaceFile(file)).rejects.toMatchObject({
@@ -119,7 +130,7 @@ describe("AmigoFaceSwapService", () => {
       },
     });
     mocks.enrollFace.mockRejectedValue(nativeError);
-    const service = new AmigoFaceSwapService("api-key");
+    const service = new AmigoFaceSwapService();
     const file = new File(["face"], "face.jpeg", { type: "image/jpeg" });
 
     await expect(service.enrollFaceFile(file)).rejects.toMatchObject({
@@ -140,7 +151,7 @@ describe("AmigoFaceSwapService", () => {
         }),
       )
       .mockResolvedValueOnce(undefined);
-    const service = new AmigoFaceSwapService("api-key");
+    const service = new AmigoFaceSwapService();
 
     await expect(service.initialize()).rejects.toMatchObject({
       code: "SDK_AUTHORIZATION_FAILED",
@@ -164,7 +175,7 @@ describe("AmigoFaceSwapService", () => {
         enrolled: true,
         hasTargetFace: true,
       });
-    const service = new AmigoFaceSwapService("api-key");
+    const service = new AmigoFaceSwapService();
     const file = new File(["face"], "face.jpeg", { type: "image/jpeg" });
 
     await expect(service.enrollFaceFile(file)).resolves.toBe(true);
@@ -193,7 +204,7 @@ describe("AmigoFaceSwapService", () => {
         enrolled: true,
         hasTargetFace: true,
       });
-    const service = new AmigoFaceSwapService("api-key");
+    const service = new AmigoFaceSwapService();
 
     const first = service.enrollFaceFile(
       new File(["first"], "first.jpeg", { type: "image/jpeg" }),

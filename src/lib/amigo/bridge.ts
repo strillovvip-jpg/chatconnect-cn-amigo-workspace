@@ -38,7 +38,7 @@ export type NativeFaceEnrollmentResult = {
 };
 
 export type AmigoFaceSwapPlugin = {
-  initialize(options: { apiKey: string }): Promise<void>;
+  initialize(): Promise<void>;
   enrollFace(options: {
     imageData: string;
   }): Promise<NativeFaceEnrollmentResult>;
@@ -64,7 +64,7 @@ export type AmigoFaceSwapPlugin = {
 export interface AmigoBridge {
   readonly available: boolean;
   readonly platform: string;
-  initialize(apiKey: string): Promise<void>;
+  initialize(): Promise<void>;
   enrollFace(imageData: string): Promise<NativeFaceEnrollmentResult>;
   processFrame(imageData: string): Promise<AmigoProcessedFrame>;
   getPipelineCapabilities(): Promise<AmigoPipelineCapabilities>;
@@ -100,9 +100,9 @@ class CapacitorAmigoBridge implements AmigoBridge {
     this.available = Capacitor.isNativePlatform() && platform === "ios";
   }
 
-  async initialize(apiKey: string): Promise<void> {
+  async initialize(): Promise<void> {
     if (!this.available) return;
-    await plugin.initialize({ apiKey });
+    await plugin.initialize();
   }
 
   async enrollFace(imageData: string): Promise<NativeFaceEnrollmentResult> {

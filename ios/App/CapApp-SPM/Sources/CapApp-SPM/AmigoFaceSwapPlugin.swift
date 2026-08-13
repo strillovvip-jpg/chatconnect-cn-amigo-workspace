@@ -56,179 +56,175 @@ private enum AmigoSDKDiagnostics {
     }
 }
 
-/// AmigoFaceSwapSDK 1.0.2 creates its internal
-/// `VNDetectFaceLandmarksRequest` with plain `init`. On affected iOS 26
-/// runtimes Vision's default revision fails in `performRequests:error:` with
-/// error 9 ("Could not create inference context"). Keep the workaround scoped
-/// to the exact request subclass used by the closed-source SDK and force the
-/// compatible revision on both Objective-C initialization paths.
-private enum AmigoVisionLandmarksCompatibility {
-    private static let lock = NSLock()
+#if DEBUG
+/// Diagnostic-only transport for the exact recognition model already fetched
+/// from Amigo's signed CDN URL. Feeding it through URL loading (instead of
+/// placing the encrypted file in the cache) lets the vendor SDK receive its
+/// normal download-completion callback and perform its own decrypt/extract.
+final class AmigoDiagnosticModelURLProtocol: URLProtocol {
+    private let stateLock = NSLock()
+    private var stopped = false
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        guard ProcessInfo.processInfo.arguments.contains("--amigo-direct-enroll-diagnostic") else {
+            return false
+        }
+        guard let url = request.url,
+              url.scheme == "https",
+              url.lastPathComponent == "w600k_r50.enc" else {
+            return false
+        }
+        return localModelURL.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        guard let sourceURL = Self.localModelURL else {
+            client?.urlProtocol(self, didFailWithError: NSError(
+                domain: "AmigoDiagnosticModelURLProtocol",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Local recognition model is unavailable."]
+            ))
+            return
+        }
+
+        do {
+            let attributes = try FileManager.default.attributesOfItem(atPath: sourceURL.path)
+            let total = (attributes[.size] as? NSNumber)?.int64Value ?? 0
+            let requestedOffset = Self.rangeOffset(from: request) ?? 0
+            guard requestedOffset >= 0, requestedOffset < total else {
+                throw NSError(
+                    domain: "AmigoDiagnosticModelURLProtocol",
+                    code: 2,
+                    userInfo: [NSLocalizedDescriptionKey: "Invalid model byte range."]
+                )
+            }
+
+            var headers = [
+                "Content-Type": "application/octet-stream",
+                "Content-Length": "\(total - requestedOffset)",
+                "Accept-Ranges": "bytes"
+            ]
+            let statusCode: Int
+            if requestedOffset > 0 {
+                statusCode = 206
+                headers["Content-Range"] = "bytes \(requestedOffset)-\(total - 1)/\(total)"
+            } else {
+                statusCode = 200
+            }
+            guard let responseURL = request.url,
+                  let response = HTTPURLResponse(
+                    url: responseURL,
+                    statusCode: statusCode,
+                    httpVersion: "HTTP/1.1",
+                    headerFields: headers
+                  ) else {
+                throw NSError(
+                    domain: "AmigoDiagnosticModelURLProtocol",
+                    code: 3,
+                    userInfo: [NSLocalizedDescriptionKey: "Unable to create model response."]
+                )
+            }
+
+            AmigoSDKDiagnostics.record(
+                "[AmigoSDK] stage=modelDownloadIntercept result=started offset=\(requestedOffset) bytes=\(total)"
+            )
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+
+            let handle = try FileHandle(forReadingFrom: sourceURL)
+            try handle.seek(toOffset: UInt64(requestedOffset))
+            defer { try? handle.close() }
+            var delivered: Int64 = 0
+            while !isStopped {
+                let chunk = try handle.read(upToCount: 512 * 1024) ?? Data()
+                if chunk.isEmpty { break }
+                client?.urlProtocol(self, didLoad: chunk)
+                delivered += Int64(chunk.count)
+            }
+            guard !isStopped else { return }
+            client?.urlProtocolDidFinishLoading(self)
+            AmigoSDKDiagnostics.record(
+                "[AmigoSDK] stage=modelDownloadIntercept result=completed delivered=\(delivered)"
+            )
+        } catch {
+            AmigoSDKDiagnostics.recordError(stage: "modelDownloadIntercept", error: error)
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {
+        stateLock.lock()
+        stopped = true
+        stateLock.unlock()
+    }
+
+    private var isStopped: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return stopped
+    }
+
+    private static var localModelURL: URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("AmigoSDK/Models/v1.0.0/w600k_r50.enc")
+    }
+
+    private static func rangeOffset(from request: URLRequest) -> Int64? {
+        guard let range = request.value(forHTTPHeaderField: "Range"),
+              range.hasPrefix("bytes=") else { return nil }
+        let value = range.dropFirst("bytes=".count).split(separator: "-", maxSplits: 1).first
+        return value.flatMap { Int64($0) }
+    }
+}
+
+/// `URLProtocol.registerClass` is not consulted by URL sessions whose
+/// configuration supplies its own protocol list. The vendor downloader uses
+/// such a session, so the diagnostic launch prepends the local model transport
+/// to newly-created default/ephemeral configurations as well.
+final class AmigoDiagnosticURLSessionConfiguration {
     private static var installed = false
     private static var retainedImplementations: [IMP] = []
 
     static func install() {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !installed else { return }
-
-        let didInstallPlain = installPlainInitializer()
-        let didInstallCompletion = installCompletionInitializer()
-        let didInstallPerform = installRequestHandlerPerform()
-        installed = didInstallPlain || didInstallCompletion || didInstallPerform
-
+        guard !installed,
+              ProcessInfo.processInfo.arguments.contains("--amigo-direct-enroll-diagnostic") else {
+            return
+        }
+        installed = true
+        let defaultInstalled = installFactory(selectorName: "defaultSessionConfiguration")
+        let ephemeralInstalled = installFactory(selectorName: "ephemeralSessionConfiguration")
         AmigoSDKDiagnostics.record(
-            "[AmigoSDK] stage=visionCompatibility result=\(installed ? "success" : "error") " +
-            "plainInit=\(didInstallPlain) completionInit=\(didInstallCompletion) " +
-            "performRequests=\(didInstallPerform) " +
-            "faceLandmarksRevision=2"
+            "[AmigoSDK] stage=modelDownloadIntercept result=configurationInstalled " +
+            "default=\(defaultInstalled) ephemeral=\(ephemeralInstalled)"
         )
     }
 
-    private static func installPlainInitializer() -> Bool {
-        let selector = NSSelectorFromString("init")
-        guard let method = class_getInstanceMethod(VNDetectFaceLandmarksRequest.self, selector) else {
+    private static func installFactory(selectorName: String) -> Bool {
+        let selector = NSSelectorFromString(selectorName)
+        guard let method = class_getClassMethod(URLSessionConfiguration.self, selector) else {
             return false
         }
         let originalIMP = method_getImplementation(method)
-        typealias Original = @convention(c) (AnyObject, Selector) -> AnyObject
-        let replacement: @convention(block) (AnyObject) -> AnyObject = { object in
-            let initialized = unsafeBitCast(originalIMP, to: Original.self)(object, selector)
-            if let request = initialized as? VNDetectFaceLandmarksRequest {
-                request.revision = 2
+        typealias Original = @convention(c) (AnyClass, Selector) -> URLSessionConfiguration
+        let replacement: @convention(block) (AnyClass) -> URLSessionConfiguration = { object in
+            let configuration = unsafeBitCast(originalIMP, to: Original.self)(object, selector)
+            var classes = configuration.protocolClasses ?? []
+            if !classes.contains(where: { $0 == AmigoDiagnosticModelURLProtocol.self }) {
+                classes.insert(AmigoDiagnosticModelURLProtocol.self, at: 0)
+                configuration.protocolClasses = classes
             }
-            return initialized
+            return configuration
         }
-        return replace(method: method, selector: selector, block: replacement)
-    }
-
-    private static func installCompletionInitializer() -> Bool {
-        let selector = NSSelectorFromString("initWithCompletionHandler:")
-        guard let method = class_getInstanceMethod(VNDetectFaceLandmarksRequest.self, selector) else {
-            return false
-        }
-        let originalIMP = method_getImplementation(method)
-        typealias Original = @convention(c) (
-            AnyObject,
-            Selector,
-            VNRequestCompletionHandler?
-        ) -> AnyObject
-        let replacement: @convention(block) (
-            AnyObject,
-            VNRequestCompletionHandler?
-        ) -> AnyObject = { object, completionHandler in
-            let initialized = unsafeBitCast(originalIMP, to: Original.self)(
-                object,
-                selector,
-                completionHandler
-            )
-            if let request = initialized as? VNDetectFaceLandmarksRequest {
-                request.revision = 2
-            }
-            return initialized
-        }
-        return replace(method: method, selector: selector, block: replacement)
-    }
-
-    private static func replace<T>(method: Method, selector: Selector, block: T) -> Bool {
-        let implementation = imp_implementationWithBlock(block)
-        retainedImplementations.append(implementation)
-        if !class_addMethod(
-            VNDetectFaceLandmarksRequest.self,
-            selector,
-            implementation,
-            method_getTypeEncoding(method)
-        ) {
-            method_setImplementation(method, implementation)
-        }
-        return true
-    }
-
-    /// AmigoFaceSwapSDK 1.0.2 performs its private face enrollment with this
-    /// exact Objective-C call. Some iOS 26 devices reject the initially chosen
-    /// face-landmarks revision with VNError code 9 ("Could not create inference
-    /// context"). Retry only that exact failure with the other revisions Vision
-    /// reports as supported on the running device. All unrelated requests and
-    /// errors keep Vision's original behavior.
-    private static func installRequestHandlerPerform() -> Bool {
-        let selector = NSSelectorFromString("performRequests:error:")
-        guard let method = class_getInstanceMethod(VNImageRequestHandler.self, selector) else {
-            return false
-        }
-
-        let originalIMP = method_getImplementation(method)
-        typealias Original = @convention(c) (
-            AnyObject,
-            Selector,
-            NSArray,
-            UnsafeMutablePointer<NSError?>?
-        ) -> Bool
-
-        let replacement: @convention(block) (
-            AnyObject,
-            NSArray,
-            UnsafeMutablePointer<NSError?>?
-        ) -> Bool = { handler, requests, errorPointer in
-            let original = unsafeBitCast(originalIMP, to: Original.self)
-            let landmarksRequests = requests.compactMap { $0 as? VNDetectFaceLandmarksRequest }
-            guard !landmarksRequests.isEmpty else {
-                return original(handler, selector, requests, errorPointer)
-            }
-
-            var firstError: NSError?
-            if original(handler, selector, requests, &firstError) {
-                if let request = landmarksRequests.first {
-                    AmigoSDKDiagnostics.record(
-                        "[AmigoSDK] stage=visionLandmarksPerform result=success revision=\(request.revision) retried=false"
-                    )
-                }
-                errorPointer?.pointee = nil
-                return true
-            }
-
-            let initialRevision = landmarksRequests[0].revision
-            AmigoSDKDiagnostics.record(
-                "[AmigoSDK] stage=visionLandmarksPerform result=error revision=\(initialRevision) " +
-                "domain=\(firstError?.domain ?? "nil") nativeCode=\(firstError?.code ?? -1) " +
-                "message=\(firstError?.localizedDescription ?? "nil")"
-            )
-
-            guard firstError?.code == 9 else {
-                errorPointer?.pointee = firstError
-                return false
-            }
-
-            let supported = VNDetectFaceLandmarksRequest.supportedRevisions
-                .map { Int($0) }
-                .filter { $0 != initialRevision }
-                .sorted(by: >)
-
-            for revision in supported {
-                landmarksRequests.forEach { $0.revision = revision }
-                var retryError: NSError?
-                let succeeded = original(handler, selector, requests, &retryError)
-                AmigoSDKDiagnostics.record(
-                    "[AmigoSDK] stage=visionLandmarksPerform result=\(succeeded ? "success" : "error") " +
-                    "revision=\(revision) retried=true domain=\(retryError?.domain ?? "nil") " +
-                    "nativeCode=\(retryError?.code ?? 0) message=\(retryError?.localizedDescription ?? "nil")"
-                )
-                if succeeded {
-                    errorPointer?.pointee = nil
-                    return true
-                }
-            }
-
-            landmarksRequests.forEach { $0.revision = initialRevision }
-            errorPointer?.pointee = firstError
-            return false
-        }
-
         let implementation = imp_implementationWithBlock(replacement)
         retainedImplementations.append(implementation)
         method_setImplementation(method, implementation)
         return true
     }
 }
+#endif
 
 /// The SDK reports model-download progress very frequently. Persisting every
 /// callback blocks the download/compile path with thousands of synchronous
@@ -297,12 +293,111 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc override public func load() {
         AmigoSDKDiagnostics.record("[AmigoSDK] stage=pluginLoad result=success")
-        AmigoVisionLandmarksCompatibility.install()
+        // Do not swizzle Vision request initializers. The previous compatibility
+        // hook recursively re-entered VNRequest creation on iOS 26 and crashed
+        // before the vendor SDK could return its real enrollment result.
+        AmigoSDKDiagnostics.record("[AmigoSDK] stage=visionCompatibility result=disabled")
         // Initialization is owned by the awaited JavaScript bridge call below.
         // Starting a second fire-and-forget initialization here races explicit
         // enrollment and can leave JS and native state disagreeing.
         AmigoSDKDiagnostics.record("[AmigoSDK] stage=initialize source=javascript result=waiting")
+        #if DEBUG
+        URLProtocol.registerClass(AmigoDiagnosticModelURLProtocol.self)
+        AmigoDiagnosticURLSessionConfiguration.install()
+        runDirectEnrollmentDiagnosticIfRequested()
+        #endif
     }
+
+    #if DEBUG
+    /// Reproduce vendor enrollment directly on a connected device without any
+    /// WebView state. This is excluded from Release/TestFlight and receives
+    /// its API key only from the launched process environment.
+    private func runDirectEnrollmentDiagnosticIfRequested() {
+        let process = ProcessInfo.processInfo
+        guard process.arguments.contains("--amigo-direct-enroll-diagnostic") else { return }
+        guard let apiKey = process.environment["AMIGO_DIAGNOSTIC_API_KEY"], !apiKey.isEmpty else {
+            AmigoSDKDiagnostics.record(
+                "[AmigoSDK] stage=directEnrollDiagnostic result=error mappedCode=SDK_API_KEY_MISSING"
+            )
+            return
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            // The vendor uses a foreground URLSession download for the initial
+            // 152.9 MB recognition model. Keep this diagnostic launch active
+            // long enough to capture initialize -> enrollFace on the device.
+            UIApplication.shared.isIdleTimerDisabled = true
+            defer { UIApplication.shared.isIdleTimerDisabled = false }
+            do {
+                let documents = try FileManager.default.url(
+                    for: .documentDirectory,
+                    in: .userDomainMask,
+                    appropriateFor: nil,
+                    create: true
+                )
+                let imageURL = documents.appendingPathComponent("amigo-error9-test.jpg")
+                let data = try Data(contentsOf: imageURL)
+                guard let image = UIImage(data: data) else {
+                    throw NSError(
+                        domain: "AmigoFaceSwapPlugin.DirectDiagnostic",
+                        code: 1,
+                        userInfo: [NSLocalizedDescriptionKey: "UIImage decoding failed."]
+                    )
+                }
+                AmigoSDKDiagnostics.record(
+                    "[AmigoSDK] stage=directEnrollDiagnostic result=imageDecoded bytes=\(data.count) " +
+                    "size=\(image.cgImage?.width ?? 0)x\(image.cgImage?.height ?? 0)"
+                )
+
+                try await AmigoFaceSwap.initialize(apiKey: apiKey) { progress in
+                    let percent = min(100, max(0, Int(progress * 100)))
+                    if percent == 0 || percent == 25 || percent == 50 || percent == 75 || percent == 100 {
+                        AmigoSDKDiagnostics.record(
+                            "[AmigoSDK] stage=directEnrollDiagnostic result=initializeProgress percent=\(percent)"
+                        )
+                    }
+                }
+                self.initializationStateLock.lock()
+                self.didInitialize = true
+                self.initializationTask = nil
+                self.initializationStateLock.unlock()
+                AmigoSDKDiagnostics.record(
+                    "[AmigoSDK] stage=directEnrollDiagnostic result=initialized"
+                )
+
+                let latent = try await AmigoFaceSwap.enrollFace(from: image)
+                self.enrollmentStateLock.lock()
+                self.targetLatent = latent
+                self.nativeSession.setTargetLatent(latent)
+                self.enrollmentStateLock.unlock()
+                AmigoSDKDiagnostics.record(
+                    "[AmigoSDK] stage=directEnrollDiagnostic result=faceLatentReceived " +
+                    "latentType=\(String(reflecting: type(of: latent))) latentHash=\(latent.hashValue)"
+                )
+
+                guard let buffer = Self.pixelBuffer(from: image) else {
+                    throw NSError(
+                        domain: "AmigoFaceSwapPlugin.DirectDiagnostic",
+                        code: 2,
+                        userInfo: [NSLocalizedDescriptionKey: "CVPixelBuffer conversion failed."]
+                    )
+                }
+                let output = try AmigoFaceSwap.processFrame(buffer, using: latent, lipMode: .innerLips)
+                AmigoSDKDiagnostics.record(
+                    "[AmigoSDK] stage=directEnrollDiagnostic result=processFrameComplete " +
+                    "output=\(output == nil ? "nil" : "nonNil")"
+                )
+            } catch {
+                AmigoSDKDiagnostics.recordError(
+                    stage: "directEnrollDiagnostic",
+                    error: error,
+                    mappedCode: Self.mappedSDKError(error, stage: "enroll").code
+                )
+            }
+        }
+    }
+    #endif
 
     @objc func initialize(_ call: CAPPluginCall) {
         initializationStateLock.lock()

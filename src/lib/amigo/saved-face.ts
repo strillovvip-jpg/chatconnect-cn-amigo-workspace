@@ -30,7 +30,8 @@ export class SavedFaceValidationError extends Error {
       | "FACE_IMAGE_EMPTY"
       | "FACE_IMAGE_FORMAT_UNSUPPORTED"
       | "FACE_IMAGE_DECODE_FAILED"
-      | "NATIVE_FACE_STATE_MISSING",
+      | "NATIVE_FACE_STATE_MISSING"
+      | "FACE_SWAP_NOT_READY",
     message: string,
     options?: ErrorOptions,
   ) {

@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   addFace: vi.fn(),
   enrollFaceFile: vi.fn(),
   nativeGetStatus: vi.fn(),
+  nativeSetFaceSwapEnabled: vi.fn(),
   onReadyChange: vi.fn(),
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
@@ -26,7 +27,11 @@ vi.mock("@/lib/amigo/face-swap", () => ({
 }));
 
 vi.mock("@/lib/amigo/native-room", () => ({
-  nativeAmigoRoom: { isAvailable: true, getStatus: mocks.nativeGetStatus },
+  nativeAmigoRoom: {
+    isAvailable: true,
+    getStatus: mocks.nativeGetStatus,
+    setFaceSwapEnabled: mocks.nativeSetFaceSwapEnabled,
+  },
 }));
 
 vi.mock("@/lib/i18n", () => ({
@@ -86,6 +91,7 @@ describe("FaceSettingsModal", () => {
     mocks.addFace.mockResolvedValue({ faceId: "face-1" });
     mocks.enrollFaceFile.mockResolvedValue(true);
     mocks.nativeGetStatus.mockResolvedValue({ hasTargetFace: true });
+    mocks.nativeSetFaceSwapEnabled.mockResolvedValue(undefined);
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => ({
@@ -122,6 +128,7 @@ describe("FaceSettingsModal", () => {
     fireEvent.click(screen.getByRole("button", { name: "Enable face" }));
 
     await waitFor(() => expect(mocks.enrollFaceFile).toHaveBeenCalledWith(file));
+    await waitFor(() => expect(mocks.nativeSetFaceSwapEnabled).toHaveBeenCalledWith(true));
     await waitFor(() => expect(mocks.onReadyChange).toHaveBeenCalledWith(true));
     expect(mocks.toastSuccess).toHaveBeenCalledWith("Face enabled");
   });

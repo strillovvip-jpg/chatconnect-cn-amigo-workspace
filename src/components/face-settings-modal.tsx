@@ -61,6 +61,7 @@ export function FaceSettingsModal({
       if (!enrolled) throw new SavedFaceValidationError("NATIVE_FACE_STATE_MISSING", "Native enrollment did not retain a FaceLatent.");
       const status = await nativeAmigoRoom.getStatus();
       if (!status.hasTargetFace) throw new SavedFaceValidationError("NATIVE_FACE_STATE_MISSING", "Native enrollment completed without a retained FaceLatent.");
+      await nativeAmigoRoom.setFaceSwapEnabled(true);
 
       const uploadResult = (await withTimeout(
         generateFaceUploadUrl({ code: userCode, deviceId }),

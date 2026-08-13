@@ -37,6 +37,35 @@ type FaceErrorCopy = {
   operationTimedOut: string;
 };
 
+type FaceSwapCallCreationStage =
+  | "request-media-permissions"
+  | "native-session-status"
+  | "enable-native-face-swap"
+  | "create-room-invite-token"
+  | "connect-native-room"
+  | "livekit-room-connect"
+  | "microphone-publish"
+  | "processed-video-publish"
+  | "rollback-room-invite";
+
+class FaceSwapCallCreationError extends Error {
+  readonly name = "FaceSwapCallCreationError";
+
+  constructor(
+    readonly stage: FaceSwapCallCreationStage,
+    readonly code: string,
+    message: string,
+    readonly nativeDetails: unknown,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+  }
+
+  get diagnosticMessage() {
+    return `[${this.stage}/${this.code}] ${this.message}`;
+  }
+}
+
 export function FaceSwapInviteModal({
   open,
   onClose,
@@ -65,7 +94,8 @@ export function FaceSwapInviteModal({
       if (open) onFaceReadyChange(false);
       return;
     }
-    void nativeAmigoRoom.getStatus()
+    void nativeAmigoRoom
+      .getStatus()
       .then((status) => onFaceReadyChange(status.hasTargetFace === true))
       .catch((error) => {
         onFaceReadyChange(false);
@@ -87,12 +117,12 @@ export function FaceSwapInviteModal({
     }
     setCreating(true);
     try {
-      const permissions = await withTimeout(
-        nativeAmigoRoom.requestMediaPermissions({
-          openSettingsIfDenied: true,
-        }),
-        NETWORK_STEP_TIMEOUT_MS,
+      const permissions = await runFaceSwapCallCreationStep(
         "request-media-permissions",
+        () =>
+          nativeAmigoRoom.requestMediaPermissions({
+            openSettingsIfDenied: true,
+          }),
       );
       if (
         permissions.camera !== "authorized" ||
@@ -100,7 +130,10 @@ export function FaceSwapInviteModal({
       ) {
         throw new Error(copy.mediaPermissionRequired);
       }
-      const nativeStatus = await nativeAmigoRoom.getStatus();
+      const nativeStatus = await runFaceSwapCallCreationStep(
+        "native-session-status",
+        () => nativeAmigoRoom.getStatus(),
+      );
       if (!nativeStatus.hasTargetFace) {
         onFaceReadyChange(false);
         throw new SavedFaceValidationError(
@@ -108,51 +141,92 @@ export function FaceSwapInviteModal({
           "The native FaceLatent is no longer available. Select the photo again.",
         );
       }
-      const created = await withTimeout(
-        createInvite({
-          code: userCode,
-          deviceId,
-          origin: window.location.origin,
-        }),
-        NETWORK_STEP_TIMEOUT_MS,
-        "create-face-swap-invite",
+      if (!nativeStatus.faceSwapEnabled) {
+        const reenableStatus = await runFaceSwapCallCreationStep(
+          "enable-native-face-swap",
+          () => nativeAmigoRoom.setFaceSwapEnabled(true),
+        );
+        if (!reenableStatus.faceSwapEnabled) {
+          onFaceReadyChange(false);
+          throw new SavedFaceValidationError(
+            "FACE_SWAP_NOT_READY",
+            "Face swap is not enabled in native session after recheck.",
+          );
+        }
+      }
+      const created = await runFaceSwapCallCreationStep(
+        "create-room-invite-token",
+        () =>
+          createInvite({
+            code: userCode,
+            deviceId,
+            origin: window.location.origin,
+          }),
       );
       try {
-        await withTimeout(
-          nativeAmigoRoom.setFaceSwapEnabled(true),
-          NETWORK_STEP_TIMEOUT_MS,
-          "enable-native-face-swap",
-        );
-        await withTimeout(
-          nativeAmigoRoom.connect({
-            url: created.serverUrl,
-            token: created.operatorToken,
-            enableMicrophone: true,
-            enableCamera: true,
-          }),
-          NETWORK_STEP_TIMEOUT_MS,
+        const connectedStatus = await runFaceSwapCallCreationStep(
           "connect-native-room",
+          async () => {
+            const status = await nativeAmigoRoom.connect({
+              url: created.serverUrl,
+              token: created.operatorToken,
+              enableMicrophone: true,
+              enableCamera: true,
+            });
+            if (!status.connected) {
+              throw new FaceSwapCallCreationError(
+                "connect-native-room",
+                "NATIVE_ROOM_NOT_CONNECTED",
+                "Native room returned without a connected host.",
+                status,
+              );
+            }
+            return status;
+          },
         );
+        console.info("[FaceSwap:create] native host connected", {
+          connected: connectedStatus.connected,
+          roomUrl: connectedStatus.roomUrl,
+          pipeline: connectedStatus.pipeline,
+        });
       } catch (error) {
         await nativeAmigoRoom.setFaceSwapEnabled(false).catch(() => undefined);
         await nativeAmigoRoom.disconnect().catch(() => undefined);
-        await endInvite({
-          code: userCode,
-          deviceId,
-          inviteId: created.inviteId,
-        }).catch(() => undefined);
+        await rollbackFaceSwapInvite(() =>
+          endInvite({
+            code: userCode,
+            deviceId,
+            inviteId: created.inviteId,
+          }),
+        );
         throw error;
       }
       setInvite(created);
       toast.success(copy.created);
     } catch (error) {
-      toast.error(
-        error instanceof OperationTimeoutError
-          ? copy.operationTimedOut
-          : isFacePipelineError(error)
-            ? facePipelineErrorMessage(error, copy)
-            : uiErrorMessage(error, copy.createFailed),
-      );
+      if (error instanceof FaceSwapCallCreationError) {
+        console.error("[FaceSwap:create] failed", {
+          stage: error.stage,
+          code: error.code,
+          message: error.message,
+          nativeDetails: error.nativeDetails,
+          cause: error.cause,
+        });
+        toast.error(error.diagnosticMessage);
+      } else if (error instanceof OperationTimeoutError) {
+        toast.error(copy.operationTimedOut);
+      } else if (isFacePipelineError(error)) {
+        const message = facePipelineErrorMessage(error, copy);
+        console.error("[FaceSwap] create call failed", {
+          message,
+          errorCode: error.code,
+          error,
+        });
+        toast.error(message);
+      } else {
+        console.error("[FaceSwap] create call failed", error);
+        toast.error(uiErrorMessage(error, copy.createFailed));
+      }
     } finally {
       setCreating(false);
     }
@@ -187,6 +261,7 @@ export function FaceSwapInviteModal({
   };
 
   const handleEnd = async () => {
+    if (creating || ending) return;
     if (!invite) {
       onClose();
       return;
@@ -214,7 +289,7 @@ export function FaceSwapInviteModal({
       className="fixed inset-0 flex items-end justify-center bg-black/70 p-3 pb-[max(1rem,var(--app-safe-area-bottom))] sm:items-center"
       style={{ zIndex: OVERLAY_LAYERS.featureModal }}
       onClick={() => {
-        if (!invite) onClose();
+        if (!invite && !creating) onClose();
       }}
     >
       <section
@@ -229,8 +304,9 @@ export function FaceSwapInviteModal({
           <button
             type="button"
             aria-label={messages.common.close}
+            disabled={creating || ending}
             onClick={() => void handleEnd()}
-            className="rounded-full p-2 text-white/70"
+            className="rounded-full p-2 text-white/70 disabled:opacity-40"
           >
             <X size={18} />
           </button>
@@ -316,6 +392,159 @@ export function FaceSwapInviteModal({
   );
 }
 
+async function runFaceSwapCallCreationStep<T>(
+  stage: FaceSwapCallCreationStage,
+  operation: () => Promise<T>,
+): Promise<T> {
+  console.info(`[FaceSwap:create:${stage}] started`);
+  try {
+    const result = await withTimeout(
+      operation(),
+      NETWORK_STEP_TIMEOUT_MS,
+      stage,
+    );
+    console.info(
+      `[FaceSwap:create:${stage}] success`,
+      summarizeCreationStepResult(stage, result),
+    );
+    return result;
+  } catch (error) {
+    if (error instanceof FaceSwapCallCreationError) {
+      console.error(`[FaceSwap:create:${stage}] failed`, {
+        code: error.code,
+        message: error.message,
+        nativeDetails: error.nativeDetails,
+        error,
+      });
+      throw error;
+    }
+    const code = readCallCreationErrorCode(error);
+    const message = readCallCreationErrorMessage(error);
+    const nativeDetails =
+      readObjectField(error, "data") ?? readObjectField(error, "nativeDetails");
+    const effectiveStage =
+      stage === "connect-native-room"
+        ? (readNativeCallCreationStage(nativeDetails) ?? stage)
+        : stage;
+    console.error(`[FaceSwap:create:${effectiveStage}] failed`, {
+      code,
+      message,
+      nativeDetails,
+      error,
+    });
+    throw new FaceSwapCallCreationError(
+      effectiveStage,
+      code,
+      message,
+      nativeDetails,
+      { cause: error },
+    );
+  }
+}
+
+async function rollbackFaceSwapInvite(
+  operation: () => Promise<unknown>,
+): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    console.info(`[FaceSwap:create:rollback-room-invite] attempt=${attempt}`);
+    try {
+      await withTimeout(
+        operation(),
+        NETWORK_STEP_TIMEOUT_MS,
+        "rollback-room-invite",
+      );
+      console.info(
+        `[FaceSwap:create:rollback-room-invite] success attempt=${attempt}`,
+      );
+      return;
+    } catch (error) {
+      lastError = error;
+      console.error(
+        `[FaceSwap:create:rollback-room-invite] failed attempt=${attempt}`,
+        error,
+      );
+    }
+  }
+  throw new FaceSwapCallCreationError(
+    "rollback-room-invite",
+    "INVITE_ROLLBACK_FAILED",
+    readCallCreationErrorMessage(lastError),
+    readObjectField(lastError, "data"),
+    { cause: lastError },
+  );
+}
+
+function summarizeCreationStepResult(
+  stage: FaceSwapCallCreationStage,
+  result: unknown,
+): Record<string, unknown> {
+  if (typeof result !== "object" || result === null) return { resolved: true };
+  const value = result as Record<string, unknown>;
+  if (stage === "request-media-permissions") {
+    return { camera: value.camera, microphone: value.microphone };
+  }
+  if (stage === "create-room-invite-token") {
+    return {
+      inviteId: value.inviteId,
+      roomName: value.roomName,
+      serverUrl: value.serverUrl,
+      inviteUrl: value.inviteUrl,
+      passwordGenerated:
+        typeof value.password === "string" && value.password.length > 0,
+      hostTokenIssued:
+        typeof value.operatorToken === "string" &&
+        value.operatorToken.length > 0,
+    };
+  }
+  return {
+    connected: value.connected,
+    hasTargetFace: value.hasTargetFace,
+    faceSwapEnabled: value.faceSwapEnabled,
+    pipeline: value.pipeline,
+  };
+}
+
+function readCallCreationErrorCode(error: unknown): string {
+  const direct = readObjectField(error, "code");
+  if (typeof direct === "string" && direct.trim()) return direct.trim();
+  const data = readObjectField(error, "data");
+  const nested = readObjectField(data, "code");
+  if (typeof nested === "string" && nested.trim()) return nested.trim();
+  if (error instanceof OperationTimeoutError) return error.code;
+  return "UNKNOWN_ERROR";
+}
+
+function readCallCreationErrorMessage(error: unknown): string {
+  const data = readObjectField(error, "data");
+  const nested = readObjectField(data, "message");
+  if (typeof nested === "string" && nested.trim()) return nested.trim();
+  if (error instanceof Error && error.message.trim())
+    return error.message.trim();
+  return String(error);
+}
+
+function readNativeCallCreationStage(
+  value: unknown,
+): FaceSwapCallCreationStage | undefined {
+  const stage = readObjectField(value, "stage");
+  if (
+    stage === "livekit-room-connect" ||
+    stage === "microphone-publish" ||
+    stage === "processed-video-publish"
+  ) {
+    return stage;
+  }
+  return undefined;
+}
+
+function readObjectField(value: unknown, key: string): unknown {
+  if (typeof value !== "object" || value === null || !(key in value)) {
+    return undefined;
+  }
+  return (value as Record<string, unknown>)[key];
+}
+
 function isFacePipelineError(
   error: unknown,
 ): error is Error & { code: string } {
@@ -338,6 +567,8 @@ function facePipelineErrorMessage(
     return `[${error.code}] ${error.message}`;
   }
   switch (error.code) {
+    case "SDK_ENROLL_CREATE_INFO_FAILED":
+      return copy.photoErrorEnroll;
     case "FACE_IMAGE_NOT_FOUND":
       return copy.uploadFaceFirst;
     case "FACE_IMAGE_READ_FAILED":

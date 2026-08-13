@@ -4,6 +4,7 @@ import UIKit
 import AVFoundation
 import CoreImage
 import CoreVideo
+import ImageIO
 import Vision
 import ObjectiveC.runtime
 import AmigoFaceSwapSDK
@@ -507,16 +508,17 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
             )
             return
         }
-        let imageWidth = decodedImage.cgImage?.width ?? Int(decodedImage.size.width * decodedImage.scale)
-        let imageHeight = decodedImage.cgImage?.height ?? Int(decodedImage.size.height * decodedImage.scale)
+        let normalizedImage = Self.normalizedFaceImageForEnrollment(decodedImage)
+        let imageWidth = normalizedImage.cgImage?.width ?? Int(normalizedImage.size.width * normalizedImage.scale)
+        let imageHeight = normalizedImage.cgImage?.height ?? Int(normalizedImage.size.height * normalizedImage.scale)
         let imageDetails: PluginCallResultData = [
             "imageByteLength": data.count,
             "imageWidth": imageWidth,
             "imageHeight": imageHeight,
-            "imageOrientation": decodedImage.imageOrientation.rawValue
+            "imageOrientation": normalizedImage.imageOrientation.rawValue
         ]
         AmigoSDKDiagnostics.record(
-            "[AmigoSDK] stage=imageDecode result=success bytes=\(data.count) size=\(imageWidth)x\(imageHeight) orientation=\(decodedImage.imageOrientation.rawValue)"
+            "[AmigoSDK] stage=imageDecode result=success bytes=\(data.count) size=\(imageWidth)x\(imageHeight) orientation=\(normalizedImage.imageOrientation.rawValue)"
         )
         enrollmentStateLock.lock()
         enrollmentGeneration += 1
@@ -530,20 +532,14 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
             AmigoSDKDiagnostics.record("[AmigoSDK] stage=enrollFace result=started")
             let latent: FaceLatent
             do {
-                // Amigo 1.0.2 can fail inside Vision with error 9 ("Could not
-                // create inference context") on affected iOS runtimes. A
-                // CPU-only public Vision preflight initializes the exact face
-                // detector/landmark pipeline successfully before the closed
-                // SDK performs enrollment. This was verified against the same
-                // production SDK, API key and source image before integration.
-                let detectedFaceCount = try Self.prepareVisionForEnrollment(decodedImage)
-                AmigoSDKDiagnostics.record(
-                    "[AmigoSDK] stage=visionPreflight result=success usesCPUOnly=true faceCount=\(detectedFaceCount)"
+                // Match official flow, but include strict compatibility fallbacks:
+                // same pixel basis can fail on edge images; retry with a clean JPEG
+                // decode and a fixed max-size variant.
+                latent = try await Self.enrollWithFallbacks(
+                    from: normalizedImage,
+                    rawData: data,
+                    details: imageDetails
                 )
-                // Match the official Amigo sample exactly: decode the selected
-                // bytes to UIImage and await enrollFace directly. Do not block
-                // the SDK's async model download/inference work with a semaphore.
-                latent = try await AmigoFaceSwap.enrollFace(from: decodedImage)
             } catch {
                 self.rejectSDKError(
                     call,
@@ -626,39 +622,349 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    private static func prepareVisionForEnrollment(_ image: UIImage) throws -> Int {
-        guard let cgImage = image.cgImage else {
-            throw NSError(
-                domain: "AmigoFaceSwapPlugin.VisionPreflight",
-                code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "The selected image has no CGImage backing data."]
+    private static func enrollWithFallbacks(
+        from image: UIImage,
+        rawData: Data,
+        details: PluginCallResultData
+    ) async throws -> FaceLatent {
+        var candidates: [UIImage] = Self.enrollmentCandidates(
+            from: image,
+            rawData: rawData
+        )
+
+        if let faceCrop = Self.enrollmentFaceCropCandidate(from: image) {
+            candidates.insert(faceCrop, at: 0)
+            AmigoSDKDiagnostics.record(
+                "[AmigoSDK] stage=enrollFace result=candidateAdded type=visionFaceCrop " +
+                Self.imageCandidateSignature(faceCrop)
             )
         }
-        let orientation = cgImageOrientation(from: image.imageOrientation)
 
-        let rectangles = VNDetectFaceRectanglesRequest()
-        rectangles.usesCPUOnly = true
-        try VNImageRequestHandler(cgImage: cgImage, orientation: orientation).perform([rectangles])
-        let detectedFaceCount = rectangles.results?.count ?? 0
+        if let sdkCompatible = Self.makeSDKCompatibleEnrollmentImage(from: image) {
+            candidates.insert(sdkCompatible, at: 0)
+        }
 
-        let landmarks = VNDetectFaceLandmarksRequest()
-        landmarks.usesCPUOnly = true
-        try VNImageRequestHandler(cgImage: cgImage, orientation: orientation).perform([landmarks])
+        if let alignedCompatible = Self.makeAlignedSDKCompatibleEnrollmentImage(from: image) {
+            candidates.insert(alignedCompatible, at: 0)
+        }
 
-        return detectedFaceCount
+        candidates.append(Self.strictNormalizedEnrollmentImage(image))
+        candidates.append(Self.makeStrictCandidate(from: Self.normalizedOrientationImage(image), maxSide: 1024))
+        candidates.append(Self.makeStrictCandidate(from: Self.normalizedOrientationImage(image), maxSide: 768))
+
+        let canonicalCandidate = Self.canonicalEnrollmentImage(image)
+        if let encoded = canonicalCandidate.jpegData(compressionQuality: 1.0),
+           let fromCanonical = UIImage(data: encoded) {
+            candidates.insert(fromCanonical, at: 0)
+        }
+
+        // Keep first candidate only if different from prior ones.
+        var unique: [UIImage] = []
+        for candidate in candidates {
+            if let first = unique.first,
+               let c1 = first.pngData(),
+               let c2 = candidate.pngData(),
+               c1 == c2 {
+                continue
+            }
+            unique.append(candidate)
+        }
+
+        var lastError: Error?
+        for (index, candidate) in unique.enumerated() {
+            let candidateBytes = Self.imageCandidateByteLength(candidate)
+            AmigoSDKDiagnostics.record(
+                "[AmigoSDK] stage=enrollFace result=attempt index=\(index + 1) " +
+                Self.imageCandidateSignature(candidate) +
+                " bytes=\(candidateBytes)"
+            )
+            do {
+                return try await AmigoFaceSwap.enrollFace(from: candidate)
+            } catch {
+                lastError = error
+                let mapped = mappedSDKError(error, stage: "enroll")
+                AmigoSDKDiagnostics.recordError(
+                    stage: "enrollFaceAttempt",
+                    error: error,
+                    mappedCode: "\(mapped.code)#\(index + 1)"
+                )
+                if let nsError = error as NSError? {
+                    AmigoSDKDiagnostics.record(
+                        "[AmigoSDK] stage=enrollFaceAttemptDebug index=\(index + 1) " +
+                        "domain=\(nsError.domain) code=\(nsError.code) " +
+                        "userInfoKeys=\(Array(nsError.userInfo.keys).map { String(describing: $0) }.joined(separator: ","))"
+                    )
+                }
+            }
+        }
+
+        if let lastError {
+            let mapped = mappedSDKError(lastError, stage: "enroll")
+            if let sdkError = lastError as? AmigoError {
+                AmigoSDKDiagnostics.record(
+                    "[AmigoSDK] stage=enrollFace result=allCandidatesFailed " +
+                    "mapped=\(mapped.code)/\(officialSDKCase(sdkError)) " +
+                    "message=\(sdkError.localizedDescription) detailKeys=\(Array(details.keys))"
+                )
+            } else {
+                let nsError = lastError as NSError
+                AmigoSDKDiagnostics.record(
+                    "[AmigoSDK] stage=enrollFace result=allCandidatesFailed " +
+                    "mapped=\(mapped.code) " +
+                    "rawError=\(String(reflecting: lastError)) " +
+                    "domain=\(nsError.domain) code=\(nsError.code)"
+                )
+            }
+            throw lastError
+        }
+
+        throw NSError(
+            domain: "AmigoFaceSwapPlugin",
+            code: 2,
+            userInfo: [NSLocalizedDescriptionKey: "No valid enrollment candidate images were available."]
+        )
     }
 
-    private static func cgImageOrientation(from orientation: UIImage.Orientation) -> CGImagePropertyOrientation {
-        switch orientation {
-        case .up: return .up
-        case .upMirrored: return .upMirrored
-        case .down: return .down
-        case .downMirrored: return .downMirrored
-        case .left: return .left
-        case .leftMirrored: return .leftMirrored
-        case .right: return .right
-        case .rightMirrored: return .rightMirrored
-        @unknown default: return .up
+    private static func canonicalEnrollmentImage(_ image: UIImage) -> UIImage {
+        guard let cgImage = image.cgImage else {
+            return image
+        }
+        let size = CGSize(width: CGFloat(cgImage.width), height: CGFloat(cgImage.height))
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        return renderer.image { context in
+            UIColor.black.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+            context.cgContext.interpolationQuality = .high
+            context.cgContext.draw(cgImage, in: CGRect(origin: .zero, size: size))
+        }
+    }
+
+    private static func enrollmentCandidates(from image: UIImage, rawData: Data) -> [UIImage] {
+        var candidates: [UIImage] = []
+        candidates.append(image)
+
+        candidates.append(normalizedOrientationImage(image))
+        candidates.append(strictNormalizedEnrollmentImage(image))
+
+        if let jpegImage = UIImage(data: rawData), let fromJPEG = jpegFromImage(jpegImage) {
+            candidates.append(fromJPEG)
+        }
+
+        if let fromRawJPEG = jpegFromData(rawData) {
+            candidates.append(fromRawJPEG)
+        }
+
+        if image.size.width > 1024 || image.size.height > 1024,
+           let fixed = resizedForEnrollment(image, maxSide: 1024) {
+            candidates.append(fixed)
+        }
+
+        if image.size.width > 768 || image.size.height > 768,
+           let fixed = resizedForEnrollment(image, maxSide: 768) {
+            candidates.append(fixed)
+        }
+
+        if let rawPixels = stdRGBAImage(image), let fixedFromPixels = resizedAndNormalized(rawPixels, maxSide: 1024) {
+            candidates.append(fixedFromPixels)
+        }
+
+        if let std = stdRGBAImage(rawDataImage: rawData) {
+            candidates.append(std)
+        }
+
+        return candidates
+    }
+
+    private static func enrollmentFaceCropCandidate(from image: UIImage) -> UIImage? {
+        guard let cgImage = image.cgImage else { return nil }
+
+        let request = VNDetectFaceRectanglesRequest()
+        let handler = VNImageRequestHandler(cgImage: cgImage)
+        do {
+            try handler.perform([request])
+        } catch {
+            AmigoSDKDiagnostics.recordError(
+                stage: "enrollFaceCropPrecheck",
+                error: error,
+                mappedCode: "VISION_DETECT_RECTANGLE_FAILED"
+            )
+            return nil
+        }
+
+        guard let observations = request.results as? [VNFaceObservation],
+              let first = observations.sorted(by: { a, b in
+                  (a.confidence > b.confidence)
+              }).first else {
+            AmigoSDKDiagnostics.record(
+                "[AmigoSDK] stage=enrollFaceCropPrecheck result=faceNotFound"
+            )
+            return nil
+        }
+
+        let width = CGFloat(cgImage.width)
+        let height = CGFloat(cgImage.height)
+        let bounding = first.boundingBox
+        let faceRect = CGRect(
+            x: bounding.origin.x * width,
+            y: (1 - bounding.origin.y - bounding.size.height) * height,
+            width: bounding.size.width * width,
+            height: bounding.size.height * height
+        )
+
+        let padding = max(faceRect.width, faceRect.height) * 0.85
+        let cx = faceRect.midX
+        let cy = faceRect.midY
+        let cropSide = max(1, min(max(faceRect.width + padding, faceRect.height + padding), max(width, height)))
+        let half = cropSide / 2
+        var x = cx - half
+        var y = cy - half
+        var side = max(1, min(width, height, cropSide))
+        if x < 0 { x = 0 }
+        if y < 0 { y = 0 }
+        if x + side > width { x = width - side }
+        if y + side > height { y = height - side }
+
+        let square = CGRect(
+            x: x,
+            y: y,
+            width: side,
+            height: side
+        )
+
+        guard let cropped = cgImage.cropping(to: square) else {
+            AmigoSDKDiagnostics.record(
+                "[AmigoSDK] stage=enrollFaceCropPrecheck result=cropFailed"
+            )
+            return nil
+        }
+
+        let result = UIImage(cgImage: cropped, scale: 1, orientation: .up)
+        AmigoSDKDiagnostics.record(
+            "[AmigoSDK] stage=enrollFaceCropPrecheck result=success confidence=\(String(format: "%.2f", first.confidence)) " +
+            "faceRect=\(Int(faceRect.width))x\(Int(faceRect.height)) " +
+            "crop=\(Int(square.width))x\(Int(square.height))"
+        )
+        return result
+    }
+
+    private static func jpegFromData(_ data: Data) -> UIImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            return nil
+        }
+        return UIImage(cgImage: cgImage)
+    }
+
+    private static func stdRGBAImage(_ image: UIImage) -> UIImage? {
+        guard let cgImage = image.cgImage else { return nil }
+        return stdRGBAImage(cgImage: cgImage)
+    }
+
+    private static func stdRGBAImage(rawDataImage data: Data) -> UIImage? {
+        guard let cgImage = UIImage(data: data)?.cgImage else { return nil }
+        return stdRGBAImage(cgImage: cgImage)
+    }
+
+    private static func stdRGBAImage(cgImage: CGImage) -> UIImage? {
+        let width = CGFloat(cgImage.width)
+        let height = CGFloat(cgImage.height)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: width, height: height), format: format)
+        return renderer.image { context in
+            context.cgContext.interpolationQuality = .high
+            context.cgContext.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        }
+    }
+
+    private static func makeSDKCompatibleEnrollmentImage(from image: UIImage) -> UIImage? {
+        guard let cgImage = image.cgImage else { return nil }
+        let width = CGFloat(cgImage.width)
+        let height = CGFloat(cgImage.height)
+        guard width > 0, height > 0 else { return nil }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: width, height: height), format: format)
+        return renderer.image { context in
+            UIColor.black.setFill()
+            context.fill(CGRect(origin: .zero, size: CGSize(width: width, height: height)))
+            context.cgContext.interpolationQuality = .high
+            context.cgContext.draw(cgImage, in: CGRect(origin: .zero, size: CGSize(width: width, height: height)))
+        }
+    }
+
+    private static func makeAlignedSDKCompatibleEnrollmentImage(from image: UIImage) -> UIImage? {
+        guard let normalized = normalizedOrientationImage(image).cgImage else { return nil }
+        let rawWidth = Int(normalized.width)
+        let rawHeight = Int(normalized.height)
+        guard rawWidth > 0, rawHeight > 0 else { return nil }
+
+        // Vision/CoreML in Amigo's enrollment path often prefers predictable
+        // raster geometry. Aligning to even dimensions avoids allocator failures
+        // in some edge cases when creating internal face detection info.
+        let alignedWidth = max(2, rawWidth & ~1)
+        let alignedHeight = max(2, rawHeight & ~1)
+        let target = CGSize(width: alignedWidth, height: alignedHeight)
+
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: target, format: format)
+
+        return renderer.image { context in
+            UIColor.black.setFill()
+            context.fill(CGRect(origin: .zero, size: target))
+            context.cgContext.interpolationQuality = .high
+            context.cgContext.draw(normalized, in: CGRect(origin: .zero, size: target))
+        }
+    }
+
+    private static func resizedAndNormalized(_ image: UIImage, maxSide: CGFloat) -> UIImage? {
+        guard let cgImage = image.cgImage else { return nil }
+        let width = CGFloat(cgImage.width)
+        let height = CGFloat(cgImage.height)
+        let maxDimension = max(width, height)
+        guard maxDimension > maxSide else { return image }
+
+        let ratio = maxSide / maxDimension
+        let target = CGSize(width: max(1, floor(width * ratio)), height: max(1, floor(height * ratio)))
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: target, format: format)
+        return renderer.image { context in
+            image.draw(in: CGRect(origin: .zero, size: target))
+        }
+    }
+
+    private static func jpegFromImage(_ image: UIImage) -> UIImage? {
+        guard let data = image.jpegData(compressionQuality: 0.95),
+              let imageFromJPEG = UIImage(data: data) else {
+            return nil
+        }
+        return imageFromJPEG
+    }
+
+    private static func resizedForEnrollment(_ image: UIImage, maxSide: CGFloat) -> UIImage? {
+        let cgImage = image.cgImage
+        let width = CGFloat(cgImage?.width ?? Int(image.size.width * image.scale))
+        let height = CGFloat(cgImage?.height ?? Int(image.size.height * image.scale))
+        let maxDimension = max(width, height)
+        guard maxDimension > maxSide else { return image }
+
+        let scale = maxSide / maxDimension
+        let target = CGSize(width: width * scale, height: height * scale)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: target, format: format)
+        return renderer.image { context in
+            image.draw(in: CGRect(origin: .zero, size: target))
         }
     }
 
@@ -732,7 +1038,7 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func connectNativeRoom(_ call: CAPPluginCall) {
         guard didInitialize else {
-            call.reject("Amigo SDK has not been initialized.")
+            call.reject("Amigo SDK has not been initialized.", "SDK_NOT_INITIALIZED")
             return
         }
         let url = call.getString("url") ?? ""
@@ -740,21 +1046,50 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
         let enableMicrophone = call.getBool("enableMicrophone") ?? true
         let enableCamera = call.getBool("enableCamera") ?? true
         guard !url.isEmpty, !token.isEmpty else {
-            call.reject("connectNativeRoom requires both 'url' and 'token'.")
+            call.reject("connectNativeRoom requires both 'url' and 'token'.", "FACE_SWAP_SESSION_INVALID_ARGS")
             return
         }
+        let preStatus = nativeSession.status()
+        let preConnected = preStatus["connected"] as? Bool ?? false
+        let preHasTargetFace = preStatus["hasTargetFace"] as? Bool ?? false
+        let preFaceSwapEnabled = preStatus["faceSwapEnabled"] as? Bool ?? false
+        AmigoSDKDiagnostics.record(
+            "[AmigoSDK] stage=connectNativeRoomPrecheck result=state " +
+            "connected=\(preConnected) " +
+            "hasTargetFace=\(preHasTargetFace) " +
+            "faceSwapEnabled=\(preFaceSwapEnabled)"
+        )
         processingQueue.async {
             self.nativeSession.connect(
                 url: url,
                 token: token,
                 enableMicrophone: enableMicrophone,
                 enableCamera: enableCamera
-            ) { error in
-                if let error {
-                    CAPLog.print("[AmigoFaceSwapPlugin] connectNativeRoom failed: \(error)")
-                    call.reject(error)
+            ) { failure in
+                if let failure {
+                    CAPLog.print(
+                        "[AmigoFaceSwapPlugin] connectNativeRoom failed " +
+                        "stage=\(failure.stage) code=\(failure.code): \(failure.message)"
+                    )
+                    var details = self.nativeSession.status()
+                    details["precheck"] = preStatus
+                    details["nativeStage"] = failure.stage
+                    self.reject(
+                        call,
+                        stage: failure.stage,
+                        code: failure.code,
+                        message: failure.message,
+                        error: failure.error,
+                        details: details
+                    )
                 } else {
-                    call.resolve(self.nativeSession.status())
+                    let status = self.nativeSession.status()
+                    let connected = status["connected"] as? Bool ?? false
+                    AmigoSDKDiagnostics.record(
+                        "[AmigoSDK] stage=connectNativeRoom result=success " +
+                        "connected=\(connected)"
+                    )
+                    call.resolve(status)
                 }
             }
         }
@@ -923,9 +1258,19 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
 
     fileprivate static func mappedSDKError(_ error: Error, stage: String) -> (code: String, message: String) {
         guard let sdkError = error as? AmigoError else {
+            let ns = error as NSError
+            let code = ns.code
+            let domain = ns.domain
+            if stage == "enroll" && code == 9 {
+                return (
+                    "SDK_ENROLL_CREATE_INFO_FAILED",
+                    "Could not create info. (domain: \(domain), code: \(code)) \(ns.localizedDescription)"
+                )
+            }
+            let message = ns.localizedDescription
             return (
-                stage == "initialize" ? "SDK_INITIALIZATION_FAILED" : "FACE_ENROLL_FAILED",
-                error.localizedDescription
+                "SDK_UNKNOWN_ERROR",
+                "[\(domain):\(code)] \(message)"
             )
         }
         switch sdkError {
@@ -995,6 +1340,97 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
         return buffer
     }
 
+    private static func normalizedFaceImageForEnrollment(_ source: UIImage) -> UIImage {
+        let correctedOrientation = normalizedOrientationImage(source)
+        guard let cgImage = correctedOrientation.cgImage else { return source }
+        let maxDimension: CGFloat = 1536
+        let width = CGFloat(cgImage.width)
+        let height = CGFloat(cgImage.height)
+        let maxSide = max(width, height)
+        guard maxSide > maxDimension else { return correctedOrientation }
+
+        let scale = maxDimension / maxSide
+        let target = CGSize(width: width * scale, height: height * scale)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: target, format: format)
+        return renderer.image { context in
+            correctedOrientation.draw(in: CGRect(origin: .zero, size: target))
+        }
+    }
+
+    private static func normalizedOrientationImage(_ image: UIImage) -> UIImage {
+        guard image.imageOrientation != .up else { return image }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = image.scale
+        format.opaque = false
+        let renderer = UIGraphicsImageRenderer(size: image.size, format: format)
+        let normalized = renderer.image { context in
+            image.draw(in: CGRect(origin: .zero, size: image.size))
+        }
+        return normalized
+    }
+
+    private static func strictNormalizedEnrollmentImage(_ image: UIImage) -> UIImage {
+        guard let cgImage = image.cgImage else { return image }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: cgImage.width, height: cgImage.height), format: format)
+        return renderer.image { context in
+            UIColor.black.setFill()
+            context.fill(CGRect(origin: .zero, size: CGSize(width: cgImage.width, height: cgImage.height)))
+            context.cgContext.interpolationQuality = .high
+            context.cgContext.draw(cgImage, in: CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height))
+        }
+    }
+
+    private static func makeStrictCandidate(from image: UIImage, maxSide: CGFloat) -> UIImage {
+        return normalizedFaceImageForEnrollmentStrict(image, maxDimension: maxSide)
+    }
+
+    private static func normalizedFaceImageForEnrollmentStrict(_ source: UIImage, maxDimension: CGFloat) -> UIImage {
+        let correctedOrientation = strictNormalizedEnrollmentImage(source)
+        guard let cgImage = correctedOrientation.cgImage else { return correctedOrientation }
+        let width = CGFloat(cgImage.width)
+        let height = CGFloat(cgImage.height)
+        let maxCurrentSide = max(width, height)
+        if maxCurrentSide <= maxDimension {
+            return correctedOrientation
+        }
+        let scale = maxDimension / maxCurrentSide
+        let target = CGSize(width: width * scale, height: height * scale)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: target, format: format)
+        return renderer.image { context in
+            UIColor.black.setFill()
+            context.fill(CGRect(origin: .zero, size: target))
+            context.cgContext.interpolationQuality = .high
+            context.cgContext.draw(correctedOrientation.cgImage!, in: CGRect(origin: .zero, size: target))
+        }
+    }
+
+    private static func imageCandidateSignature(_ image: UIImage) -> String {
+        guard let cgImage = image.cgImage else {
+            return "size=0x0 orientation=\(image.imageOrientation.rawValue)"
+        }
+        let bytesPerPixel = cgImage.bitsPerPixel > 0 ? cgImage.bitsPerPixel / 8 : 0
+        return "size=\(cgImage.width)x\(cgImage.height) " +
+        "orientation=\(image.imageOrientation.rawValue) " +
+        "bpp=\(cgImage.bitsPerPixel) bpc=\(cgImage.bitsPerComponent) " +
+        "bytesPerRow=\(cgImage.bytesPerRow) bytesPerPixel=\(bytesPerPixel)"
+    }
+
+    private static func imageCandidateByteLength(_ image: UIImage) -> Int {
+        guard let data = image.jpegData(compressionQuality: 1.0) else {
+            return 0
+        }
+        return data.count
+    }
+
     private static func rasterized(_ image: CIImage) -> UIImage? {
         let context = CIContext(options: nil)
         let extent = image.extent
@@ -1004,23 +1440,61 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 }
 
+private struct NativeRoomConnectFailure {
+    let stage: String
+    let code: String
+    let message: String
+    let error: Error
+
+    init(stage: String, code explicitCode: String? = nil, error: Error) {
+        self.stage = stage
+        self.error = error
+        self.message = error.localizedDescription
+        if let explicitCode {
+            self.code = explicitCode
+            return
+        }
+        switch stage {
+        case "livekit-room-connect":
+            self.code = "LIVEKIT_ROOM_CONNECT_FAILED"
+        case "microphone-publish":
+            self.code = "LIVEKIT_MICROPHONE_PUBLISH_FAILED"
+        case "processed-video-publish":
+            self.code = "LIVEKIT_PROCESSED_VIDEO_PUBLISH_FAILED"
+        default:
+            self.code = "NATIVE_ROOM_CONNECT_FAILED"
+        }
+    }
+}
+
 private final class NativeLiveKitSession {
+    private let stateLock = NSLock()
     private var room: Room?
     private var roomURL: String?
     private var targetLatent: FaceLatent?
     private var faceSwapEnabled = false
-    private let processor = AmigoRealtimeVideoProcessor()
     private var publishedVideoTrack: LocalVideoTrack?
     private var publishedVideoPublication: LocalTrackPublication?
+    private var publishedProcessor: AmigoRealtimeVideoProcessor?
+    private var connectionGeneration: UInt64 = 0
+    private var pendingRoom: Room?
+    private var pendingConnectTask: Task<Void, Never>?
+    private var pendingProcessor: AmigoRealtimeVideoProcessor?
 
     func setTargetLatent(_ latent: FaceLatent?) {
+        stateLock.lock()
         targetLatent = latent
-        processor.setTargetLatent(latent)
+        publishedProcessor?.setTargetLatent(latent)
+        pendingProcessor?.setTargetLatent(latent)
+        stateLock.unlock()
     }
 
     func setFaceSwapEnabled(_ enabled: Bool) {
+        stateLock.lock()
         faceSwapEnabled = enabled
-        processor.setEnabled(enabled)
+        publishedProcessor?.setEnabled(enabled)
+        pendingProcessor?.setEnabled(enabled)
+        stateLock.unlock()
         CAPLog.print("[NativeLiveKitSession] face swap toggled: \(enabled)")
     }
 
@@ -1029,29 +1503,79 @@ private final class NativeLiveKitSession {
         token: String,
         enableMicrophone: Bool,
         enableCamera: Bool,
-        completion: @escaping (String?) -> Void
+        completion: @escaping (NativeRoomConnectFailure?) -> Void
     ) {
-        if enableCamera {
-            guard faceSwapEnabled, targetLatent != nil else {
-                AmigoSDKDiagnostics.record(
-                    "[AmigoSDK] stage=nativeRoomConnect result=error " +
-                    "mappedCode=FACE_SWAP_NOT_READY rawCameraPublished=false"
-                )
-                completion("FACE_SWAP_NOT_READY")
-                return
-            }
-        }
-        if room != nil {
+        stateLock.lock()
+        let hasExistingSession = room != nil || pendingRoom != nil
+        stateLock.unlock()
+
+        if hasExistingSession {
             disconnect()
         }
+
         let room = Room()
-        Task {
+        let processor = AmigoRealtimeVideoProcessor()
+
+        stateLock.lock()
+        let currentEnabled = faceSwapEnabled
+        let currentLatent = targetLatent
+        processor.setTargetLatent(currentLatent)
+        processor.setEnabled(currentEnabled)
+        if enableCamera && (!currentEnabled || currentLatent == nil) {
+            stateLock.unlock()
+            AmigoSDKDiagnostics.record(
+                "[AmigoSDK] stage=nativeRoomConnect result=error " +
+                "mappedCode=FACE_SWAP_NOT_READY rawCameraPublished=false"
+            )
+            let error = NSError(
+                domain: "TokyoConnect.NativeLiveKitSession",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "FACE_SWAP_NOT_READY"]
+            )
+            completion(NativeRoomConnectFailure(
+                stage: "processed-video-publish",
+                code: "FACE_SWAP_NOT_READY",
+                error: error
+            ))
+            return
+        }
+        connectionGeneration &+= 1
+        let generation = connectionGeneration
+        pendingRoom = room
+        pendingProcessor = processor
+        stateLock.unlock()
+
+        let connectTask = Task {
+            var stage = "livekit-room-connect"
+            var localVideoTrack: LocalVideoTrack?
+            var localVideoPublication: LocalTrackPublication?
             do {
+                AmigoSDKDiagnostics.record(
+                    "[NativeRoom] stage=livekit-room-connect result=started"
+                )
                 try await room.connect(url: url, token: token)
+                try self.ensureConnectionIsCurrent(generation)
+                AmigoSDKDiagnostics.record(
+                    "[NativeRoom] stage=livekit-room-connect result=success"
+                )
                 if enableMicrophone {
+                    stage = "microphone-publish"
+                    AmigoSDKDiagnostics.record(
+                        "[NativeRoom] stage=microphone-publish result=started"
+                    )
                     try await room.localParticipant.setMicrophone(enabled: true)
+                    try self.ensureConnectionIsCurrent(generation)
+                    AmigoSDKDiagnostics.record(
+                        "[NativeRoom] stage=microphone-publish result=success"
+                    )
                 }
                 if enableCamera {
+                    stage = "processed-video-publish"
+                    AmigoSDKDiagnostics.record(
+                        "[NativeRoom] stage=processed-video-publish result=started " +
+                        "rawCameraPublished=false"
+                    )
+                    processor.prepareForPublish()
                     let videoTrack = LocalVideoTrack.createCameraTrack(
                         name: "amigo-face-swap",
                         options: CameraCaptureOptions(
@@ -1062,49 +1586,173 @@ private final class NativeLiveKitSession {
                         processor: processor
                     )
                     let publication = try await room.localParticipant.publish(videoTrack: videoTrack)
-                    self.publishedVideoTrack = videoTrack
-                    self.publishedVideoPublication = publication
+                    localVideoTrack = videoTrack
+                    localVideoPublication = publication
+                    try self.ensureConnectionIsCurrent(generation)
+                    AmigoSDKDiagnostics.record(
+                        "[NativeRoom] stage=processed-video-publish result=success " +
+                        "rawCameraPublished=false"
+                    )
                 }
-                self.room = room
-                self.roomURL = url
+                try self.commitConnection(
+                    generation: generation,
+                    room: room,
+                    url: url,
+                    videoTrack: localVideoTrack,
+                    videoPublication: localVideoPublication,
+                    processor: processor
+                )
                 CAPLog.print("[NativeLiveKitSession] native room connected")
                 completion(nil)
             } catch {
-                self.publishedVideoPublication = nil
-                self.publishedVideoTrack = nil
-                CAPLog.print("[NativeLiveKitSession] native room connect failed: \(error.localizedDescription)")
-                completion(error.localizedDescription)
+                let failure: NativeRoomConnectFailure
+                if error is CancellationError {
+                    let cancellation = NSError(
+                        domain: "TokyoConnect.NativeLiveKitSession",
+                        code: 2,
+                        userInfo: [
+                            NSLocalizedDescriptionKey: "Native room connection was cancelled."
+                        ]
+                    )
+                    failure = NativeRoomConnectFailure(
+                        stage: stage,
+                        code: "NATIVE_ROOM_CONNECT_CANCELLED",
+                        error: cancellation
+                    )
+                } else {
+                    failure = NativeRoomConnectFailure(stage: stage, error: error)
+                }
+                AmigoSDKDiagnostics.recordError(
+                    stage: stage,
+                    error: failure.error,
+                    mappedCode: failure.code
+                )
+                if let localVideoPublication {
+                    try? await room.localParticipant.unpublish(publication: localVideoPublication)
+                } else if let localVideoTrack {
+                    try? await localVideoTrack.stop()
+                }
+                if enableMicrophone {
+                    try? await room.localParticipant.setMicrophone(enabled: false)
+                }
+                await room.disconnect()
+                self.clearPendingConnection(generation: generation)
+                CAPLog.print(
+                    "[NativeLiveKitSession] native room connect failed " +
+                    "stage=\(failure.stage) code=\(failure.code): \(failure.message)"
+                )
+                completion(failure)
             }
         }
+
+        stateLock.lock()
+        if generation == connectionGeneration {
+            pendingConnectTask = connectTask
+        } else {
+            connectTask.cancel()
+        }
+        stateLock.unlock()
     }
 
     func disconnect() {
         CAPLog.print("[NativeLiveKitSession] disconnecting native room")
+        stateLock.lock()
+        connectionGeneration &+= 1
+        let pendingTask = pendingConnectTask
+        let connectingRoom = pendingRoom
+        let connectingProcessor = pendingProcessor
         let activeRoom = room
         let videoPublication = publishedVideoPublication
         let videoTrack = publishedVideoTrack
+        let activeProcessor = publishedProcessor
+        pendingConnectTask = nil
+        pendingRoom = nil
+        pendingProcessor = nil
         room = nil
         roomURL = nil
         publishedVideoPublication = nil
         publishedVideoTrack = nil
-        Task {
+        publishedProcessor = nil
+        stateLock.unlock()
+
+        pendingTask?.cancel()
+        Task { [connectingProcessor, activeProcessor] in
+            if let connectingRoom {
+                await connectingRoom.disconnect()
+            }
             if let videoPublication {
                 try? await activeRoom?.localParticipant.unpublish(publication: videoPublication)
             } else if let videoTrack {
                 try? await videoTrack.stop()
             }
             await activeRoom?.disconnect()
+            // LiveKit's capturer keeps its processor weakly. Retain both processors
+            // until every associated track and room has stopped so no raw camera
+            // frame can bypass processing during disconnect or rapid reconnect.
+            _ = connectingProcessor
+            _ = activeProcessor
         }
     }
 
     func status() -> PluginCallResultData {
-        [
+        stateLock.lock()
+        let result: PluginCallResultData = [
             "connected": room != nil,
             "roomUrl": roomURL as Any,
             "faceSwapEnabled": faceSwapEnabled,
             "hasTargetFace": targetLatent != nil,
             "pipeline": "native-livekit"
         ]
+        stateLock.unlock()
+        return result
+    }
+
+    private func ensureConnectionIsCurrent(_ generation: UInt64) throws {
+        guard !Task.isCancelled else {
+            throw CancellationError()
+        }
+        stateLock.lock()
+        let isCurrent = generation == connectionGeneration
+        stateLock.unlock()
+        guard isCurrent else {
+            throw CancellationError()
+        }
+    }
+
+    private func commitConnection(
+        generation: UInt64,
+        room: Room,
+        url: String,
+        videoTrack: LocalVideoTrack?,
+        videoPublication: LocalTrackPublication?,
+        processor: AmigoRealtimeVideoProcessor
+    ) throws {
+        guard !Task.isCancelled else {
+            throw CancellationError()
+        }
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        guard generation == connectionGeneration else {
+            throw CancellationError()
+        }
+        self.room = room
+        roomURL = url
+        publishedVideoTrack = videoTrack
+        publishedVideoPublication = videoPublication
+        publishedProcessor = processor
+        pendingRoom = nil
+        pendingConnectTask = nil
+        pendingProcessor = nil
+    }
+
+    private func clearPendingConnection(generation: UInt64) {
+        stateLock.lock()
+        if generation == connectionGeneration {
+            pendingRoom = nil
+            pendingConnectTask = nil
+            pendingProcessor = nil
+        }
+        stateLock.unlock()
     }
 }
 
@@ -1259,8 +1907,8 @@ private final class AmigoRealtimeVideoProcessor: NSObject, LiveKit.VideoProcesso
     private var cachedPixelBuffer: CVPixelBuffer?
     private var cachedBufferSize: CGSize?
     private var didLogFirstProcessedFrame = false
-    private var didLogFirstNilFrame = false
-    private var didLogFirstNotReadyFrame = false
+    private var didEmitPublishBootstrap = false
+    private var loggedPrivacyReasons = Set<String>()
 
     func setTargetLatent(_ latent: FaceLatent?) {
         stateLock.lock()
@@ -1274,21 +1922,30 @@ private final class AmigoRealtimeVideoProcessor: NSObject, LiveKit.VideoProcesso
         stateLock.unlock()
     }
 
+    func prepareForPublish() {
+        stateLock.lock()
+        didEmitPublishBootstrap = false
+        stateLock.unlock()
+    }
+
     func process(frame: VideoFrame) -> VideoFrame? {
         stateLock.lock()
         let latent = targetLatent
         let enabled = faceSwapEnabled
+        let shouldEmitPublishBootstrap = enabled && latent != nil && !didEmitPublishBootstrap
+        if shouldEmitPublishBootstrap {
+            didEmitPublishBootstrap = true
+        }
         stateLock.unlock()
 
-        guard enabled, let latent, let inputBuffer = frame.toCVPixelBuffer() else {
-            if !didLogFirstNotReadyFrame {
-                didLogFirstNotReadyFrame = true
-                AmigoSDKDiagnostics.record(
-                    "[AmigoSDK] stage=realtimeProcessFrame result=dropped " +
-                    "reason=processorNotReady rawCameraPublished=false"
-                )
-            }
-            return nil
+        guard enabled, let latent else {
+            return privacyPlaceholderFrame(for: frame, reason: "processorNotReady")
+        }
+        if shouldEmitPublishBootstrap {
+            return privacyPlaceholderFrame(for: frame, reason: "trackDimensionBootstrap")
+        }
+        guard let inputBuffer = frame.toCVPixelBuffer() else {
+            return privacyPlaceholderFrame(for: frame, reason: "inputPixelBufferUnavailable")
         }
 
         do {
@@ -1297,25 +1954,14 @@ private final class AmigoRealtimeVideoProcessor: NSObject, LiveKit.VideoProcesso
                 using: latent,
                 lipMode: .innerLips
             ) else {
-                if !didLogFirstNilFrame {
-                    didLogFirstNilFrame = true
-                    AmigoSDKDiagnostics.record(
-                        "[AmigoSDK] stage=realtimeProcessFrame result=nil " +
-                        "usingCachedLatent=true latentHash=\(latent.hashValue) reason=noFaceDetectedInFrame"
-                    )
-                }
-                return nil
+                return privacyPlaceholderFrame(for: frame, reason: "noFaceDetectedInFrame")
             }
             let size = CGSize(
                 width: Int(frame.dimensions.width),
                 height: Int(frame.dimensions.height)
             )
             guard let outputBuffer = getOutputBuffer(for: size) else {
-                AmigoSDKDiagnostics.record(
-                    "[AmigoSDK] stage=realtimeProcessFrame result=dropped " +
-                    "reason=outputBufferAllocationFailed rawCameraPublished=false"
-                )
-                return nil
+                return privacyPlaceholderFrame(for: frame, reason: "outputBufferAllocationFailed")
             }
             ciContext.render(outputImage, to: outputBuffer)
             if !didLogFirstProcessedFrame {
@@ -1338,8 +1984,46 @@ private final class AmigoRealtimeVideoProcessor: NSObject, LiveKit.VideoProcesso
                 error: error,
                 mappedCode: mapped.code
             )
+            return privacyPlaceholderFrame(for: frame, reason: "sdkProcessingFailed")
+        }
+    }
+
+    private func privacyPlaceholderFrame(for frame: VideoFrame, reason: String) -> VideoFrame? {
+        let size = CGSize(
+            width: Int(frame.dimensions.width),
+            height: Int(frame.dimensions.height)
+        )
+        guard size.width > 0,
+              size.height > 0,
+              let outputBuffer = getOutputBuffer(for: size) else {
+            AmigoSDKDiagnostics.record(
+                "[AmigoSDK] stage=realtimeProcessFrame result=dropped " +
+                "reason=privacyBufferAllocationFailed rawCameraPublished=false"
+            )
             return nil
         }
+
+        let blackImage = CIImage(
+            color: CIColor(red: 0, green: 0, blue: 0, alpha: 1)
+        ).cropped(to: CGRect(origin: .zero, size: size))
+        ciContext.render(blackImage, to: outputBuffer)
+
+        stateLock.lock()
+        let shouldLog = loggedPrivacyReasons.insert(reason).inserted
+        stateLock.unlock()
+        if shouldLog {
+            AmigoSDKDiagnostics.record(
+                "[AmigoSDK] stage=realtimeProcessFrame result=privacyPlaceholder " +
+                "reason=\(reason) rawCameraPublished=false"
+            )
+        }
+
+        return VideoFrame(
+            dimensions: frame.dimensions,
+            rotation: frame.rotation,
+            timeStampNs: frame.timeStampNs,
+            buffer: CVPixelVideoBuffer(pixelBuffer: outputBuffer)
+        )
     }
 
     private func getOutputBuffer(for size: CGSize) -> CVPixelBuffer? {

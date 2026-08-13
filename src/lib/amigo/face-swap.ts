@@ -19,6 +19,7 @@ export type FaceSwapErrorCode =
   | "SDK_MODEL_DECRYPTION_FAILED"
   | "SDK_SERVER_ERROR"
   | "SDK_INFERENCE_FAILURE"
+  | "SDK_UNKNOWN_ERROR"
   | "SDK_INVALID_INPUT"
   | "FACE_IMAGE_EMPTY"
   | "FACE_IMAGE_FORMAT_UNSUPPORTED"
@@ -278,6 +279,8 @@ function normalizeFaceSwapError(
     ? record.code
     : isFaceSwapErrorCode(data.code)
       ? data.code
+      : typeof data.sdkCode === "number"
+        ? "SDK_UNKNOWN_ERROR"
       : fallbackCode;
   const stage = isFaceSwapStage(data.stage) ? data.stage : fallbackStage;
   const message =

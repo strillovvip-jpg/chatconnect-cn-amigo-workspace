@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   nativeConnect: vi.fn(),
   nativeDisconnect: vi.fn(),
   onFaceReadyChange: vi.fn(),
+  onClose: vi.fn(),
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
 }));
@@ -102,7 +103,7 @@ function renderModal(faceReady = true) {
   return render(
     <FaceSwapInviteModal
       open
-      onClose={() => undefined}
+      onClose={mocks.onClose}
       userCode="QQAUF"
       deviceId="device-1"
       faceReady={faceReady}
@@ -113,14 +114,39 @@ function renderModal(faceReady = true) {
 
 describe("FaceSwapInviteModal", () => {
   beforeEach(() => {
-    mocks.nativeGetStatus.mockResolvedValue({ hasTargetFace: true });
+    mocks.nativeGetStatus.mockResolvedValue({
+      connected: false,
+      roomUrl: null,
+      hasTargetFace: true,
+      faceSwapEnabled: true,
+      pipeline: "native-livekit",
+    });
     mocks.nativeRequestMediaPermissions.mockResolvedValue({
       camera: "authorized",
       microphone: "authorized",
     });
-    mocks.nativeSetFaceSwapEnabled.mockResolvedValue(undefined);
-    mocks.nativeConnect.mockResolvedValue(undefined);
-    mocks.nativeDisconnect.mockResolvedValue(undefined);
+    mocks.nativeSetFaceSwapEnabled.mockResolvedValue({
+      connected: false,
+      roomUrl: null,
+      hasTargetFace: true,
+      faceSwapEnabled: true,
+      pipeline: "native-livekit",
+    });
+    mocks.nativeConnect.mockResolvedValue({
+      connected: true,
+      roomUrl: "wss://live.example.test",
+      hasTargetFace: true,
+      faceSwapEnabled: true,
+      pipeline: "native-livekit",
+    });
+    mocks.nativeDisconnect.mockResolvedValue({
+      connected: false,
+      roomUrl: null,
+      hasTargetFace: true,
+      faceSwapEnabled: true,
+      pipeline: "native-livekit",
+    });
+    mocks.endInvite.mockResolvedValue({ ended: true });
     mocks.createInvite.mockResolvedValue({
       inviteId: "invite-1",
       inviteUrl: "https://example.test/video_call/invite-1",
@@ -139,9 +165,15 @@ describe("FaceSwapInviteModal", () => {
   it("contains only call creation and never contains face upload controls", () => {
     renderModal();
 
-    expect(screen.queryByRole("button", { name: /upload/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /save photo/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Create call" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /upload/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /save photo/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Create call" }),
+    ).toBeInTheDocument();
   });
 
   it("keeps call creation disabled until native enrollment is ready", () => {
@@ -151,32 +183,167 @@ describe("FaceSwapInviteModal", () => {
   });
 
   it("creates and connects the room with the already-enrolled native face", async () => {
+    mocks.nativeGetStatus.mockResolvedValue({
+      hasTargetFace: true,
+      faceSwapEnabled: true,
+    });
     renderModal(true);
-    await waitFor(() => expect(mocks.onFaceReadyChange).toHaveBeenCalledWith(true));
+    await waitFor(() =>
+      expect(mocks.onFaceReadyChange).toHaveBeenCalledWith(true),
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Create call" }));
 
-    await waitFor(() => expect(mocks.createInvite).toHaveBeenCalledTimes(1));
-    expect(mocks.nativeSetFaceSwapEnabled).toHaveBeenCalledWith(true);
+    await waitFor(() => expect(mocks.nativeConnect).toHaveBeenCalledTimes(1));
+    expect(mocks.nativeSetFaceSwapEnabled).not.toHaveBeenCalled();
     expect(mocks.nativeConnect).toHaveBeenCalledWith({
       url: "wss://live.example.test",
       token: "token-1",
       enableMicrophone: true,
       enableCamera: true,
     });
-    expect(screen.getByText("https://example.test/video_call/invite-1")).toBeInTheDocument();
+    expect(
+      screen.getByText("https://example.test/video_call/invite-1"),
+    ).toBeInTheDocument();
   });
 
   it("refuses the call if native memory no longer contains the enrolled face", async () => {
     mocks.nativeGetStatus
-      .mockResolvedValueOnce({ hasTargetFace: true })
-      .mockResolvedValueOnce({ hasTargetFace: false });
+      .mockResolvedValueOnce({ hasTargetFace: true, faceSwapEnabled: true })
+      .mockResolvedValueOnce({ hasTargetFace: false, faceSwapEnabled: false });
     renderModal(true);
-    await waitFor(() => expect(mocks.onFaceReadyChange).toHaveBeenCalledWith(true));
+    await waitFor(() =>
+      expect(mocks.onFaceReadyChange).toHaveBeenCalledWith(true),
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Create call" }));
 
-    await waitFor(() => expect(mocks.onFaceReadyChange).toHaveBeenCalledWith(false));
+    await waitFor(() =>
+      expect(mocks.onFaceReadyChange).toHaveBeenCalledWith(false),
+    );
     expect(mocks.createInvite).not.toHaveBeenCalled();
+  });
+
+  it("re-enables the retained native face before creating", async () => {
+    mocks.nativeGetStatus
+      .mockResolvedValueOnce({ hasTargetFace: true, faceSwapEnabled: true })
+      .mockResolvedValueOnce({ hasTargetFace: true, faceSwapEnabled: false });
+    renderModal(true);
+    await waitFor(() =>
+      expect(mocks.onFaceReadyChange).toHaveBeenCalledWith(true),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create call" }));
+
+    await waitFor(() => expect(mocks.createInvite).toHaveBeenCalledTimes(1));
+    expect(mocks.nativeSetFaceSwapEnabled).toHaveBeenCalledWith(true);
+    expect(mocks.nativeSetFaceSwapEnabled).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the native connection stage, code, and original message and rolls the invite back", async () => {
+    const nativeError = Object.assign(
+      new Error("VideoCapturer dimensions are not resolved"),
+      {
+        code: "LIVEKIT_PROCESSED_VIDEO_PUBLISH_FAILED",
+        data: { stage: "processed-video-publish", nativeCode: 9 },
+      },
+    );
+    mocks.nativeConnect.mockRejectedValue(nativeError);
+    renderModal(true);
+    await waitFor(() =>
+      expect(mocks.onFaceReadyChange).toHaveBeenCalledWith(true),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create call" }));
+
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "[processed-video-publish/LIVEKIT_PROCESSED_VIDEO_PUBLISH_FAILED] VideoCapturer dimensions are not resolved",
+      ),
+    );
+    expect(mocks.endInvite).toHaveBeenCalledWith({
+      code: "QQAUF",
+      deviceId: "device-1",
+      inviteId: "invite-1",
+    });
+    expect(mocks.nativeDisconnect).toHaveBeenCalled();
+  });
+
+  it("keeps the modal open while call creation is in flight", async () => {
+    let releasePermissions!: (value: {
+      camera: string;
+      microphone: string;
+    }) => void;
+    mocks.nativeRequestMediaPermissions.mockReturnValue(
+      new Promise((resolve) => {
+        releasePermissions = resolve;
+      }),
+    );
+    renderModal(true);
+    await waitFor(() =>
+      expect(mocks.onFaceReadyChange).toHaveBeenCalledWith(true),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create call" }));
+    const closeButton = screen.getByRole("button", { name: "Close" });
+    expect(closeButton).toBeDisabled();
+    fireEvent.click(closeButton);
+    expect(mocks.onClose).not.toHaveBeenCalled();
+
+    releasePermissions({ camera: "authorized", microphone: "authorized" });
+    await waitFor(() => expect(mocks.nativeConnect).toHaveBeenCalledTimes(1));
+  });
+
+  it("retries an idempotent invite rollback and reports a distinct rollback failure", async () => {
+    mocks.nativeConnect.mockRejectedValue(
+      Object.assign(new Error("publish failed"), {
+        code: "LIVEKIT_PROCESSED_VIDEO_PUBLISH_FAILED",
+        data: { stage: "processed-video-publish" },
+      }),
+    );
+    mocks.endInvite.mockRejectedValue(new Error("Convex rollback unavailable"));
+    renderModal(true);
+    await waitFor(() =>
+      expect(mocks.onFaceReadyChange).toHaveBeenCalledWith(true),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create call" }));
+
+    await waitFor(() => expect(mocks.endInvite).toHaveBeenCalledTimes(2));
+    expect(mocks.toastError).toHaveBeenCalledWith(
+      "[rollback-room-invite/INVITE_ROLLBACK_FAILED] Convex rollback unavailable",
+    );
+    expect(mocks.nativeDisconnect).toHaveBeenCalled();
+  });
+
+  it("does not present an invite when native connect resolves without a connected host", async () => {
+    mocks.nativeConnect.mockResolvedValue({
+      connected: false,
+      roomUrl: null,
+      hasTargetFace: true,
+      faceSwapEnabled: true,
+      pipeline: "native-livekit",
+    });
+    renderModal(true);
+    await waitFor(() =>
+      expect(mocks.onFaceReadyChange).toHaveBeenCalledWith(true),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create call" }));
+
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "[connect-native-room/NATIVE_ROOM_NOT_CONNECTED] Native room returned without a connected host.",
+      ),
+    );
+    expect(
+      screen.queryByText("https://example.test/video_call/invite-1"),
+    ).not.toBeInTheDocument();
+    expect(mocks.endInvite).toHaveBeenCalledWith({
+      code: "QQAUF",
+      deviceId: "device-1",
+      inviteId: "invite-1",
+    });
+    expect(mocks.nativeDisconnect).toHaveBeenCalled();
   });
 });

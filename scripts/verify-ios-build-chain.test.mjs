@@ -184,7 +184,8 @@ test("native face enrollment awaits the official async SDK without blocking it",
   assert.match(plugin, /imageByteLength/);
   assert.match(plugin, /imageWidth/);
   assert.match(plugin, /imageHeight/);
-  assert.match(plugin, /AmigoFaceSwap\.enrollFace\(from:\s*decodedImage\)/);
+  assert.match(plugin, /latent = try await Self\.enrollWithFallbacks\(/);
+  assert.match(plugin, /return try await AmigoFaceSwap\.enrollFace\(from:\s*candidate\)/);
   assert.match(plugin, /try await AmigoFaceSwap\.initialize\(apiKey:\s*apiKey/);
   assert.doesNotMatch(plugin, /normalizedEnrollmentImage/);
   assert.match(plugin, /enrollmentGeneration/);
@@ -215,25 +216,69 @@ test("app restart and call creation never silently re-enroll an old saved photo"
   assert.match(inviteModal, /disabled=\{[^}]*!faceReady/);
 });
 
-test("native external face-swap track fails closed instead of publishing raw camera frames", () => {
+test("native external face-swap track publishes a black privacy frame until a swapped frame is ready", () => {
   const plugin = read(
     "ios/App/CapApp-SPM/Sources/CapApp-SPM/AmigoFaceSwapPlugin.swift",
   );
   const processor = plugin.slice(
     plugin.indexOf("private final class AmigoRealtimeVideoProcessor"),
   );
+  const nativeSession = plugin.slice(
+    plugin.indexOf("private final class NativeLiveKitSession"),
+    plugin.indexOf("#if DEBUG", plugin.indexOf("private final class NativeLiveKitSession")),
+  );
 
   assert.match(
     plugin,
-    /guard faceSwapEnabled, targetLatent != nil else \{[\s\S]{0,400}completion\("FACE_SWAP_NOT_READY"\)[\s\S]{0,80}return\s*\}/,
+    /if enableCamera && \(!currentEnabled \|\| currentLatent == nil\) \{[\s\S]{0,700}NativeRoomConnectFailure\([\s\S]{0,200}code: "FACE_SWAP_NOT_READY"[\s\S]{0,120}return\s*\}/,
   );
+  assert.match(nativeSession, /processor\.prepareForPublish\(\)[\s\S]{0,300}LocalVideoTrack\.createCameraTrack/);
+  assert.match(nativeSession, /let processor = AmigoRealtimeVideoProcessor\(\)/);
+  assert.doesNotMatch(nativeSession, /private let processor = AmigoRealtimeVideoProcessor\(\)/);
+  assert.match(nativeSession, /private var connectionGeneration: UInt64/);
+  assert.match(nativeSession, /private var pendingRoom: Room\?/);
+  assert.match(nativeSession, /private var pendingConnectTask: Task<Void, Never>\?/);
+  assert.match(nativeSession, /private var pendingProcessor: AmigoRealtimeVideoProcessor\?/);
+  assert.match(nativeSession, /pendingProcessor\?\.setTargetLatent\(latent\)/);
+  assert.match(nativeSession, /pendingProcessor\?\.setEnabled\(enabled\)/);
+  assert.match(nativeSession, /pendingProcessor = processor/);
   assert.match(
-    processor,
-    /guard enabled, let latent, let inputBuffer = frame\.toCVPixelBuffer\(\) else \{[\s\S]{0,500}return nil\s*\}/,
+    nativeSession,
+    /stateLock\.lock\(\)\s*let currentEnabled = faceSwapEnabled\s*let currentLatent = targetLatent\s*processor\.setTargetLatent\(currentLatent\)\s*processor\.setEnabled\(currentEnabled\)/,
   );
+  assert.match(nativeSession, /let connectingProcessor = pendingProcessor/);
+  assert.match(nativeSession, /let activeProcessor = publishedProcessor/);
+  assert.match(
+    nativeSession,
+    /Task \{ \[connectingProcessor, activeProcessor\] in[\s\S]{0,900}_ = connectingProcessor[\s\S]{0,120}_ = activeProcessor/,
+  );
+  assert.match(nativeSession, /let pendingTask = pendingConnectTask/);
+  assert.match(nativeSession, /pendingTask\?\.cancel\(\)/);
+  assert.match(nativeSession, /guard !Task\.isCancelled/);
+  assert.match(nativeSession, /generation == connectionGeneration/);
+  assert.match(processor, /shouldEmitPublishBootstrap[\s\S]{0,500}reason: "trackDimensionBootstrap"/);
   assert.doesNotMatch(processor, /return frame/);
   assert.match(
     processor,
-    /stage=realtimeProcessFrame result=dropped[\s\S]*reason=processorNotReady/,
+    /stage=realtimeProcessFrame result=privacyPlaceholder[\s\S]*rawCameraPublished=false/,
+  );
+  for (const reason of [
+    "processorNotReady",
+    "trackDimensionBootstrap",
+    "inputPixelBufferUnavailable",
+    "noFaceDetectedInFrame",
+    "outputBufferAllocationFailed",
+    "sdkProcessingFailed",
+  ]) {
+    assert.match(
+      processor,
+      new RegExp(
+        `privacyPlaceholderFrame\\(\\s*for: frame,\\s*reason: "${reason}"\\s*\\)`,
+      ),
+    );
+  }
+  assert.match(
+    processor,
+    /private func privacyPlaceholderFrame\(for frame: VideoFrame[\s\S]{0,1600}CIImage\(\s*color: CIColor\(red: 0, green: 0, blue: 0, alpha: 1\)\s*\)/,
   );
 });

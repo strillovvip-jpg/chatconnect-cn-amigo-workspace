@@ -87,6 +87,27 @@ test("TestFlight export compliance is declared in the iOS bundle", () => {
   );
 });
 
+test("every vendored Amigo framework slice declares its iOS deployment target", () => {
+  const frameworkPlists = [
+    "ios/App/CapApp-SPM/Vendor/AmigoFaceSwapSDK.xcframework/ios-arm64/AmigoFaceSwapSDK.framework/Info.plist",
+    "ios/App/CapApp-SPM/Vendor/AmigoFaceSwapSDK.xcframework/ios-arm64_x86_64-simulator/AmigoFaceSwapSDK.framework/Info.plist",
+  ];
+
+  for (const relativePath of frameworkPlists) {
+    const minimumOSVersion = execFileSync(
+      "/usr/libexec/PlistBuddy",
+      [
+        "-c",
+        "Print :MinimumOSVersion",
+        new URL(`../${relativePath}`, import.meta.url).pathname,
+      ],
+      { encoding: "utf8" },
+    ).trim();
+
+    assert.equal(minimumOSVersion, "16.0", relativePath);
+  }
+});
+
 test("Capacitor and every Xcode configuration use the established TestFlight bundle identifier", () => {
   const capacitorConfig = read("capacitor.config.ts");
   const xcodeProject = read("ios/App/App.xcodeproj/project.pbxproj");

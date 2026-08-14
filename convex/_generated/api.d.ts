@@ -17,6 +17,7 @@ import type * as calls from "../calls.js";
 import type * as caseDocuments from "../caseDocuments.js";
 import type * as cases from "../cases.js";
 import type * as contacts from "../contacts.js";
+import type * as externalVideoInvites from "../externalVideoInvites.js";
 import type * as faceLibrary from "../faceLibrary.js";
 import type * as features from "../features.js";
 import type * as groupCallState from "../groupCallState.js";
@@ -50,6 +51,7 @@ declare const fullApi: ApiFromModules<{
   caseDocuments: typeof caseDocuments;
   cases: typeof cases;
   contacts: typeof contacts;
+  externalVideoInvites: typeof externalVideoInvites;
   faceLibrary: typeof faceLibrary;
   features: typeof features;
   groupCallState: typeof groupCallState;

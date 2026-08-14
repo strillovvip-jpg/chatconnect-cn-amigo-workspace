@@ -43,9 +43,10 @@ function createInvitePassword() {
   return String(randomInt(100000, 1000000));
 }
 
-function buildInviteUrl(origin: string, inviteId: string) {
-  const base = origin.replace(/\/+$/, "");
-  return `${base}/video_call/${inviteId}`;
+const PUBLIC_INVITE_ORIGIN = "https://tokoyochet.com";
+
+function buildInviteUrl(inviteId: string) {
+  return `${PUBLIC_INVITE_ORIGIN}/video_call/${encodeURIComponent(inviteId)}`;
 }
 
 const prepareInviteSession = makeFunctionReference<
@@ -338,7 +339,7 @@ export const createFaceSwapInvite = action({
 
     return {
       inviteId,
-      inviteUrl: buildInviteUrl(args.origin, inviteId),
+      inviteUrl: buildInviteUrl(inviteId),
       password,
       roomName,
       serverUrl,

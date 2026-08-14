@@ -90,13 +90,17 @@ test("the secret generator rejects missing or malformed values and never logs th
   assert.equal(statSync(outputPath).mode & 0o777, 0o600);
 });
 
-test("Xcode Cloud validates and generates the native config before building web assets", () => {
+test("Xcode Cloud accepts the legacy secret name only as a private migration fallback", () => {
   const cloudScript = read("ci_scripts/ci_post_clone.sh");
   const generateIndex = cloudScript.indexOf("generate-amigo-xcconfig.sh");
   const buildIndex = cloudScript.indexOf("npm run build:ios");
 
   assert.match(cloudScript, /AMIGO_API_KEY/);
-  assert.doesNotMatch(cloudScript, /VITE_AMIGO_API_KEY/);
+  assert.match(cloudScript, /VITE_AMIGO_API_KEY/);
+  assert.match(
+    cloudScript,
+    /AMIGO_API_KEY="\$VITE_AMIGO_API_KEY"/,
+  );
   assert.ok(generateIndex >= 0);
   assert.ok(buildIndex >= 0);
   assert.ok(generateIndex < buildIndex);

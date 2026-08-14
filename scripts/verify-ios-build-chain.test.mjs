@@ -148,7 +148,10 @@ test("Xcode Cloud refuses to archive without the native face SDK key", () => {
   );
 
   assert.match(cloudScript, /generate-amigo-xcconfig\.sh/);
-  assert.doesNotMatch(cloudScript, /VITE_AMIGO_API_KEY/);
+  assert.match(
+    cloudScript,
+    /AMIGO_API_KEY="\$VITE_AMIGO_API_KEY"/,
+  );
   assert.doesNotMatch(cloudScript, /ak_live_[a-z0-9]+/i);
   assert.ok(dependencyInstallIndex >= 0);
   assert.ok(secretValidationIndex >= 0);

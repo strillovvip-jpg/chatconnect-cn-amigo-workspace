@@ -34,6 +34,15 @@ npm --version
 echo "[ci_post_clone] installing JavaScript dependencies"
 npm ci
 
+if [ -z "${AMIGO_API_KEY:-}" ] && [ -n "${VITE_AMIGO_API_KEY:-}" ]; then
+  # Existing Xcode Cloud workflows used this secret name before the key was
+  # moved entirely into the native Release configuration.  Keep the fallback
+  # private to this shell so old Cloud configuration can build the current
+  # source without ever exposing the value to the JavaScript bundle.
+  AMIGO_API_KEY="$VITE_AMIGO_API_KEY"
+  export AMIGO_API_KEY
+fi
+
 if [ -z "${AMIGO_API_KEY:-}" ]; then
   echo "[ci_post_clone] required Secret AMIGO_API_KEY is not configured" >&2
   exit 1

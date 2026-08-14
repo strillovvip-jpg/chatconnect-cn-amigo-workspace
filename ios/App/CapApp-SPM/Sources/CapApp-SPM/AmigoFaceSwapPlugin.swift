@@ -367,6 +367,12 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
                     "[AmigoSDK] stage=directEnrollDiagnostic result=initialized"
                 )
 
+                // Apple Vision's default inference context can fail with
+                // com.apple.Vision Code 9 before the vendor SDK reaches face
+                // embedding. A public CPU-only landmarks request against the
+                // exact same UIImage safely primes Vision without replacing or
+                // transforming the SDK enrollment input.
+                Self.primeVisionCPUContext(for: image)
                 let latent = try await AmigoFaceSwap.enrollFace(from: image)
                 self.enrollmentStateLock.lock()
                 self.targetLatent = latent
@@ -479,6 +485,72 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
         return key
     }
 
+    private static func cgImageOrientation(
+        from orientation: UIImage.Orientation
+    ) -> CGImagePropertyOrientation {
+        switch orientation {
+        case .up: return .up
+        case .down: return .down
+        case .left: return .left
+        case .right: return .right
+        case .upMirrored: return .upMirrored
+        case .downMirrored: return .downMirrored
+        case .leftMirrored: return .leftMirrored
+        case .rightMirrored: return .rightMirrored
+        @unknown default: return .up
+        }
+    }
+
+    /// Warm up the same public Vision landmarks path used internally by the
+    /// vendor SDK, forcing its inference context onto the CPU. This avoids the
+    /// reproducible `com.apple.Vision Code=9` context-creation failure while
+    /// preserving the official UIImage -> enrollFace -> FaceLatent flow.
+    ///
+    /// Failure here is diagnostic only: the SDK call still runs and remains the
+    /// source of truth for no-face, invalid-input, and all official Amigo errors.
+    private static func primeVisionCPUContext(for image: UIImage) {
+        let startedAt = CFAbsoluteTimeGetCurrent()
+        guard let cgImage = image.cgImage else {
+            AmigoSDKDiagnostics.record(
+                "[AmigoSDK] stage=visionCPUPreflight result=skipped reason=imageHasNoCGImage"
+            )
+            return
+        }
+
+        let request = VNDetectFaceLandmarksRequest()
+        request.usesCPUOnly = true
+        let handler = VNImageRequestHandler(
+            cgImage: cgImage,
+            orientation: cgImageOrientation(from: image.imageOrientation),
+            options: [:]
+        )
+
+        do {
+            try handler.perform([request])
+            let observations = request.results ?? []
+            let landmarkPointCounts = observations.map {
+                $0.landmarks?.allPoints?.pointCount ?? 0
+            }
+            let durationMs = Int((CFAbsoluteTimeGetCurrent() - startedAt) * 1_000)
+            AmigoSDKDiagnostics.record(
+                "[AmigoSDK] stage=visionCPUPreflight result=success " +
+                "revision=\(request.revision) usesCPUOnly=\(request.usesCPUOnly) " +
+                "faceCount=\(observations.count) landmarkPointCounts=\(landmarkPointCounts) " +
+                "durationMs=\(durationMs)"
+            )
+        } catch {
+            let durationMs = Int((CFAbsoluteTimeGetCurrent() - startedAt) * 1_000)
+            AmigoSDKDiagnostics.record(
+                "[AmigoSDK] stage=visionCPUPreflight result=failed durationMs=\(durationMs)"
+            )
+            AmigoSDKDiagnostics.recordError(
+                stage: "visionCPUPreflight",
+                error: error,
+                mappedCode: "VISION_CPU_PREFLIGHT_FAILED"
+            )
+        }
+    }
+
     @objc func enrollFace(_ call: CAPPluginCall) {
         guard didInitialize else {
             AmigoSDKDiagnostics.record("[AmigoSDK] stage=enrollFace result=error mappedCode=SDK_NOT_INITIALIZED")
@@ -548,6 +620,7 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
             do {
                 // Official Amigo flow: decoded UIImage -> FaceLatent. The
                 // error is intentionally returned unchanged to JavaScript.
+                Self.primeVisionCPUContext(for: decodedImage)
                 latent = try await AmigoFaceSwap.enrollFace(from: decodedImage)
             } catch {
                 self.rejectSDKError(

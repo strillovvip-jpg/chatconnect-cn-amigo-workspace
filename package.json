@@ -12,7 +12,7 @@
     "sync:ios": "cap sync ios",
     "capacitor:sync:after": "node scripts/patch-ios-spm.mjs",
     "verify:ios-assets": "node scripts/verify-ios-assets.mjs",
-    "test:build-chain": "node --test scripts/verify-ios-build-chain.test.mjs scripts/amigo-release-key-injection.test.mjs",
+    "test:build-chain": "node --test scripts/verify-ios-build-chain.test.mjs scripts/amigo-release-key-injection.test.mjs scripts/amigo-vision-cpu-preflight-contract.test.mjs",
     "deploy": "npm run build && bash scripts/deploy-vps.sh",
     "import-auth-codes": "node scripts/import-auth-codes.mjs",
     "test": "vitest run --configLoader runner",

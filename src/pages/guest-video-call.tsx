@@ -234,6 +234,7 @@ export default function GuestVideoCallPage() {
                 room={room}
                 mode="p2p"
                 showSelfPreview
+                draggableSelfPreview
                 remoteVideoIdentityPrefix="host-publisher-"
               />
             )}

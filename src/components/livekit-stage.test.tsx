@@ -1,6 +1,10 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { LiveKitStage } from "./livekit-stage";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 vi.mock("@/lib/i18n", () => ({
   useI18n: () => ({
@@ -142,7 +146,12 @@ describe("LiveKitStage native publisher filtering", () => {
     };
 
     const { container } = render(
-      <LiveKitStage room={room as never} mode="p2p" showSelfPreview />,
+      <LiveKitStage
+        room={room as never}
+        mode="p2p"
+        showSelfPreview
+        draggableSelfPreview
+      />,
     );
 
     const preview = screen.getByTestId("self-preview");
@@ -205,7 +214,14 @@ describe("LiveKitStage native publisher filtering", () => {
       off: vi.fn(),
     };
 
-    render(<LiveKitStage room={room as never} mode="p2p" showSelfPreview />);
+    render(
+      <LiveKitStage
+        room={room as never}
+        mode="p2p"
+        showSelfPreview
+        draggableSelfPreview
+      />,
+    );
 
     const preview = screen.getByTestId("self-preview");
     const stage = preview.parentElement;
@@ -236,6 +252,210 @@ describe("LiveKitStage native publisher filtering", () => {
       pointerId: 8,
       clientX: 20,
       clientY: 20,
+    });
+
+    expect(preview).toHaveStyle({ left: "0px", top: "0px" });
+  });
+
+  it("keeps the shared self preview fixed unless dragging is explicitly enabled", () => {
+    const remote = participant("callee", "Callee");
+    const room = {
+      remoteParticipants: new Map([[remote.identity, remote]]),
+      localParticipant: participant("caller", "Caller"),
+      startAudio: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
+      off: vi.fn(),
+    };
+
+    render(<LiveKitStage room={room as never} mode="p2p" showSelfPreview />);
+
+    const previewTile = screen.getAllByRole("button")[1];
+    const preview = previewTile.parentElement;
+    if (!preview) throw new Error("Expected fixed self preview wrapper");
+
+    fireEvent.pointerDown(preview, {
+      pointerId: 21,
+      clientX: 120,
+      clientY: 160,
+    });
+    fireEvent.pointerMove(preview, {
+      pointerId: 21,
+      clientX: 20,
+      clientY: 40,
+    });
+
+    expect(preview).toHaveClass(
+      "absolute",
+      "bottom-[calc(7.5rem+var(--app-safe-area-bottom))]",
+      "right-3",
+    );
+    expect(preview.style.left).toBe("");
+    expect(preview.style.top).toBe("");
+  });
+
+  it("clamps an initially out-of-bounds preview on pointer down without movement", () => {
+    const remote = participant("callee", "Callee");
+    const room = {
+      remoteParticipants: new Map([[remote.identity, remote]]),
+      localParticipant: participant("guest", "Guest"),
+      startAudio: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
+      off: vi.fn(),
+    };
+
+    render(
+      <LiveKitStage
+        room={room as never}
+        mode="p2p"
+        showSelfPreview
+        draggableSelfPreview
+      />,
+    );
+
+    const preview = screen.getByTestId("self-preview");
+    const stage = preview.parentElement;
+    if (!stage) throw new Error("Expected self preview stage parent");
+    Object.defineProperty(stage, "getBoundingClientRect", {
+      value: () => ({
+        left: 0,
+        top: 0,
+        width: 300,
+        height: 500,
+        right: 300,
+        bottom: 500,
+      }),
+    });
+    Object.defineProperty(preview, "getBoundingClientRect", {
+      value: () => ({
+        left: -40,
+        top: -60,
+        width: 100,
+        height: 150,
+        right: 60,
+        bottom: 90,
+      }),
+    });
+
+    fireEvent.pointerDown(preview, { pointerId: 22, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(preview, { pointerId: 22 });
+
+    expect(preview).toHaveStyle({ left: "0px", top: "0px" });
+  });
+
+  it("reclamps a moved preview when the stage becomes smaller", () => {
+    let resizeObserverCallback: ResizeObserverCallback | undefined;
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          resizeObserverCallback = callback;
+        }
+        observe = vi.fn();
+        unobserve = vi.fn();
+        disconnect = vi.fn();
+      },
+    );
+    const remote = participant("callee", "Callee");
+    const room = {
+      remoteParticipants: new Map([[remote.identity, remote]]),
+      localParticipant: participant("guest", "Guest"),
+      startAudio: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
+      off: vi.fn(),
+    };
+    const stageSize = { width: 300, height: 500 };
+
+    render(
+      <LiveKitStage
+        room={room as never}
+        mode="p2p"
+        showSelfPreview
+        draggableSelfPreview
+      />,
+    );
+
+    const preview = screen.getByTestId("self-preview");
+    const stage = preview.parentElement;
+    if (!stage) throw new Error("Expected self preview stage parent");
+    Object.defineProperty(stage, "getBoundingClientRect", {
+      value: () => ({
+        left: 0,
+        top: 0,
+        width: stageSize.width,
+        height: stageSize.height,
+        right: stageSize.width,
+        bottom: stageSize.height,
+      }),
+    });
+    Object.defineProperty(preview, "getBoundingClientRect", {
+      value: () => ({
+        left: 200,
+        top: 350,
+        width: 100,
+        height: 150,
+        right: 300,
+        bottom: 500,
+      }),
+    });
+
+    fireEvent.pointerDown(preview, { pointerId: 23, clientX: 250, clientY: 400 });
+    fireEvent.pointerUp(preview, { pointerId: 23 });
+    stageSize.width = 180;
+    stageSize.height = 200;
+    act(() => resizeObserverCallback?.([], {} as ResizeObserver));
+
+    expect(preview).toHaveStyle({ left: "80px", top: "50px" });
+  });
+
+  it("ignores a second pointer down while the first drag is active", () => {
+    const remote = participant("callee", "Callee");
+    const room = {
+      remoteParticipants: new Map([[remote.identity, remote]]),
+      localParticipant: participant("guest", "Guest"),
+      startAudio: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
+      off: vi.fn(),
+    };
+
+    render(
+      <LiveKitStage
+        room={room as never}
+        mode="p2p"
+        showSelfPreview
+        draggableSelfPreview
+      />,
+    );
+
+    const preview = screen.getByTestId("self-preview");
+    const stage = preview.parentElement;
+    if (!stage) throw new Error("Expected self preview stage parent");
+    Object.defineProperty(stage, "getBoundingClientRect", {
+      value: () => ({
+        left: 0,
+        top: 0,
+        width: 300,
+        height: 500,
+        right: 300,
+        bottom: 500,
+      }),
+    });
+    Object.defineProperty(preview, "getBoundingClientRect", {
+      value: () => ({
+        left: 200,
+        top: 350,
+        width: 100,
+        height: 150,
+        right: 300,
+        bottom: 500,
+      }),
+    });
+
+    fireEvent.pointerDown(preview, { pointerId: 24, clientX: 250, clientY: 400 });
+    fireEvent.pointerDown(preview, { pointerId: 25, clientX: 250, clientY: 400 });
+    fireEvent.pointerMove(preview, {
+      pointerId: 24,
+      clientX: -100,
+      clientY: -100,
     });
 
     expect(preview).toHaveStyle({ left: "0px", top: "0px" });

@@ -106,14 +106,53 @@ function DraggableSelfPreview({
   const [position, setPosition] = useState<PreviewPosition>(null);
   const dragRef = useRef<PreviewDrag | null>(null);
 
+  useEffect(() => {
+    const stage = stageRef.current;
+    const preview = previewRef.current;
+    if (!stage || !preview || typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver(() => {
+      setPosition((current) => {
+        if (current === null) return current;
+        const stageRect = stage.getBoundingClientRect();
+        const previewRect = preview.getBoundingClientRect();
+        const next = {
+          x: clamp(
+            current.x,
+            0,
+            Math.max(0, stageRect.width - previewRect.width),
+          ),
+          y: clamp(
+            current.y,
+            0,
+            Math.max(0, stageRect.height - previewRect.height),
+          ),
+        };
+        return next.x === current.x && next.y === current.y ? current : next;
+      });
+    });
+    observer.observe(stage);
+    observer.observe(preview);
+    return () => observer.disconnect();
+  }, [stageRef]);
+
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (dragRef.current) return;
     const stage = stageRef.current;
     const preview = previewRef.current;
     if (!stage || !preview) return;
     const stageRect = stage.getBoundingClientRect();
     const previewRect = preview.getBoundingClientRect();
-    const startX = previewRect.left - stageRect.left;
-    const startY = previewRect.top - stageRect.top;
+    const startX = clamp(
+      previewRect.left - stageRect.left,
+      0,
+      Math.max(0, stageRect.width - previewRect.width),
+    );
+    const startY = clamp(
+      previewRect.top - stageRect.top,
+      0,
+      Math.max(0, stageRect.height - previewRect.height),
+    );
     dragRef.current = {
       pointerId: event.pointerId,
       startClientX: event.clientX,
@@ -195,6 +234,7 @@ export function LiveKitStage({
   compact = false,
   mode = "p2p",
   showSelfPreview = false,
+  draggableSelfPreview = false,
   localPublisherIdentity,
   remoteVideoIdentityPrefix,
 }: {
@@ -202,6 +242,7 @@ export function LiveKitStage({
   compact?: boolean;
   mode?: "p2p" | "group";
   showSelfPreview?: boolean;
+  draggableSelfPreview?: boolean;
   localPublisherIdentity?: string;
   remoteVideoIdentityPrefix?: string;
 }) {
@@ -335,13 +376,26 @@ export function LiveKitStage({
   return (
     <div ref={stageRef} className="relative h-full w-full overflow-hidden bg-black">
       {content}
-      {showSelfPreview && mode === "p2p" && (
+      {showSelfPreview && mode === "p2p" && draggableSelfPreview && (
         <DraggableSelfPreview
           key={`${room.name}:${room.localParticipant.identity}`}
           participant={localPublisher ?? room.localParticipant}
           compact={compact}
           stageRef={stageRef}
         />
+      )}
+      {showSelfPreview && mode === "p2p" && !draggableSelfPreview && (
+        <div
+          className={
+            compact
+              ? "absolute bottom-9 right-2 z-20 h-14 w-10 overflow-hidden rounded-md border border-white/50 bg-[#111e38] shadow-xl"
+              : "absolute bottom-[calc(7.5rem+var(--app-safe-area-bottom))] right-3 z-20 h-36 w-24 overflow-hidden rounded-xl border border-white/40 bg-[#111e38] shadow-2xl sm:h-44 sm:w-32"
+          }
+        >
+          <ParticipantTile
+            participant={localPublisher ?? room.localParticipant}
+          />
+        </div>
       )}
       {remoteAudio.map((publication) => (
         <MediaTrack key={publication.trackSid} publication={publication} />

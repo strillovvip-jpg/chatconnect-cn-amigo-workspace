@@ -189,6 +189,7 @@ describe("GuestVideoCallPage", () => {
     expect(mocks.stageProps).toMatchObject({
       mode: "p2p",
       showSelfPreview: true,
+      draggableSelfPreview: true,
       remoteVideoIdentityPrefix: "host-publisher-",
     });
     expect(mocks.disconnect).not.toHaveBeenCalled();

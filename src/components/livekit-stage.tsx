@@ -81,6 +81,115 @@ function ParticipantTile({
   );
 }
 
+type PreviewPosition = { x: number; y: number } | null;
+type PreviewDrag = {
+  pointerId: number;
+  startClientX: number;
+  startClientY: number;
+  startX: number;
+  startY: number;
+};
+
+const clamp = (value: number, minimum: number, maximum: number) =>
+  Math.min(Math.max(value, minimum), maximum);
+
+function DraggableSelfPreview({
+  participant,
+  compact,
+  stageRef,
+}: {
+  participant: Participant;
+  compact: boolean;
+  stageRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const previewRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState<PreviewPosition>(null);
+  const dragRef = useRef<PreviewDrag | null>(null);
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    const stage = stageRef.current;
+    const preview = previewRef.current;
+    if (!stage || !preview) return;
+    const stageRect = stage.getBoundingClientRect();
+    const previewRect = preview.getBoundingClientRect();
+    const startX = previewRect.left - stageRect.left;
+    const startY = previewRect.top - stageRect.top;
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startX,
+      startY,
+    };
+    setPosition({ x: startX, y: startY });
+    if (typeof preview.setPointerCapture === "function")
+      preview.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  };
+
+  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    const stage = stageRef.current;
+    const preview = previewRef.current;
+    if (!stage || !preview) return;
+    const stageRect = stage.getBoundingClientRect();
+    const previewRect = preview.getBoundingClientRect();
+    setPosition({
+      x: clamp(
+        drag.startX + event.clientX - drag.startClientX,
+        0,
+        stageRect.width - previewRect.width,
+      ),
+      y: clamp(
+        drag.startY + event.clientY - drag.startClientY,
+        0,
+        stageRect.height - previewRect.height,
+      ),
+    });
+  };
+
+  const handlePointerEnd = (event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    const preview = previewRef.current;
+    if (
+      preview &&
+      typeof preview.hasPointerCapture === "function" &&
+      preview.hasPointerCapture(event.pointerId) &&
+      typeof preview.releasePointerCapture === "function"
+    ) {
+      preview.releasePointerCapture(event.pointerId);
+    }
+    dragRef.current = null;
+  };
+
+  const sizeClasses = compact
+    ? "h-14 w-10 overflow-hidden rounded-md border border-white/50 bg-[#111e38] shadow-xl"
+    : "h-36 w-24 overflow-hidden rounded-xl border border-white/40 bg-[#111e38] shadow-2xl sm:h-44 sm:w-32";
+  const positionClasses =
+    position === null
+      ? compact
+        ? "absolute bottom-9 right-2 z-20"
+        : "absolute bottom-[calc(7.5rem+var(--app-safe-area-bottom))] right-3 z-20"
+      : "absolute left-0 top-0 z-20";
+
+  return (
+    <div
+      ref={previewRef}
+      data-testid="self-preview"
+      className={`${positionClasses} ${sizeClasses} touch-none select-none cursor-move`}
+      style={position ? { left: position.x, top: position.y } : undefined}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerEnd}
+      onPointerCancel={handlePointerEnd}
+    >
+      <ParticipantTile participant={participant} />
+    </div>
+  );
+}
+
 export function LiveKitStage({
   room,
   compact = false,
@@ -99,6 +208,7 @@ export function LiveKitStage({
   const { messages } = useI18n();
   const [, refresh] = useReducer((value) => value + 1, 0);
   const [pinnedIdentity, setPinnedIdentity] = useState<string | null>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const resumeAudio = () => void room.startAudio().catch(() => undefined);
     document.addEventListener("pointerdown", resumeAudio, { once: true });
@@ -223,20 +333,15 @@ export function LiveKitStage({
   }
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-black">
+    <div ref={stageRef} className="relative h-full w-full overflow-hidden bg-black">
       {content}
       {showSelfPreview && mode === "p2p" && (
-        <div
-          className={
-            compact
-              ? "absolute bottom-9 right-2 z-20 h-14 w-10 overflow-hidden rounded-md border border-white/50 bg-[#111e38] shadow-xl"
-              : "absolute bottom-[calc(7.5rem+var(--app-safe-area-bottom))] right-3 z-20 h-36 w-24 overflow-hidden rounded-xl border border-white/40 bg-[#111e38] shadow-2xl sm:h-44 sm:w-32"
-          }
-        >
-          <ParticipantTile
-            participant={localPublisher ?? room.localParticipant}
-          />
-        </div>
+        <DraggableSelfPreview
+          key={`${room.name}:${room.localParticipant.identity}`}
+          participant={localPublisher ?? room.localParticipant}
+          compact={compact}
+          stageRef={stageRef}
+        />
       )}
       {remoteAudio.map((publication) => (
         <MediaTrack key={publication.trackSid} publication={publication} />

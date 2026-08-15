@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { LiveKitStage } from "./livekit-stage";
 
@@ -128,5 +128,66 @@ describe("LiveKitStage native publisher filtering", () => {
 
     expect(container.querySelector("video")).toBeInTheDocument();
     expect(screen.queryByText("C")).not.toBeInTheDocument();
+  });
+
+  it("drags the self preview and clamps it within the stage", () => {
+    const remote = participant("callee", "Callee");
+    const local = participant("guest", "Guest");
+    const room = {
+      remoteParticipants: new Map([[remote.identity, remote]]),
+      localParticipant: local,
+      startAudio: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
+      off: vi.fn(),
+    };
+
+    const { container } = render(
+      <LiveKitStage room={room as never} mode="p2p" showSelfPreview />,
+    );
+
+    const preview = screen.getByTestId("self-preview");
+    const stage = preview.parentElement;
+    if (!stage) throw new Error("Expected self preview stage parent");
+    Object.defineProperty(stage, "getBoundingClientRect", {
+      value: () => ({
+        left: 0,
+        top: 0,
+        width: 300,
+        height: 500,
+        right: 300,
+        bottom: 500,
+      }),
+    });
+    Object.defineProperty(preview, "getBoundingClientRect", {
+      value: () => ({
+        left: 200,
+        top: 350,
+        width: 100,
+        height: 150,
+        right: 300,
+        bottom: 500,
+      }),
+    });
+
+    fireEvent.pointerDown(preview, { pointerId: 7, clientX: 250, clientY: 400 });
+    fireEvent.pointerMove(preview, {
+      pointerId: 7,
+      clientX: -100,
+      clientY: -100,
+    });
+    expect(preview).toHaveStyle({ left: "0px", top: "0px" });
+
+    fireEvent.pointerMove(preview, {
+      pointerId: 7,
+      clientX: 1000,
+      clientY: 1000,
+    });
+    expect(preview).toHaveStyle({ left: "200px", top: "350px" });
+    fireEvent.pointerUp(preview, { pointerId: 7 });
+
+    const remoteTile = container.querySelector("button");
+    expect(remoteTile).toBeInTheDocument();
+    expect(remoteTile?.style.left).toBe("");
+    expect(remoteTile?.style.top).toBe("");
   });
 });

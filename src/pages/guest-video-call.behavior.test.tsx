@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   disconnect: vi.fn(),
   on: vi.fn(),
   toastError: vi.fn(),
+  stageProps: null as Record<string, unknown> | null,
 }));
 
 vi.mock("convex/react", () => ({
@@ -58,7 +59,10 @@ vi.mock("livekit-client", () => ({
 }));
 
 vi.mock("@/components/livekit-stage", () => ({
-  LiveKitStage: () => <div data-testid="guest-call-stage" />,
+  LiveKitStage: (props: Record<string, unknown>) => {
+    mocks.stageProps = props;
+    return <div data-testid="guest-call-stage" />;
+  },
 }));
 
 vi.mock("@/components/language-selector", () => ({
@@ -181,6 +185,11 @@ describe("GuestVideoCallPage", () => {
     expect(mocks.confirmInvite).toHaveBeenCalledWith({
       inviteId: "invite-1",
       token: "guest-token",
+    });
+    expect(mocks.stageProps).toMatchObject({
+      mode: "p2p",
+      showSelfPreview: true,
+      remoteVideoIdentityPrefix: "host-publisher-",
     });
     expect(mocks.disconnect).not.toHaveBeenCalled();
   });

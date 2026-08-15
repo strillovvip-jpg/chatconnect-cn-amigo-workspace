@@ -118,6 +118,10 @@ export function LiveKitStage({
       RoomEvent.ConnectionQualityChanged,
     ] as const;
     events.forEach((event) => room.on(event, refresh));
+    // Re-read participants and already-subscribed tracks once after listeners
+    // are attached. A track can arrive between React's render and this effect,
+    // in which case no later LiveKit event would otherwise trigger a render.
+    refresh();
     return () => {
       document.removeEventListener("pointerdown", resumeAudio);
       events.forEach((event) => room.off(event, refresh));

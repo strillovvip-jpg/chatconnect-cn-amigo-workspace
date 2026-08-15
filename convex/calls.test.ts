@@ -306,30 +306,47 @@ describe("external face-swap invite host credentials", () => {
       available: true,
       guestJoined: false,
     });
+    let guestLookupCount = 0;
     const getParticipant = vi
       .spyOn(RoomServiceClient.prototype, "getParticipant")
-      .mockRejectedValueOnce(new Error("participant has not propagated yet"))
-      .mockResolvedValueOnce({
-        identity: join.guestIdentity,
-        tracks: [{ source: TrackSource.MICROPHONE, muted: false }],
-      } as never)
-      .mockResolvedValue({
-        identity: join.guestIdentity,
-        tracks: [
-          { source: TrackSource.CAMERA, muted: false },
-          { source: TrackSource.MICROPHONE, muted: false },
-        ],
-      } as never);
+      .mockImplementation(async (_roomName, identity) => {
+        if (identity === created.operatorIdentity)
+          return {
+            identity,
+            tracks: [{ source: TrackSource.CAMERA, muted: false }],
+          } as never;
+        if (identity !== join.guestIdentity)
+          throw new Error(`unexpected participant ${identity}`);
+        guestLookupCount += 1;
+        if (guestLookupCount === 1)
+          throw new Error("participant has not propagated yet");
+        if (guestLookupCount === 2)
+          return {
+            identity,
+            tracks: [{ source: TrackSource.MICROPHONE, muted: false }],
+          } as never;
+        return {
+          identity,
+          tracks: [
+            { source: TrackSource.CAMERA, muted: false },
+            { source: TrackSource.MICROPHONE, muted: false },
+          ],
+        } as never;
+      });
     await expect(
       t.action(confirmGuestJoin, {
         inviteId: created.inviteId,
         token: join.token,
       }),
     ).resolves.toEqual({ confirmed: true });
-    expect(getParticipant).toHaveBeenCalledTimes(3);
+    expect(getParticipant).toHaveBeenCalledTimes(4);
     expect(getParticipant).toHaveBeenCalledWith(
       created.roomName,
       join.guestIdentity,
+    );
+    expect(getParticipant).toHaveBeenCalledWith(
+      created.roomName,
+      created.operatorIdentity,
     );
     expect(
       await t.query(api.externalVideoInvites.getPublicInviteSession, {
@@ -346,5 +363,89 @@ describe("external face-swap invite host credentials", () => {
         password: created.password,
       }),
     ).rejects.toThrow("该视讯邀请已被使用");
+  });
+
+  test("does not confirm the guest while the expected host publisher has no active camera", async () => {
+    vi.spyOn(RoomServiceClient.prototype, "createRoom").mockResolvedValue(
+      {} as never,
+    );
+    vi.spyOn(RoomServiceClient.prototype, "deleteRoom").mockResolvedValue(
+      undefined as never,
+    );
+    const t = convexTest({ schema, modules });
+    await t.run(async (ctx) => {
+      const profileId = await ctx.db.insert("license_profiles", {
+        name: "Full",
+        features: fullFeatures,
+        createdBy: "AAAAA",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      await ctx.db.insert("auth_codes", {
+        code: "AAAAA",
+        deviceId: "device-a",
+        name: "Caller A",
+        usedAt: new Date().toISOString(),
+      });
+      await ctx.db.insert("allowed_codes", {
+        code: "AAAAA",
+        role: "user",
+        enabled: true,
+        licenseProfileId: profileId,
+      });
+    });
+
+    const created = await t.action(api.calls.createFaceSwapInvite, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      origin: "capacitor://localhost",
+    });
+    const join = await t.action(api.calls.joinFaceSwapInvite, {
+      inviteId: created.inviteId,
+      password: created.password,
+    });
+    const getParticipant = vi
+      .spyOn(RoomServiceClient.prototype, "getParticipant")
+      .mockImplementation(async (_roomName, identity) => {
+        if (identity === join.guestIdentity)
+          return {
+            identity,
+            tracks: [
+              { source: TrackSource.CAMERA, muted: false },
+              { source: TrackSource.MICROPHONE, muted: false },
+            ],
+          } as never;
+        if (identity === created.operatorIdentity)
+          return {
+            identity,
+            tracks: [{ source: TrackSource.CAMERA, muted: true }],
+          } as never;
+        throw new Error(`unexpected participant ${identity}`);
+      });
+    const confirmGuestJoin = makeFunctionReference<
+      "action",
+      { inviteId: string; token: string },
+      { confirmed: true }
+    >("calls:confirmFaceSwapInviteJoin");
+
+    await expect(
+      t.action(confirmGuestJoin, {
+        inviteId: created.inviteId,
+        token: join.token,
+      }),
+    ).rejects.toThrow("操作端处理后视讯尚未就绪");
+    expect(getParticipant).toHaveBeenCalledWith(
+      created.roomName,
+      created.operatorIdentity,
+    );
+    expect(
+      await t.query(api.externalVideoInvites.getPublicInviteSession, {
+        inviteId: created.inviteId,
+      }),
+    ).toMatchObject({
+      status: "pending",
+      available: true,
+      guestJoined: false,
+    });
   });
 });

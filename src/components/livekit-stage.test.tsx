@@ -37,6 +37,39 @@ function participant(identity: string, name: string, video = false) {
 }
 
 describe("LiveKitStage native publisher filtering", () => {
+  it("refreshes once after subscribing so tracks that arrived before the effect are rendered", () => {
+    const processedVideo = participant(
+      "host-publisher-native",
+      "Processed host video",
+      true,
+    );
+    const remoteParticipants = new Map<string, ReturnType<typeof participant>>();
+    let populated = false;
+    const room = {
+      remoteParticipants,
+      localParticipant: participant("guest", "Guest"),
+      startAudio: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(() => {
+        if (!populated) {
+          populated = true;
+          remoteParticipants.set(processedVideo.identity, processedVideo);
+        }
+      }),
+      off: vi.fn(),
+    };
+
+    const { container } = render(
+      <LiveKitStage
+        room={room as never}
+        mode="p2p"
+        remoteVideoIdentityPrefix="host-publisher-"
+      />,
+    );
+
+    expect(container.querySelector("video")).toBeInTheDocument();
+    expect(screen.queryByText("Waiting for remote")).not.toBeInTheDocument();
+  });
+
   it("renders the callee as primary and the native publisher as self preview", () => {
     const nativePublisher = participant("caller-native", "Native self");
     const callee = participant("callee-web", "Callee");

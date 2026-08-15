@@ -229,7 +229,14 @@ export default function GuestVideoCallPage() {
             </button>
           </div>
           <div className="min-h-0 flex-1">
-            {room && <LiveKitStage room={room} mode="p2p" showSelfPreview />}
+            {room && (
+              <LiveKitStage
+                room={room}
+                mode="p2p"
+                showSelfPreview
+                remoteVideoIdentityPrefix="host-publisher-"
+              />
+            )}
           </div>
         </div>
       )}

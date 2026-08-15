@@ -604,6 +604,27 @@ export const confirmFaceSwapInviteJoin = action({
         message: "来宾摄像头或麦克风尚未就绪，请重试。",
       });
 
+    let hostPublisher:
+      Awaited<ReturnType<RoomServiceClient["getParticipant"]>> | undefined;
+    try {
+      hostPublisher = await roomService.getParticipant(
+        invite.roomName,
+        invite.operatorIdentity,
+      );
+    } catch {
+      // The invite must not become active without its processed-video publisher.
+    }
+    const hostCameraReady =
+      hostPublisher?.identity === invite.operatorIdentity &&
+      hostPublisher.tracks.some(
+        (track) => track.source === TrackSource.CAMERA && !track.muted,
+      );
+    if (!hostCameraReady)
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "操作端处理后视讯尚未就绪，请由操作端重新建立通话。",
+      });
+
     await ctx.runMutation(markGuestJoined, {
       inviteId: args.inviteId,
       guestIdentity,

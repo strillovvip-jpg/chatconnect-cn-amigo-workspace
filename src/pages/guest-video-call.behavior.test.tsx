@@ -6,9 +6,11 @@ const mocks = vi.hoisted(() => ({
   joinInvite: vi.fn(),
   confirmInvite: vi.fn(),
   connect: vi.fn(),
+  createLocalTracks: vi.fn(),
   startAudio: vi.fn(),
-  setMicrophoneEnabled: vi.fn(),
-  setCameraEnabled: vi.fn(),
+  publishTrack: vi.fn(),
+  stopAudioTrack: vi.fn(),
+  stopVideoTrack: vi.fn(),
   disconnect: vi.fn(),
   on: vi.fn(),
   toastError: vi.fn(),
@@ -44,14 +46,14 @@ vi.mock("livekit-client", () => ({
     remoteParticipants = new Map();
     localParticipant = {
       identity: "guest-1",
-      setMicrophoneEnabled: mocks.setMicrophoneEnabled,
-      setCameraEnabled: mocks.setCameraEnabled,
+      publishTrack: mocks.publishTrack,
     };
     connect = mocks.connect;
     startAudio = mocks.startAudio;
     disconnect = mocks.disconnect;
     on = mocks.on;
   },
+  createLocalTracks: mocks.createLocalTracks,
   RoomEvent: { Disconnected: "disconnected" },
 }));
 
@@ -106,8 +108,11 @@ describe("GuestVideoCallPage", () => {
     mocks.startAudio
       .mockRejectedValueOnce(new Error("NotAllowedError"))
       .mockResolvedValue(undefined);
-    mocks.setMicrophoneEnabled.mockResolvedValue(undefined);
-    mocks.setCameraEnabled.mockResolvedValue(undefined);
+    mocks.createLocalTracks.mockResolvedValue([
+      { kind: "audio", stop: mocks.stopAudioTrack },
+      { kind: "video", stop: mocks.stopVideoTrack },
+    ]);
+    mocks.publishTrack.mockResolvedValue(undefined);
     mocks.disconnect.mockResolvedValue(undefined);
   });
 
@@ -128,7 +133,7 @@ describe("GuestVideoCallPage", () => {
 
   it("does not consume the invite when local media setup fails", async () => {
     mocks.startAudio.mockReset().mockResolvedValue(undefined);
-    mocks.setCameraEnabled.mockRejectedValueOnce(new Error("camera denied"));
+    mocks.createLocalTracks.mockRejectedValueOnce(new Error("camera denied"));
     render(<GuestVideoCallPage />);
     fireEvent.change(screen.getByPlaceholderText("Password"), {
       target: { value: "123456" },
@@ -136,6 +141,8 @@ describe("GuestVideoCallPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Join call" }));
 
     await waitFor(() => expect(mocks.toastError).toHaveBeenCalled());
+    expect(mocks.createLocalTracks).toHaveBeenCalledTimes(1);
+    expect(mocks.joinInvite).not.toHaveBeenCalled();
     expect(mocks.confirmInvite).not.toHaveBeenCalled();
     expect(mocks.disconnect).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId("guest-call-stage")).not.toBeInTheDocument();
@@ -157,12 +164,40 @@ describe("GuestVideoCallPage", () => {
       "guest-token",
       { autoSubscribe: true },
     );
-    expect(mocks.setMicrophoneEnabled).toHaveBeenCalledWith(true);
-    expect(mocks.setCameraEnabled).toHaveBeenCalledTimes(1);
+    expect(mocks.createLocalTracks).toHaveBeenCalledWith({
+      audio: true,
+      video: {
+        resolution: { width: 1280, height: 720, frameRate: 24 },
+        facingMode: "user",
+      },
+    });
+    expect(mocks.createLocalTracks.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.joinInvite.mock.invocationCallOrder[0],
+    );
+    expect(mocks.publishTrack).toHaveBeenCalledTimes(2);
+    expect(mocks.publishTrack.mock.invocationCallOrder[1]).toBeLessThan(
+      mocks.confirmInvite.mock.invocationCallOrder[0],
+    );
     expect(mocks.confirmInvite).toHaveBeenCalledWith({
       inviteId: "invite-1",
       token: "guest-token",
     });
     expect(mocks.disconnect).not.toHaveBeenCalled();
+  });
+
+  it("stops every acquired media track when room publication fails", async () => {
+    mocks.startAudio.mockReset().mockResolvedValue(undefined);
+    mocks.publishTrack.mockRejectedValueOnce(new Error("publish failed"));
+    render(<GuestVideoCallPage />);
+    fireEvent.change(screen.getByPlaceholderText("Password"), {
+      target: { value: "123456" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Join call" }));
+
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalled());
+    expect(mocks.stopAudioTrack).toHaveBeenCalledTimes(1);
+    expect(mocks.stopVideoTrack).toHaveBeenCalledTimes(1);
+    expect(mocks.confirmInvite).not.toHaveBeenCalled();
+    expect(mocks.disconnect).toHaveBeenCalledTimes(1);
   });
 });

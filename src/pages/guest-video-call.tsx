@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react";
 import { useAction, useQuery } from "convex/react";
 import { makeFunctionReference } from "convex/server";
-import { Room, RoomEvent } from "livekit-client";
+import {
+  createLocalTracks,
+  type LocalTrack,
+  Room,
+  RoomEvent,
+} from "livekit-client";
 import { useParams } from "react-router-dom";
 import { PhoneOff, Video } from "lucide-react";
 import { toast } from "sonner";
@@ -63,6 +68,8 @@ export default function GuestVideoCallPage() {
         facingMode: "user",
       },
     });
+    let localTracks: LocalTrack[] = [];
+    let disposeLateTracks = false;
     let admissionConfirmed = false;
     let terminallyDisconnected = false;
     nextRoom.on(RoomEvent.Disconnected, () => {
@@ -73,10 +80,25 @@ export default function GuestVideoCallPage() {
       }
     });
     try {
-      // Keep this first attempt in the direct tap handler for iOS autoplay.
-      // A denied audio unlock stops before requesting or consuming a token.
-      await nextRoom.startAudio();
       const deadline = createDeadline(GUEST_JOIN_TIMEOUT_MS, "guest-join");
+      // Keep this first attempt in the direct tap handler for iOS autoplay.
+      // Acquire camera and microphone together before consuming an invite.
+      // LiveKit documents that this produces one permission prompt on iOS.
+      await deadline.run(nextRoom.startAudio());
+      const localTracksPromise = createLocalTracks({
+        audio: true,
+        video: {
+          resolution: { width: 1280, height: 720, frameRate: 24 },
+          facingMode: "user",
+        },
+      });
+      void localTracksPromise.then(
+        (tracks) => {
+          if (disposeLateTracks) tracks.forEach((track) => track.stop());
+        },
+        () => undefined,
+      );
+      localTracks = await deadline.run(localTracksPromise);
       const join = await deadline.run(
         joinInvite({
           inviteId: id,
@@ -88,12 +110,12 @@ export default function GuestVideoCallPage() {
           autoSubscribe: true,
         }),
       );
-      await deadline.run(nextRoom.localParticipant.setMicrophoneEnabled(true));
       await deadline.run(
-        nextRoom.localParticipant.setCameraEnabled(true, {
-          resolution: { width: 1280, height: 720, frameRate: 24 },
-          facingMode: "user",
-        }),
+        Promise.all(
+          localTracks.map((track) =>
+            nextRoom.localParticipant.publishTrack(track),
+          ),
+        ),
       );
       if (terminallyDisconnected) throw new Error(copy.joinError);
       await deadline.run(confirmInvite({ inviteId: id, token: join.token }));
@@ -103,7 +125,9 @@ export default function GuestVideoCallPage() {
       setConnected(true);
       setCallEnded(false);
     } catch (error) {
+      disposeLateTracks = true;
       await nextRoom?.disconnect().catch(() => undefined);
+      localTracks.forEach((track) => track.stop());
       toast.error(
         error instanceof OperationTimeoutError
           ? copy.joinTimeout

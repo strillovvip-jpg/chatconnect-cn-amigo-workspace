@@ -49,6 +49,8 @@ function createInvitePassword() {
 }
 
 const PUBLIC_INVITE_ORIGIN = "https://tokoyochet.com";
+const GUEST_MEDIA_READY_TIMEOUT_MS = 5_000;
+const GUEST_MEDIA_READY_POLL_INTERVAL_MS = 250;
 
 function buildInviteUrl(inviteId: string) {
   return `${PUBLIC_INVITE_ORIGIN}/video_call/${encodeURIComponent(inviteId)}`;
@@ -555,29 +557,48 @@ export const confirmFaceSwapInviteJoin = action({
         message: "来宾身份与本次邀请不符。",
       });
 
-    let participant: Awaited<ReturnType<RoomServiceClient["getParticipant"]>>;
-    try {
-      participant = await new RoomServiceClient(
-        apiUrl,
-        apiKey,
-        apiSecret,
-      ).getParticipant(invite.roomName, guestIdentity);
-    } catch {
+    const roomService = new RoomServiceClient(apiUrl, apiKey, apiSecret);
+    const mediaReadyDeadline = Date.now() + GUEST_MEDIA_READY_TIMEOUT_MS;
+    let lastParticipant:
+      Awaited<ReturnType<RoomServiceClient["getParticipant"]>> | undefined;
+    let mediaReady = false;
+
+    while (Date.now() <= mediaReadyDeadline) {
+      try {
+        lastParticipant = await roomService.getParticipant(
+          invite.roomName,
+          guestIdentity,
+        );
+        const activeSources = new Set(
+          lastParticipant.tracks
+            .filter((track) => !track.muted)
+            .map((track) => track.source),
+        );
+        mediaReady =
+          lastParticipant.identity === guestIdentity &&
+          activeSources.has(TrackSource.CAMERA) &&
+          activeSources.has(TrackSource.MICROPHONE);
+        if (mediaReady) break;
+      } catch {
+        // LiveKit can briefly return not-found immediately after Room.connect().
+      }
+
+      const remainingMs = mediaReadyDeadline - Date.now();
+      if (remainingMs <= 0) break;
+      await new Promise((resolve) =>
+        setTimeout(
+          resolve,
+          Math.min(GUEST_MEDIA_READY_POLL_INTERVAL_MS, remainingMs),
+        ),
+      );
+    }
+
+    if (!mediaReady && !lastParticipant)
       throw new ConvexError({
         code: "CONFLICT",
         message: "来宾尚未成功加入通话，请重试。",
       });
-    }
-    const activeSources = new Set(
-      participant.tracks
-        .filter((track) => !track.muted)
-        .map((track) => track.source),
-    );
-    if (
-      participant.identity !== guestIdentity ||
-      !activeSources.has(TrackSource.CAMERA) ||
-      !activeSources.has(TrackSource.MICROPHONE)
-    )
+    if (!mediaReady)
       throw new ConvexError({
         code: "CONFLICT",
         message: "来宾摄像头或麦克风尚未就绪，请重试。",

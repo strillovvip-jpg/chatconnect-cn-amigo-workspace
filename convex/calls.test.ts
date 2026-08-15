@@ -308,6 +308,11 @@ describe("external face-swap invite host credentials", () => {
     });
     const getParticipant = vi
       .spyOn(RoomServiceClient.prototype, "getParticipant")
+      .mockRejectedValueOnce(new Error("participant has not propagated yet"))
+      .mockResolvedValueOnce({
+        identity: join.guestIdentity,
+        tracks: [{ source: TrackSource.MICROPHONE, muted: false }],
+      } as never)
       .mockResolvedValue({
         identity: join.guestIdentity,
         tracks: [
@@ -321,6 +326,7 @@ describe("external face-swap invite host credentials", () => {
         token: join.token,
       }),
     ).resolves.toEqual({ confirmed: true });
+    expect(getParticipant).toHaveBeenCalledTimes(3);
     expect(getParticipant).toHaveBeenCalledWith(
       created.roomName,
       join.guestIdentity,

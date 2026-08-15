@@ -8,21 +8,24 @@ const source = readFileSync(
 );
 
 describe("GuestVideoCallPage join lifecycle", () => {
-  it("applies one deadline to token issuance, room connection and media publication", () => {
+  it("acquires camera and microphone before consuming a token, then publishes both tracks", () => {
     expect(source).toContain("createDeadline(GUEST_JOIN_TIMEOUT_MS");
+    expect(source).toContain("deadline.run(localTracksPromise)");
     expect(source).toMatch(/deadline\.run\(\s*joinInvite\(/);
     expect(source).toMatch(/deadline\.run\(\s*nextRoom\.connect\(/);
-    expect(source).toContain(
-      "deadline.run(nextRoom.localParticipant.setMicrophoneEnabled(true))",
+    expect(source.indexOf("createLocalTracks(")).toBeLessThan(
+      source.indexOf("joinInvite({"),
     );
-    expect(source).toContain(
-      "deadline.run(\n        nextRoom.localParticipant.setCameraEnabled(true",
-    );
+    expect(source).toContain("nextRoom.localParticipant.publishTrack(track)");
+    expect(source).not.toContain("setMicrophoneEnabled(true)");
+    expect(source).not.toContain("setCameraEnabled(true");
     expect(source).toMatch(/deadline\.run\(\s*confirmInvite\(/);
   });
 
   it("disconnects a partially joined room and reports a localized timeout", () => {
-    expect(source).toContain("await nextRoom?.disconnect().catch(() => undefined)");
+    expect(source).toContain(
+      "await nextRoom?.disconnect().catch(() => undefined)",
+    );
     expect(source).toContain("error instanceof OperationTimeoutError");
     expect(source).toContain("copy.joinTimeout");
   });

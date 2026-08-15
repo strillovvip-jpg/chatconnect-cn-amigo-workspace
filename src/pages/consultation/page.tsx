@@ -15,7 +15,7 @@ import {
   FileText,
   Shield,
 } from "lucide-react";
-import { cn } from "@/lib/utils.ts";
+import { cn, uiErrorMessage } from "@/lib/utils.ts";
 import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "@/convex/_generated/api.js";
 import { ConvexError } from "convex/values";
@@ -42,7 +42,12 @@ import {
 import { canUseExternalFaceSwapInvite } from "@/lib/amigo/external-invite-access";
 import { FaceSwapInviteModal } from "@/components/face-swap-invite-modal";
 import { FaceSettingsModal } from "@/components/face-settings-modal";
+import { ContactFaceSwapCallButton } from "@/components/contact-face-swap-call-button";
 import { nativeAmigoRoom } from "@/lib/amigo/native-room";
+import {
+  contactFaceSwapPreflightErrorMessage,
+  startContactFaceSwapCall,
+} from "@/lib/amigo/contact-face-swap-preflight";
 import { LanguageSelector } from "@/components/language-selector";
 import { useI18n } from "@/lib/i18n";
 
@@ -277,11 +282,13 @@ type ContactDoc = {
   targetDepartment?: string;
 };
 
-function ContactsTab({
+export function ContactsTab({
   userCode,
   userName,
   contacts,
   onStartCall,
+  canStartFaceSwapCall,
+  onStartFaceSwapCall,
   callingCode,
   onRemoveContact,
   navigate,
@@ -290,6 +297,8 @@ function ContactsTab({
   userName: string;
   contacts: ContactDoc[] | undefined;
   onStartCall: (code: string, name: string, type: "audio" | "video") => void;
+  canStartFaceSwapCall: boolean;
+  onStartFaceSwapCall: (code: string, name: string) => void;
   callingCode: string | null;
   onRemoveContact: (code: string, name: string) => Promise<void>;
   navigate: (path: string, opts?: { state?: Record<string, string> }) => void;
@@ -528,6 +537,18 @@ function ContactsTab({
                   >
                     <Video size={15} className="text-blue-400/70" />
                   </button>
+                  <ContactFaceSwapCallButton
+                    allowed={canStartFaceSwapCall}
+                    busy={callingCode === contact.targetCode}
+                    label={messages.consultation.faceSwapVideo}
+                    iconSize={15}
+                    onStart={() =>
+                      onStartFaceSwapCall(
+                        contact.targetCode,
+                        contact.targetName,
+                      )
+                    }
+                  />
                   <button
                     onClick={() =>
                       navigate(`/consultation/chat/${contact.targetCode}`, {
@@ -659,6 +680,38 @@ export default function ConsultationPage({
     } finally {
       setCallingCode(null);
       setCallTarget(null);
+    }
+  };
+
+  const handleStartFaceSwapCall = async (
+    targetCode: string,
+    targetName: string,
+  ) => {
+    if (!canCreateFaceSwapInvite) {
+      toast.error(copy.noCallPermission);
+      return;
+    }
+    if (callingCode) return;
+    setCallingCode(targetCode);
+    try {
+      await startContactFaceSwapCall(
+        {
+          myCode: userCode,
+          theirCode: targetCode,
+          myName: userName,
+          chatName: targetName,
+          deviceId,
+        },
+        getOrCreateRoom,
+        startCall,
+      );
+    } catch (error) {
+      toast.error(
+        contactFaceSwapPreflightErrorMessage(error, messages.faceSwapInvite) ??
+          uiErrorMessage(error, copy.callStartFailed),
+      );
+    } finally {
+      setCallingCode(null);
     }
   };
 
@@ -967,6 +1020,10 @@ export default function ConsultationPage({
                 name,
                 initialMode: type === "audio" ? "audio" : "camera",
               })
+            }
+            canStartFaceSwapCall={canCreateFaceSwapInvite}
+            onStartFaceSwapCall={(code, name) =>
+              void handleStartFaceSwapCall(code, name)
             }
             callingCode={callingCode}
             onRemoveContact={handleRemoveContact}

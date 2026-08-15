@@ -3,8 +3,18 @@ import { internalMutation, mutation, query } from "./_generated/server";
 import { requireSession } from "./roles";
 import { effectiveFeatures, requireFeature } from "./features";
 import { internal } from "./_generated/api";
+import { canCreateExternalInvite } from "./externalVideoInvites";
 
 const authArgs = { code: v.string(), deviceId: v.string() };
+const callerMediaModeValidator = v.union(
+  v.literal("camera"),
+  v.literal("face-swap"),
+);
+type CallerMediaMode = "camera" | "face-swap";
+
+function storedCallerMediaMode(call: { callerMediaMode?: CallerMediaMode }) {
+  return call.callerMediaMode ?? "camera";
+}
 const activeCallStatuses = new Set([
   "ringing",
   "accepted",
@@ -21,8 +31,15 @@ export const prepareP2P = mutation({
     ...authArgs,
     theirCode: v.string(),
     callType: v.union(v.literal("audio"), v.literal("video")),
+    callerMediaMode: v.optional(callerMediaModeValidator),
   },
   handler: async (ctx, args) => {
+    const callerMediaMode = args.callerMediaMode ?? "camera";
+    if (args.callType === "audio" && callerMediaMode === "face-swap")
+      throw new ConvexError({
+        code: "BAD_REQUEST",
+        message: "换脸模式仅支持视讯通话。",
+      });
     const auth = await requireFeature(
       ctx,
       args.code,
@@ -41,6 +58,26 @@ export const prepareP2P = mutation({
         code: "NOT_FOUND",
         message: "对方的授权码无效或尚未登录。",
       });
+    if (callerMediaMode === "face-swap") {
+      await requireFeature(ctx, args.code, args.deviceId, "canVideoSource");
+      await requireFeature(ctx, args.code, args.deviceId, "canAIFace");
+      if (!canCreateExternalInvite(auth.license.features))
+        throw new ConvexError({
+          code: "FORBIDDEN",
+          message: "只有全功能授权码可以发起换脸视讯。",
+        });
+      const contact = await ctx.db
+        .query("contacts")
+        .withIndex("by_owner_target", (q) =>
+          q.eq("ownerCode", auth.code).eq("targetCode", peerCode),
+        )
+        .unique();
+      if (!contact)
+        throw new ConvexError({
+          code: "FORBIDDEN",
+          message: "只能向联系人发起换脸视讯。",
+        });
+    }
     const peerAllowed = await ctx.db
       .query("allowed_codes")
       .withIndex("by_code", (q) => q.eq("code", peerCode))
@@ -55,11 +92,16 @@ export const prepareP2P = mutation({
         code: "FEATURE_DISABLED",
         message: "对方的授权码不支持此通话功能。",
       });
-    const roomName = [auth.code, peerCode].sort().join("-").toLowerCase();
     const now = Date.now();
-    const recentCalls = (
-      await ctx.db.query("live_calls").order("desc").take(300)
-    ).filter(
+    const pairCodes = [auth.code, peerCode].sort();
+    const isSamePair = (call: { participantCodes: string[] }) =>
+      call.participantCodes.length === pairCodes.length &&
+      pairCodes.every((code) => call.participantCodes.includes(code));
+    const latestCalls = await ctx.db
+      .query("live_calls")
+      .order("desc")
+      .take(300);
+    const recentCalls = latestCalls.filter(
       (call) =>
         activeStatusesForBusyCheck(call.status) &&
         call.participantCodes.some(
@@ -73,9 +115,7 @@ export const prepareP2P = mutation({
               call.createdAt) >
             now - 120_000),
     );
-    const differentCall = recentCalls.find(
-      (call) => call.roomName !== roomName,
-    );
+    const differentCall = recentCalls.find((call) => !isSamePair(call));
     if (differentCall)
       throw new ConvexError({
         code: "BUSY",
@@ -83,11 +123,6 @@ export const prepareP2P = mutation({
           ? "您正在进行其他通话。"
           : "对方正在通话中。",
       });
-    const calls = await ctx.db
-      .query("live_calls")
-      .withIndex("by_room", (q) => q.eq("roomName", roomName))
-      .order("desc")
-      .collect();
     const activeStatuses = [
       "ringing",
       "accepted",
@@ -95,8 +130,9 @@ export const prepareP2P = mutation({
       "connected",
       "active",
     ];
-    const candidates = calls.filter(
+    const candidates = latestCalls.filter(
       (call) =>
+        isSamePair(call) &&
         call.callerUserId &&
         call.calleeUserId &&
         activeStatuses.includes(call.status),
@@ -128,24 +164,35 @@ export const prepareP2P = mutation({
       }
     }
     if (existing) {
-      if (existing.callerUserId === auth.code)
+      if (existing.callerUserId === auth.code) {
+        if (storedCallerMediaMode(existing) !== callerMediaMode)
+          throw new ConvexError({
+            code: "CONFLICT",
+            message: "已有不同媒体模式的通话。",
+          });
         return {
           callId: existing.callId,
-          roomName,
+          roomName: existing.roomName,
           name: auth.session.name,
           peerCode,
+          callerMediaMode,
+          localMediaMode: callerMediaMode,
+          remoteMediaMode: "camera" as const,
         };
+      }
       throw new ConvexError({
         code: "CONFLICT",
         message: "已有正在进行的通话。",
       });
     }
     const callId = crypto.randomUUID();
+    const roomName = `${pairCodes.join("-").toLowerCase()}-${callId}`;
     const notificationId = crypto.randomUUID();
     const id = await ctx.db.insert("live_calls", {
       callId,
       roomName,
       type: args.callType,
+      callerMediaMode,
       status: "ringing",
       participantCodes: [auth.code, peerCode],
       createdByCode: auth.code,
@@ -178,6 +225,8 @@ export const prepareP2P = mutation({
         callerUserId: auth.code,
         callerName: auth.session.name,
         callType: args.callType,
+        callerMediaMode,
+        remoteMediaMode: callerMediaMode,
         source: "call",
       },
       status: "unread",
@@ -196,7 +245,15 @@ export const prepareP2P = mutation({
       internal.callState.expireIncomingCall,
       { callId: id },
     );
-    return { callId, roomName, name: auth.session.name, peerCode };
+    return {
+      callId,
+      roomName,
+      name: auth.session.name,
+      peerCode,
+      callerMediaMode,
+      localMediaMode: callerMediaMode,
+      remoteMediaMode: "camera" as const,
+    };
   },
 });
 
@@ -247,6 +304,8 @@ export const incomingCall = query({
       callerCode: call.callerUserId!,
       callType: call.type,
       expiresAt: call.expiresAt,
+      localMediaMode: "camera" as const,
+      remoteMediaMode: storedCallerMediaMode(call),
     };
   },
 });
@@ -507,6 +566,20 @@ export const authorizeOutgoingJoin = mutation({
         args.deviceId,
         call.type === "video" ? "canVideoCall" : "canVoiceCall",
       );
+    if (call && storedCallerMediaMode(call) === "face-swap") {
+      const fullFeatureAuth = await requireFeature(
+        ctx,
+        args.code,
+        args.deviceId,
+        "canVideoSource",
+      );
+      await requireFeature(ctx, args.code, args.deviceId, "canAIFace");
+      if (!canCreateExternalInvite(fullFeatureAuth.license.features))
+        throw new ConvexError({
+          code: "FORBIDDEN",
+          message: "只有全功能授权码可以发起换脸视讯。",
+        });
+    }
     if (!call || call.callerUserId !== auth.code)
       throw new ConvexError({
         code: "FORBIDDEN",
@@ -523,6 +596,8 @@ export const authorizeOutgoingJoin = mutation({
       calleeName: call.calleeName ?? call.calleeUserId!,
       callType: call.type,
       name: auth.session.name,
+      localMediaMode: storedCallerMediaMode(call),
+      remoteMediaMode: "camera" as const,
     };
   },
 });
@@ -560,6 +635,8 @@ export const authorizeIncomingJoin = mutation({
       callerName: call.callerName ?? call.callerUserId!,
       callType: call.type,
       name: auth.session.name,
+      localMediaMode: "camera" as const,
+      remoteMediaMode: storedCallerMediaMode(call),
     };
   },
 });
@@ -616,6 +693,8 @@ export const acceptAndAuthorizeIncomingJoin = mutation({
       callerName: call.callerName ?? call.callerUserId!,
       callType: call.type,
       name: auth.session.name,
+      localMediaMode: "camera" as const,
+      remoteMediaMode: storedCallerMediaMode(call),
     };
   },
 });
@@ -689,6 +768,11 @@ export const initiateTransfer = mutation({
       throw new ConvexError({
         code: "FORBIDDEN",
         message: "不能转接您未参与的通话。",
+      });
+    if (storedCallerMediaMode(call) === "face-swap")
+      throw new ConvexError({
+        code: "FEATURE_DISABLED",
+        message: "换脸视讯暂不支持转接。",
       });
     const remote = call.participantCodes.find((code) => code !== auth.code);
     if (!remote)

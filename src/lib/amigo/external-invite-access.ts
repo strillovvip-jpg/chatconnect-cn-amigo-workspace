@@ -12,6 +12,7 @@ export function canUseExternalFaceSwapInvite(flags: FeatureFlags) {
     flags.canGroupCall &&
     flags.canPictureInPicture &&
     flags.canFloatingWindow &&
-    flags.canFileSearch
+    flags.canFileSearch &&
+    flags.canRecord
   );
 }

@@ -23,8 +23,15 @@ import { useFeatures } from "@/contexts/feature-context.tsx";
 import { CallComplianceAgent } from "@/components/call-compliance-agent.tsx";
 import { useI18n } from "@/lib/i18n";
 import { setParticipantCameraEnabled } from "@/lib/calls/camera-control";
+import {
+  connectNativePublisherBeforeBrowser,
+  disconnectNativePublisherWithRetry,
+  ensureNativePublisherConnected,
+  nativeAmigoRoom,
+} from "@/lib/amigo/native-room";
 
 type CallMode = "p2p" | "group";
+type LocalMediaMode = "camera" | "face-swap";
 type CallState =
   | "idle"
   | "loading"
@@ -47,6 +54,13 @@ type CallInfo = {
   remoteCode?: string;
   groupCallId?: string;
   initialVideoFile?: VideoFileOptions;
+  localMediaMode?: LocalMediaMode;
+  remoteMediaMode?: LocalMediaMode;
+  browserIdentity?: string;
+  nativeVideoToken?: string;
+  nativeVideoIdentity?: string;
+  nativePublisherToken?: string;
+  nativePublisherIdentity?: string;
 };
 
 export type PipPosition = { x: number; y: number };
@@ -59,7 +73,10 @@ const PIP_BOTTOM_RESERVE = 88;
 type StartCallArgs = Omit<CallInfo, "mode"> & {
   mode?: CallMode;
   waitForAnswer?: boolean;
+  retrySetupOnFailure?: boolean;
 };
+
+type HangUpOptions = { preservePendingCall?: CallInfo };
 
 type CallContextType = {
   callState: CallState;
@@ -98,6 +115,64 @@ type CallContextType = {
 };
 
 const CallContext = createContext<CallContextType | null>(null);
+
+function faceSwapIdentityPrefix(code?: string) {
+  const normalized = code?.trim().toUpperCase();
+  return normalized ? `${normalized}-face-swap-` : undefined;
+}
+
+function nativePublisherIdentity(info: CallInfo) {
+  return info.nativeVideoIdentity ?? info.nativePublisherIdentity;
+}
+
+function nativePublisherToken(info: CallInfo) {
+  return info.nativeVideoToken ?? info.nativePublisherToken;
+}
+
+function participantIdentityFromToken(token?: string) {
+  if (!token) return undefined;
+  try {
+    const encoded = token.split(".")[1];
+    if (!encoded) return undefined;
+    const normalized = encoded.replaceAll("-", "+").replaceAll("_", "/");
+    const padded = normalized.padEnd(
+      normalized.length + ((4 - (normalized.length % 4)) % 4),
+      "=",
+    );
+    const bytes = Uint8Array.from(atob(padded), (character) =>
+      character.charCodeAt(0),
+    );
+    const payload = JSON.parse(new TextDecoder().decode(bytes)) as {
+      sub?: unknown;
+    };
+    return typeof payload.sub === "string" && payload.sub
+      ? payload.sub
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function logicalRemoteParticipantCount(room: Room, info: CallInfo) {
+  const localNativeIdentity = nativePublisherIdentity(info);
+  const remotes = Array.from(room.remoteParticipants.values()).filter(
+    (participant) => participant.identity !== localNativeIdentity,
+  );
+  if (info.mode === "p2p" && info.remoteMediaMode === "face-swap")
+    return remotes.length > 0 ? 1 : 0;
+  return remotes.length;
+}
+
+function hasLogicalRemoteMedia(room: Room, info: CallInfo) {
+  const localNativeIdentity = nativePublisherIdentity(info);
+  return Array.from(room.remoteParticipants.values())
+    .filter((participant) => participant.identity !== localNativeIdentity)
+    .some((participant) =>
+      Array.from(participant.trackPublications.values()).some((publication) =>
+        Boolean(publication.track),
+      ),
+    );
+}
 
 export function useCall() {
   const context = useContext(CallContext);
@@ -146,6 +221,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const wantedMicRef = useRef(true);
   const wantedCamRef = useRef(true);
   const callInfoRef = useRef<CallInfo | null>(null);
+  const nativePublisherConnectedRef = useRef(false);
+  const nativeRestorePromiseRef = useRef<Promise<void> | null>(null);
+  const restoreMediaRef = useRef<() => Promise<void>>(async () => undefined);
   const sessionCode = localStorage.getItem("ksc_session_code") ?? "";
   const sessionDeviceId = localStorage.getItem("ksc_device_id") ?? "";
   const backendCall = useQuery(
@@ -259,7 +337,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     );
   }, []);
 
-  const hangUp = useCallback(async () => {
+  const hangUp = useCallback(async (options?: HangUpOptions) => {
     if (disconnectingRef.current) return;
     disconnectingRef.current = true;
     stopTimer();
@@ -267,17 +345,38 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     reconnectTimeoutRef.current = null;
     const activeRoom = roomRef.current;
     const activeInfo = callInfoRef.current;
+    const shouldDisconnectNative =
+      nativePublisherConnectedRef.current ||
+      activeInfo?.localMediaMode === "face-swap";
+    let nativeDisconnectError: unknown;
     roomRef.current = null;
     const sourceManager = videoSourceManagerRef.current;
     videoSourceManagerRef.current = null;
     await sourceManager?.dispose();
+    if (shouldDisconnectNative) {
+      try {
+        await disconnectNativePublisherWithRetry();
+      } catch (error) {
+        nativeDisconnectError = error;
+        console.error("[FACE_SWAP_CALL] native publisher disconnect failed", error);
+      } finally {
+        nativePublisherConnectedRef.current = false;
+      }
+    }
     await stopLocalMedia(activeRoom);
     activeRoom?.removeAllListeners();
     await activeRoom?.disconnect();
     setRoom(null);
-    setCallState("idle");
-    setCallInfo(null);
-    callInfoRef.current = null;
+    const preservedPendingCall = options?.preservePendingCall;
+    if (preservedPendingCall) {
+      setCallState("ringing");
+      setCallInfo(preservedPendingCall);
+      callInfoRef.current = preservedPendingCall;
+    } else {
+      setCallState("idle");
+      setCallInfo(null);
+      callInfoRef.current = null;
+    }
     setDuration(0);
     setParticipantCount(1);
     setMicOn(true);
@@ -290,21 +389,33 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       lastSwitchMs: null,
       error: null,
     });
-    if (activeInfo?.mode === "p2p" && activeInfo.callId) {
+    if (
+      !preservedPendingCall &&
+      activeInfo?.mode === "p2p" &&
+      activeInfo.callId
+    ) {
       void endP2PCall({
         code: localStorage.getItem("ksc_session_code") ?? "",
         deviceId: localStorage.getItem("ksc_device_id") ?? "",
         callId: activeInfo.callId,
       }).catch(() => undefined);
-    } else if (activeInfo?.mode === "group" && activeInfo.callId) {
+    } else if (
+      !preservedPendingCall &&
+      activeInfo?.mode === "group" &&
+      activeInfo.callId
+    ) {
       void leaveGroupCall({
         code: localStorage.getItem("ksc_session_code") ?? "",
         deviceId: localStorage.getItem("ksc_device_id") ?? "",
         callId: activeInfo.callId,
       }).catch(() => undefined);
     }
+    if (nativeDisconnectError)
+      toast.error(copy.nativeCameraDisconnectFailed, {
+        id: "native-camera-disconnect",
+      });
     disconnectingRef.current = false;
-  }, [stopTimer, stopLocalMedia, endP2PCall, leaveGroupCall]);
+  }, [copy, stopTimer, stopLocalMedia, endP2PCall, leaveGroupCall]);
 
   const startCall = useCallback(
     async (args: StartCallArgs) => {
@@ -322,6 +433,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       }
       if (roomRef.current) await hangUp();
       disconnectingRef.current = false;
+      const retrySetupOnFailure = args.retrySetupOnFailure === true;
+      const { retrySetupOnFailure: _retrySetupOnFailure, ...callArgs } = args;
       // The caller receives a fresh LiveKit token after the callee accepts.
       // That response intentionally contains no browser File object, so retain
       // the preselected video for the same call instead of asking for it again.
@@ -335,9 +448,18 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         retainedVideoFile && !retainedVideoFile.startedAt
           ? { ...retainedVideoFile, startedAt: Date.now() }
           : retainedVideoFile;
+      const resolvedNativePublisherToken =
+        args.nativeVideoToken ?? args.nativePublisherToken;
+      const resolvedNativePublisherIdentity =
+        args.nativeVideoIdentity ??
+        args.nativePublisherIdentity ??
+        participantIdentityFromToken(resolvedNativePublisherToken);
       const info: CallInfo = {
-        ...args,
+        ...callArgs,
         mode: args.mode ?? "p2p",
+        localMediaMode: args.localMediaMode ?? "camera",
+        nativeVideoToken: resolvedNativePublisherToken,
+        nativeVideoIdentity: resolvedNativePublisherIdentity,
         initialVideoFile: timedVideoFile,
       };
       if (args.waitForAnswer) {
@@ -369,16 +491,18 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       wantedMicRef.current = true;
       wantedCamRef.current = info.callType === "video";
       setScreenShareOn(false);
+      const useNativeFaceSwap = info.localMediaMode === "face-swap";
 
       const updateParticipants = () => {
-        setParticipantCount(nextRoom.remoteParticipants.size + 1);
-        if (
-          nextRoom.remoteParticipants.size > 0 &&
-          roomRef.current === nextRoom
-        ) {
+        const logicalRemoteCount = logicalRemoteParticipantCount(
+          nextRoom,
+          info,
+        );
+        setParticipantCount(logicalRemoteCount + 1);
+        if (logicalRemoteCount > 0 && roomRef.current === nextRoom) {
           console.info("[P2P_CALL] remote participant connected", {
             callId: info.callId,
-            remoteParticipants: nextRoom.remoteParticipants.size,
+            remoteParticipants: logicalRemoteCount,
           });
           setCallState("connected");
           if (!timerRef.current)
@@ -437,7 +561,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       const syncLocalTracks = () => {
         if (roomRef.current !== nextRoom) return;
         setMicOn(nextRoom.localParticipant.isMicrophoneEnabled);
-        setCamOn(nextRoom.localParticipant.isCameraEnabled);
+        setCamOn(
+          useNativeFaceSwap
+            ? nativePublisherConnectedRef.current
+            : nextRoom.localParticipant.isCameraEnabled,
+        );
         setScreenShareOn(
           videoSourceManagerRef.current?.getSnapshot().active ===
             "screen-share" || nextRoom.localParticipant.isScreenShareEnabled,
@@ -467,15 +595,37 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         reconnectTimeoutRef.current = null;
         toast.success(copy.reconnected, { id: "livekit-reconnect" });
         setCallState("connected");
+        void restoreMediaRef.current();
       });
       nextRoom.on(RoomEvent.Disconnected, () => {
         if (!disconnectingRef.current) void hangUp();
       });
 
       try {
-        await nextRoom.connect(info.serverUrl, info.token, {
-          autoSubscribe: true,
-        });
+        const connectBrowser = () =>
+          nextRoom.connect(info.serverUrl, info.token, {
+            autoSubscribe: true,
+          });
+        if (useNativeFaceSwap) {
+          const token = nativePublisherToken(info);
+          if (info.callType !== "video" || !token)
+            throw new Error("FACE_SWAP_NATIVE_VIDEO_TOKEN_MISSING");
+          await connectNativePublisherBeforeBrowser({
+            native: {
+              url: info.serverUrl,
+              token,
+              enableMicrophone: false,
+              enableCamera: true,
+            },
+            connectBrowser,
+            disconnectBrowser: async () => {
+              await nextRoom.disconnect();
+            },
+          });
+          nativePublisherConnectedRef.current = true;
+        } else {
+          await connectBrowser();
+        }
         // Report this participant as soon as its LiveKit connection succeeds.
         // Waiting for a remote participant event creates a circular wait when
         // the other client is also waiting for the backend connection state.
@@ -517,12 +667,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             id: "livekit-microphone-permission",
           });
         }
-        if (info.callType === "video") {
+        if (info.callType === "video" && !useNativeFaceSwap) {
           try {
-            await setParticipantCameraEnabled(
-              nextRoom.localParticipant,
-              true,
-            );
+            await setParticipantCameraEnabled(nextRoom.localParticipant, true);
             const camera = nextRoom.localParticipant.getTrackPublication(
               Track.Source.Camera,
             );
@@ -565,10 +712,16 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         }
         if (roomRef.current === nextRoom) {
           setMicOn(nextRoom.localParticipant.isMicrophoneEnabled);
-          setCamOn(nextRoom.localParticipant.isCameraEnabled);
+          setCamOn(
+            useNativeFaceSwap
+              ? nativePublisherConnectedRef.current
+              : nextRoom.localParticipant.isCameraEnabled,
+          );
         }
       } catch (error) {
-        await hangUp();
+        await hangUp(
+          retrySetupOnFailure ? { preservePendingCall: info } : undefined,
+        );
         throw error;
       }
     },
@@ -585,7 +738,20 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     () => () => {
       stopTimer();
       const activeRoom = roomRef.current;
+      const activeInfo = callInfoRef.current;
       activeRoom?.removeAllListeners();
+      if (
+        nativePublisherConnectedRef.current ||
+        activeInfo?.localMediaMode === "face-swap"
+      ) {
+        nativePublisherConnectedRef.current = false;
+        void disconnectNativePublisherWithRetry().catch((error) =>
+          console.error(
+            "[FACE_SWAP_CALL] unmount native publisher disconnect failed",
+            error,
+          ),
+        );
+      }
       void stopLocalMedia(activeRoom).finally(
         () => void activeRoom?.disconnect(),
       );
@@ -610,13 +776,52 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         micPublication?.track?.mediaStreamTrack.readyState === "ended";
       const cameraEnded =
         cameraPublication?.track?.mediaStreamTrack.readyState === "ended";
+      if (info.localMediaMode === "face-swap") {
+        if (micEnded)
+          await activeRoom.localParticipant.setMicrophoneEnabled(false);
+        if (
+          wantedMicRef.current &&
+          (!activeRoom.localParticipant.isMicrophoneEnabled || micEnded)
+        )
+          await activeRoom.localParticipant.setMicrophoneEnabled(true);
+        const token = nativePublisherToken(info);
+        if (!token) throw new Error("FACE_SWAP_NATIVE_VIDEO_TOKEN_MISSING");
+        if (!nativeRestorePromiseRef.current) {
+          const restorePromise = (async () => {
+            const status = await ensureNativePublisherConnected({
+              url: info.serverUrl,
+              token,
+              enableMicrophone: false,
+              enableCamera: wantedCamRef.current,
+            });
+            if (
+              disconnectingRef.current ||
+              roomRef.current !== activeRoom ||
+              callInfoRef.current !== info
+            )
+              return;
+            nativePublisherConnectedRef.current = status.connected;
+            setCamOn(status.connected && status.faceSwapEnabled);
+          })();
+          nativeRestorePromiseRef.current = restorePromise;
+          void restorePromise.then(
+            () => {
+              if (nativeRestorePromiseRef.current === restorePromise)
+                nativeRestorePromiseRef.current = null;
+            },
+            () => {
+              if (nativeRestorePromiseRef.current === restorePromise)
+                nativeRestorePromiseRef.current = null;
+            },
+          );
+        }
+        await nativeRestorePromiseRef.current;
+        return;
+      }
       if (micEnded)
         await activeRoom.localParticipant.setMicrophoneEnabled(false);
       if (cameraEnded)
-        await setParticipantCameraEnabled(
-          activeRoom.localParticipant,
-          false,
-        );
+        await setParticipantCameraEnabled(activeRoom.localParticipant, false);
       if (
         wantedMicRef.current &&
         (!activeRoom.localParticipant.isMicrophoneEnabled || micEnded)
@@ -628,20 +833,48 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         wantedCamRef.current &&
         (!activeRoom.localParticipant.isCameraEnabled || cameraEnded)
       ) {
-        await setParticipantCameraEnabled(
-          activeRoom.localParticipant,
-          true,
-        );
+        await setParticipantCameraEnabled(activeRoom.localParticipant, true);
       }
-    } catch {
+    } catch (error) {
+      if (info.localMediaMode === "face-swap") {
+        nativePublisherConnectedRef.current = false;
+        await nativeAmigoRoom.setFaceSwapEnabled(false).catch(() => undefined);
+        console.error("[FACE_SWAP_CALL] native publisher restore failed", error);
+      }
       toast.error(copy.mediaStopped, {
         id: "livekit-media-restore",
       });
     } finally {
       setMicOn(activeRoom.localParticipant.isMicrophoneEnabled);
-      setCamOn(activeRoom.localParticipant.isCameraEnabled);
+      setCamOn(
+        info.localMediaMode === "face-swap"
+          ? nativePublisherConnectedRef.current
+          : activeRoom.localParticipant.isCameraEnabled,
+      );
     }
   }, [copy]);
+
+  useEffect(() => {
+    restoreMediaRef.current = restoreMedia;
+    return () => {
+      restoreMediaRef.current = async () => undefined;
+    };
+  }, [restoreMedia]);
+
+  useEffect(() => {
+    if (
+      callInfo?.localMediaMode !== "face-swap" ||
+      !["connecting", "connected", "minimized", "reconnecting"].includes(
+        callState,
+      )
+    )
+      return;
+    const timer = window.setInterval(
+      () => void restoreMediaRef.current(),
+      10_000,
+    );
+    return () => window.clearInterval(timer);
+  }, [callInfo?.callId, callInfo?.localMediaMode, callState]);
 
   useEffect(() => {
     const resume = () => {
@@ -772,6 +1005,16 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const toggleCam = useCallback(async () => {
     const next = !camOn;
     wantedCamRef.current = next;
+    if (callInfoRef.current?.localMediaMode === "face-swap") {
+      try {
+        const status = await nativeAmigoRoom.setFaceSwapEnabled(next);
+        setCamOn(status.faceSwapEnabled);
+      } catch {
+        wantedCamRef.current = camOn;
+        toast.error(copy.cameraAccess);
+      }
+      return;
+    }
     const activeRoom = roomRef.current;
     if (!activeRoom) return;
     try {
@@ -786,6 +1029,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   }, [camOn, copy.cameraAccess]);
 
   const flipCamera = useCallback(async () => {
+    if (callInfoRef.current?.localMediaMode === "face-swap") return;
     const publication = roomRef.current?.localParticipant.getTrackPublication(
       Track.Source.Camera,
     );
@@ -802,8 +1046,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     Boolean(navigator.mediaDevices?.getDisplayMedia);
   const switchVideoSource = useCallback(
     async (source: Exclude<VideoSourceKind, "video-file">) => {
-      if (!can("canVideoSource"))
-        throw new Error(copy.noVideoSourcePermission);
+      if (!can("canVideoSource")) throw new Error(copy.noVideoSourcePermission);
       if (source === "screen-share" && !can("canScreenShare"))
         throw new Error(copy.noScreenSharePermission);
       if (source === "ai" && !can("canAIFace"))
@@ -836,7 +1079,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       wantedCamRef.current = true;
       setCamOn(true);
     },
-    [authorizeVideoSource, can, copy.noVideoFilePermission, copy.switchAfterConnect],
+    [
+      authorizeVideoSource,
+      can,
+      copy.noVideoFilePermission,
+      copy.switchAfterConnect,
+    ],
   );
   const pauseVideoFile = useCallback(async () => {
     await videoSourceManagerRef.current?.pauseVideoFile();
@@ -871,58 +1119,55 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     }
   }, [copy, screenShareOn, switchVideoSource]);
 
-  const waitForTransferReady = useCallback(async (timeoutMs = 15_000) => {
-    const activeRoom = roomRef.current;
-    const activeInfo = callInfoRef.current;
-    if (!activeRoom || !activeInfo) throw new Error(copy.callNotConnected);
-    const ready = () => {
-      const hasRemoteMedia = Array.from(
-        activeRoom.remoteParticipants.values(),
-      ).some((participant) =>
-        Array.from(participant.trackPublications.values()).some((publication) =>
-          Boolean(publication.track),
-        ),
-      );
-      const localMediaReady =
-        activeInfo.callType === "audio"
-          ? activeRoom.localParticipant.isMicrophoneEnabled
-          : activeRoom.localParticipant.isMicrophoneEnabled ||
-            activeRoom.localParticipant.isCameraEnabled;
-      return (
-        activeRoom.remoteParticipants.size > 0 &&
-        hasRemoteMedia &&
-        localMediaReady
-      );
-    };
-    if (ready()) return;
-    await new Promise<void>((resolve, reject) => {
-      const timeout = window.setTimeout(() => {
-        cleanup();
-        reject(new Error(copy.mediaReadyTimeout));
-      }, timeoutMs);
-      const check = () => {
-        if (ready()) {
+  const waitForTransferReady = useCallback(
+    async (timeoutMs = 15_000) => {
+      const activeRoom = roomRef.current;
+      const activeInfo = callInfoRef.current;
+      if (!activeRoom || !activeInfo) throw new Error(copy.callNotConnected);
+      const ready = () => {
+        const hasRemoteMedia = hasLogicalRemoteMedia(activeRoom, activeInfo);
+        const localMediaReady =
+          activeInfo.callType === "audio"
+            ? activeRoom.localParticipant.isMicrophoneEnabled
+            : activeRoom.localParticipant.isMicrophoneEnabled ||
+              activeRoom.localParticipant.isCameraEnabled;
+        return (
+          logicalRemoteParticipantCount(activeRoom, activeInfo) > 0 &&
+          hasRemoteMedia &&
+          localMediaReady
+        );
+      };
+      if (ready()) return;
+      await new Promise<void>((resolve, reject) => {
+        const timeout = window.setTimeout(() => {
           cleanup();
-          resolve();
-        }
-      };
-      const disconnected = () => {
-        cleanup();
-        reject(new Error(copy.disconnectedDuringTransfer));
-      };
-      const cleanup = () => {
-        window.clearTimeout(timeout);
-        activeRoom.off(RoomEvent.ParticipantConnected, check);
-        activeRoom.off(RoomEvent.TrackSubscribed, check);
-        activeRoom.off(RoomEvent.LocalTrackPublished, check);
-        activeRoom.off(RoomEvent.Disconnected, disconnected);
-      };
-      activeRoom.on(RoomEvent.ParticipantConnected, check);
-      activeRoom.on(RoomEvent.TrackSubscribed, check);
-      activeRoom.on(RoomEvent.LocalTrackPublished, check);
-      activeRoom.on(RoomEvent.Disconnected, disconnected);
-    });
-  }, [copy]);
+          reject(new Error(copy.mediaReadyTimeout));
+        }, timeoutMs);
+        const check = () => {
+          if (ready()) {
+            cleanup();
+            resolve();
+          }
+        };
+        const disconnected = () => {
+          cleanup();
+          reject(new Error(copy.disconnectedDuringTransfer));
+        };
+        const cleanup = () => {
+          window.clearTimeout(timeout);
+          activeRoom.off(RoomEvent.ParticipantConnected, check);
+          activeRoom.off(RoomEvent.TrackSubscribed, check);
+          activeRoom.off(RoomEvent.LocalTrackPublished, check);
+          activeRoom.off(RoomEvent.Disconnected, disconnected);
+        };
+        activeRoom.on(RoomEvent.ParticipantConnected, check);
+        activeRoom.on(RoomEvent.TrackSubscribed, check);
+        activeRoom.on(RoomEvent.LocalTrackPublished, check);
+        activeRoom.on(RoomEvent.Disconnected, disconnected);
+      });
+    },
+    [copy],
+  );
 
   const isActive = callState !== "idle";
   const isFullscreen =
@@ -1030,6 +1275,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
               callInfo?.mode === "p2p" && callInfo.callType === "video"
                 ? true
                 : showSelfPreview
+            }
+            localPublisherIdentity={
+              callInfo ? nativePublisherIdentity(callInfo) : undefined
+            }
+            remoteVideoIdentityPrefix={
+              callInfo?.remoteMediaMode === "face-swap"
+                ? faceSwapIdentityPrefix(callInfo.remoteCode)
+                : undefined
             }
           />
         </div>

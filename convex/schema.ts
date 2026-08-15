@@ -215,6 +215,9 @@ export default defineSchema({
     callId: v.string(),
     roomName: v.string(),
     type: v.union(v.literal("audio"), v.literal("video")),
+    callerMediaMode: v.optional(
+      v.union(v.literal("camera"), v.literal("face-swap")),
+    ),
     status: v.union(
       v.literal("ringing"),
       v.literal("accepted"),

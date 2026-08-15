@@ -793,7 +793,12 @@ function TransferButton({ compact }: { compact: boolean }) {
   const selectableResults = (searchResults ?? []).filter(
     (result) => result.code !== callInfo?.remoteCode,
   );
-  if (!callInfo?.callId) return null;
+  if (
+    !callInfo?.callId ||
+    callInfo.localMediaMode === "face-swap" ||
+    callInfo.remoteMediaMode === "face-swap"
+  )
+    return null;
   return (
     <>
       <button

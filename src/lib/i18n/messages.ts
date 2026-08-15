@@ -1464,6 +1464,8 @@ const callContextMessages = {
       "カメラを有効にできません。ブラウザでカメラ権限を許可し、カメラボタンでもう一度お試しください。",
     mediaStopped:
       "ブラウザがカメラまたはマイクを停止しました。通話コントロールから再度有効にしてください。",
+    nativeCameraDisconnectFailed:
+      "カメラ接続を完全に終了できませんでした。アプリを閉じてカメラを停止してください。",
     autoRestore: "ネットワークが切断されました。通話を自動復旧しています...",
     transferredTo: (name: string) => `通話は ${name} に転送されました`,
     remoteEnded: "相手が通話を終了しました",
@@ -1496,6 +1498,8 @@ const callContextMessages = {
     cameraPermission:
       "无法启用摄像头，请在浏览器中授予摄像头权限，然后点击摄像头按钮重试。",
     mediaStopped: "浏览器已停止摄像头或麦克风，请通过通话控制栏重新启用。",
+    nativeCameraDisconnectFailed:
+      "无法完全关闭摄像头连接，请关闭 App 以停止摄像头。",
     autoRestore: "网络已断开，正在自动恢复通话...",
     transferredTo: (name: string) => `通话已转接给 ${name}`,
     remoteEnded: "对方已结束通话",
@@ -1527,6 +1531,8 @@ const callContextMessages = {
     cameraPermission:
       "無法啟用攝影機，請在瀏覽器中授予攝影機權限，然後點擊攝影機按鈕重試。",
     mediaStopped: "瀏覽器已停止攝影機或麥克風，請透過通話控制列重新啟用。",
+    nativeCameraDisconnectFailed:
+      "無法完全關閉攝影機連線，請關閉 App 以停止攝影機。",
     autoRestore: "網路已中斷，正在自動恢復通話...",
     transferredTo: (name: string) => `通話已轉接給 ${name}`,
     remoteEnded: "對方已結束通話",
@@ -1559,6 +1565,8 @@ const callContextMessages = {
       "Unable to enable the camera. Allow camera access in the browser and try the camera button again.",
     mediaStopped:
       "The browser stopped the camera or microphone. Re-enable them from the call controls.",
+    nativeCameraDisconnectFailed:
+      "The camera connection could not be fully closed. Close the app to stop the camera.",
     autoRestore: "Network disconnected. Restoring the call automatically...",
     transferredTo: (name: string) => `Call transferred to ${name}`,
     remoteEnded: "The other party ended the call",

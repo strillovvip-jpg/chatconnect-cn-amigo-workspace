@@ -151,6 +151,45 @@ export const getInviteSessionForJoin = internalQuery({
   },
 });
 
+export const reserveGuestAdmission = internalMutation({
+  args: {
+    inviteId: v.string(),
+    proposedGuestIdentity: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const record = await ctx.db
+      .query("external_video_invites")
+      .withIndex("by_invite_id", (q) => q.eq("inviteId", args.inviteId.trim()))
+      .unique();
+    if (!record)
+      throw new ConvexError({
+        code: "NOT_FOUND",
+        message: "找不到该视讯邀请。",
+      });
+    const status = resolveStatus(record);
+    if (status === "ended" || status === "expired")
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "该视讯邀请已失效。",
+      });
+    if (record.guestJoinedAt)
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "该视讯邀请已被使用。",
+      });
+    if (record.guestIdentity) return record.guestIdentity;
+
+    const guestIdentity = args.proposedGuestIdentity.trim();
+    if (!guestIdentity.startsWith("guest-"))
+      throw new ConvexError({
+        code: "BAD_REQUEST",
+        message: "来宾身份格式无效。",
+      });
+    await ctx.db.patch(record._id, { guestIdentity });
+    return guestIdentity;
+  },
+});
+
 export const markGuestJoined = internalMutation({
   args: {
     inviteId: v.string(),
@@ -177,10 +216,14 @@ export const markGuestJoined = internalMutation({
         code: "FORBIDDEN",
         message: "该视讯邀请已被使用。",
       });
+    if (record.guestIdentity !== args.guestIdentity.trim())
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "来宾身份与本次邀请不符。",
+      });
     await ctx.db.patch(record._id, {
       status: "active",
       guestJoinedAt: Date.now(),
-      guestIdentity: args.guestIdentity.trim(),
     });
     return true;
   },

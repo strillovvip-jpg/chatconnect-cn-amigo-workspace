@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { convexTest } from "convex-test";
-import { RoomServiceClient } from "livekit-server-sdk";
+import { RoomServiceClient, TrackSource } from "livekit-server-sdk";
 import { makeFunctionReference } from "convex/server";
 import schema from "./schema";
 import { api } from "./_generated/api";
@@ -270,6 +270,11 @@ describe("external face-swap invite host credentials", () => {
       inviteId: created.inviteId,
       password: created.password,
     });
+    const concurrentJoin = await t.action(api.calls.joinFaceSwapInvite, {
+      inviteId: created.inviteId,
+      password: created.password,
+    });
+    expect(concurrentJoin.guestIdentity).toBe(join.guestIdentity);
 
     expect(
       await t.query(api.externalVideoInvites.getPublicInviteSession, {
@@ -301,12 +306,25 @@ describe("external face-swap invite host credentials", () => {
       available: true,
       guestJoined: false,
     });
+    const getParticipant = vi
+      .spyOn(RoomServiceClient.prototype, "getParticipant")
+      .mockResolvedValue({
+        identity: join.guestIdentity,
+        tracks: [
+          { source: TrackSource.CAMERA, muted: false },
+          { source: TrackSource.MICROPHONE, muted: false },
+        ],
+      } as never);
     await expect(
       t.action(confirmGuestJoin, {
         inviteId: created.inviteId,
         token: join.token,
       }),
     ).resolves.toEqual({ confirmed: true });
+    expect(getParticipant).toHaveBeenCalledWith(
+      created.roomName,
+      join.guestIdentity,
+    );
     expect(
       await t.query(api.externalVideoInvites.getPublicInviteSession, {
         inviteId: created.inviteId,

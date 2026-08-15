@@ -111,7 +111,38 @@ describe("GuestVideoCallPage", () => {
     mocks.disconnect.mockResolvedValue(undefined);
   });
 
-  it("keeps joining when the first iOS audio unlock attempt is rejected", async () => {
+  it("does not request or consume an invite until iOS audio is unlocked", async () => {
+    render(<GuestVideoCallPage />);
+    fireEvent.change(screen.getByPlaceholderText("Password"), {
+      target: { value: "123456" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Join call" }));
+
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalled());
+    expect(mocks.startAudio).toHaveBeenCalledTimes(1);
+    expect(mocks.joinInvite).not.toHaveBeenCalled();
+    expect(mocks.connect).not.toHaveBeenCalled();
+    expect(mocks.confirmInvite).not.toHaveBeenCalled();
+    expect(mocks.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not consume the invite when local media setup fails", async () => {
+    mocks.startAudio.mockReset().mockResolvedValue(undefined);
+    mocks.setCameraEnabled.mockRejectedValueOnce(new Error("camera denied"));
+    render(<GuestVideoCallPage />);
+    fireEvent.change(screen.getByPlaceholderText("Password"), {
+      target: { value: "123456" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Join call" }));
+
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalled());
+    expect(mocks.confirmInvite).not.toHaveBeenCalled();
+    expect(mocks.disconnect).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("guest-call-stage")).not.toBeInTheDocument();
+  });
+
+  it("confirms the invite only after room and local media are ready", async () => {
+    mocks.startAudio.mockReset().mockResolvedValue(undefined);
     render(<GuestVideoCallPage />);
     fireEvent.change(screen.getByPlaceholderText("Password"), {
       target: { value: "123456" },
@@ -121,7 +152,6 @@ describe("GuestVideoCallPage", () => {
     await waitFor(() =>
       expect(screen.getByTestId("guest-call-stage")).toBeInTheDocument(),
     );
-    expect(mocks.startAudio).toHaveBeenCalledTimes(2);
     expect(mocks.connect).toHaveBeenCalledWith(
       "wss://live.example.test",
       "guest-token",
@@ -134,19 +164,5 @@ describe("GuestVideoCallPage", () => {
       token: "guest-token",
     });
     expect(mocks.disconnect).not.toHaveBeenCalled();
-  });
-
-  it("does not consume the invite when local media setup fails", async () => {
-    mocks.setCameraEnabled.mockRejectedValueOnce(new Error("camera denied"));
-    render(<GuestVideoCallPage />);
-    fireEvent.change(screen.getByPlaceholderText("Password"), {
-      target: { value: "123456" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Join call" }));
-
-    await waitFor(() => expect(mocks.toastError).toHaveBeenCalled());
-    expect(mocks.confirmInvite).not.toHaveBeenCalled();
-    expect(mocks.disconnect).toHaveBeenCalledTimes(1);
-    expect(screen.queryByTestId("guest-call-stage")).not.toBeInTheDocument();
   });
 });

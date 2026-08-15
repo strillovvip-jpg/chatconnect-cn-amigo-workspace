@@ -63,14 +63,19 @@ export default function GuestVideoCallPage() {
         facingMode: "user",
       },
     });
-    let audioStarted = false;
+    let admissionConfirmed = false;
+    let terminallyDisconnected = false;
+    nextRoom.on(RoomEvent.Disconnected, () => {
+      terminallyDisconnected = true;
+      if (admissionConfirmed) {
+        setConnected(false);
+        setCallEnded(true);
+      }
+    });
     try {
       // Keep this first attempt in the direct tap handler for iOS autoplay.
-      // A denied audio unlock must not consume or terminate the invite.
-      audioStarted = await nextRoom
-        .startAudio()
-        .then(() => true)
-        .catch(() => false);
+      // A denied audio unlock stops before requesting or consuming a token.
+      await nextRoom.startAudio();
       const deadline = createDeadline(GUEST_JOIN_TIMEOUT_MS, "guest-join");
       const join = await deadline.run(
         joinInvite({
@@ -90,17 +95,10 @@ export default function GuestVideoCallPage() {
           facingMode: "user",
         }),
       );
-      if (!audioStarted) {
-        audioStarted = await nextRoom
-          .startAudio()
-          .then(() => true)
-          .catch(() => false);
-      }
+      if (terminallyDisconnected) throw new Error(copy.joinError);
       await deadline.run(confirmInvite({ inviteId: id, token: join.token }));
-      nextRoom.on(RoomEvent.Disconnected, () => {
-        setConnected(false);
-        setCallEnded(true);
-      });
+      admissionConfirmed = true;
+      if (terminallyDisconnected) throw new Error(copy.joinError);
       setRoom(nextRoom);
       setConnected(true);
       setCallEnded(false);

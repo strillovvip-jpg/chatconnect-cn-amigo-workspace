@@ -100,6 +100,12 @@ const markGuestJoined = makeFunctionReference<
   boolean
 >("externalVideoInvites:markGuestJoined");
 
+const reserveGuestAdmission = makeFunctionReference<
+  "mutation",
+  { inviteId: string; proposedGuestIdentity: string },
+  string
+>("externalVideoInvites:reserveGuestAdmission");
+
 const endInviteSession = makeFunctionReference<
   "mutation",
   { code: string; deviceId: string; inviteId: string },
@@ -472,7 +478,10 @@ export const joinFaceSwapInvite = action({
         message: "视讯密码错误。",
       });
 
-    const guestIdentity = `guest-${randomUUID()}`;
+    const guestIdentity = await ctx.runMutation(reserveGuestAdmission, {
+      inviteId: args.inviteId,
+      proposedGuestIdentity: `guest-${randomUUID()}`,
+    });
 
     const token = new AccessToken(apiKey, apiSecret, {
       identity: guestIdentity,
@@ -504,7 +513,7 @@ export const confirmFaceSwapInviteJoin = action({
     token: v.string(),
   },
   handler: async (ctx, args): Promise<{ confirmed: true }> => {
-    const { apiKey, apiSecret } = liveKitConfig();
+    const { apiUrl, apiKey, apiSecret } = liveKitConfig();
     const invite = await ctx.runQuery(getInviteSessionForJoin, {
       inviteId: args.inviteId,
     });
@@ -538,6 +547,40 @@ export const confirmFaceSwapInviteJoin = action({
       throw new ConvexError({
         code: "FORBIDDEN",
         message: "来宾通话凭证与本次邀请不符。",
+      });
+
+    if (invite.guestIdentity !== guestIdentity)
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "来宾身份与本次邀请不符。",
+      });
+
+    let participant: Awaited<ReturnType<RoomServiceClient["getParticipant"]>>;
+    try {
+      participant = await new RoomServiceClient(
+        apiUrl,
+        apiKey,
+        apiSecret,
+      ).getParticipant(invite.roomName, guestIdentity);
+    } catch {
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "来宾尚未成功加入通话，请重试。",
+      });
+    }
+    const activeSources = new Set(
+      participant.tracks
+        .filter((track) => !track.muted)
+        .map((track) => track.source),
+    );
+    if (
+      participant.identity !== guestIdentity ||
+      !activeSources.has(TrackSource.CAMERA) ||
+      !activeSources.has(TrackSource.MICROPHONE)
+    )
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "来宾摄像头或麦克风尚未就绪，请重试。",
       });
 
     await ctx.runMutation(markGuestJoined, {

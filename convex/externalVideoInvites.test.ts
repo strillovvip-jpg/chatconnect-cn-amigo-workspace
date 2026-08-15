@@ -154,6 +154,10 @@ describe("external video invites", () => {
       passwordSalt: "salt-3",
       expiresAt: Date.now() + 60_000,
     });
+    await t.mutation(internal.externalVideoInvites.reserveGuestAdmission, {
+      inviteId: "invite-3",
+      proposedGuestIdentity: "guest-invite-3",
+    });
     await t.mutation(internal.externalVideoInvites.markGuestJoined, {
       inviteId: "invite-3",
       guestIdentity: "guest-invite-3",

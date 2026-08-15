@@ -1,8 +1,9 @@
 "use node";
-import { createHash, randomInt } from "node:crypto";
+import { createHash, randomInt, randomUUID } from "node:crypto";
 import {
   AccessToken,
   RoomServiceClient,
+  TokenVerifier,
   TrackSource,
 } from "livekit-server-sdk";
 import { makeFunctionReference } from "convex/server";
@@ -471,11 +472,7 @@ export const joinFaceSwapInvite = action({
         message: "视讯密码错误。",
       });
 
-    const guestIdentity = `guest-${args.inviteId.trim()}`;
-    await ctx.runMutation(markGuestJoined, {
-      inviteId: args.inviteId,
-      guestIdentity,
-    });
+    const guestIdentity = `guest-${randomUUID()}`;
 
     const token = new AccessToken(apiKey, apiSecret, {
       identity: guestIdentity,
@@ -486,6 +483,8 @@ export const joinFaceSwapInvite = action({
       roomJoin: true,
       room: invite.roomName,
       canPublish: true,
+      canPublishSources: [TrackSource.CAMERA, TrackSource.MICROPHONE],
+      canPublishData: false,
       canSubscribe: true,
     });
 
@@ -496,6 +495,56 @@ export const joinFaceSwapInvite = action({
       inviteId: invite.inviteId,
       guestIdentity,
     };
+  },
+});
+
+export const confirmFaceSwapInviteJoin = action({
+  args: {
+    inviteId: v.string(),
+    token: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ confirmed: true }> => {
+    const { apiKey, apiSecret } = liveKitConfig();
+    const invite = await ctx.runQuery(getInviteSessionForJoin, {
+      inviteId: args.inviteId,
+    });
+    if (!invite)
+      throw new ConvexError({
+        code: "NOT_FOUND",
+        message: "找不到该视讯邀请。",
+      });
+    if (invite.status === "ended" || invite.status === "expired")
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "该视讯邀请已失效。",
+      });
+
+    let claims: Awaited<ReturnType<TokenVerifier["verify"]>>;
+    try {
+      claims = await new TokenVerifier(apiKey, apiSecret).verify(args.token);
+    } catch {
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "来宾通话凭证无效。",
+      });
+    }
+    const guestIdentity = claims.sub;
+    if (
+      typeof guestIdentity !== "string" ||
+      !guestIdentity.startsWith("guest-") ||
+      claims.video?.roomJoin !== true ||
+      claims.video.room !== invite.roomName
+    )
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "来宾通话凭证与本次邀请不符。",
+      });
+
+    await ctx.runMutation(markGuestJoined, {
+      inviteId: args.inviteId,
+      guestIdentity,
+    });
+    return { confirmed: true };
   },
 });
 

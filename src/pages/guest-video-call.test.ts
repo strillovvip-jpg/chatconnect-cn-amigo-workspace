@@ -10,14 +10,15 @@ const source = readFileSync(
 describe("GuestVideoCallPage join lifecycle", () => {
   it("applies one deadline to token issuance, room connection and media publication", () => {
     expect(source).toContain("createDeadline(GUEST_JOIN_TIMEOUT_MS");
-    expect(source).toContain("deadline.run(joinInvite(");
-    expect(source).toContain("deadline.run(nextRoom.connect(");
+    expect(source).toMatch(/deadline\.run\(\s*joinInvite\(/);
+    expect(source).toMatch(/deadline\.run\(\s*nextRoom\.connect\(/);
     expect(source).toContain(
       "deadline.run(nextRoom.localParticipant.setMicrophoneEnabled(true))",
     );
     expect(source).toContain(
       "deadline.run(\n        nextRoom.localParticipant.setCameraEnabled(true",
     );
+    expect(source).toMatch(/deadline\.run\(\s*confirmInvite\(/);
   });
 
   it("disconnects a partially joined room and reports a localized timeout", () => {

@@ -1,11 +1,16 @@
 import { ConvexError, v } from "convex/values";
-import { internalQuery, mutation, query } from "./_generated/server";
+import {
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+} from "./_generated/server";
 import { effectiveFeatures } from "./features";
 import { requireSession } from "./roles";
 
-export function canCreateExternalInvite(features: Awaited<
-  ReturnType<typeof effectiveFeatures>
->["features"]) {
+export function canCreateExternalInvite(
+  features: Awaited<ReturnType<typeof effectiveFeatures>>["features"],
+) {
   return (
     features.canVideoCall &&
     features.canVoiceCall &&
@@ -34,15 +39,13 @@ function resolveStatus(record: {
 }
 
 function publicInviteState(
-  record:
-    | {
-        inviteId: string;
-        status: "pending" | "active" | "ended" | "expired";
-        expiresAt: number;
-        guestJoinedAt?: number;
-        endedAt?: number;
-      }
-    | null,
+  record: {
+    inviteId: string;
+    status: "pending" | "active" | "ended" | "expired";
+    expiresAt: number;
+    guestJoinedAt?: number;
+    endedAt?: number;
+  } | null,
 ) {
   if (!record) return null;
   const status = resolveStatus(record);
@@ -148,7 +151,7 @@ export const getInviteSessionForJoin = internalQuery({
   },
 });
 
-export const markGuestJoined = mutation({
+export const markGuestJoined = internalMutation({
   args: {
     inviteId: v.string(),
     guestIdentity: v.string(),

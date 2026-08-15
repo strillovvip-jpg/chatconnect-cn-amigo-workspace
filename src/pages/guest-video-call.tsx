@@ -20,14 +20,13 @@ const GUEST_JOIN_TIMEOUT_MS = 60_000;
 const getPublicInviteSession = makeFunctionReference<
   "query",
   { inviteId: string },
-  | {
-      inviteId: string;
-      status: "pending" | "active" | "ended" | "expired";
-      requiresPassword: boolean;
-      available: boolean;
-      guestJoined: boolean;
-    }
-  | null
+  {
+    inviteId: string;
+    status: "pending" | "active" | "ended" | "expired";
+    requiresPassword: boolean;
+    available: boolean;
+    guestJoined: boolean;
+  } | null
 >("externalVideoInvites:getPublicInviteSession");
 
 export default function GuestVideoCallPage() {
@@ -35,7 +34,11 @@ export default function GuestVideoCallPage() {
   const copy = messages.guest;
   const { id = "" } = useParams<{ id: string }>();
   const joinInvite = useAction(api.calls.joinFaceSwapInvite);
-  const invite = useQuery(getPublicInviteSession, id ? { inviteId: id } : "skip");
+  const confirmInvite = useAction(api.calls.confirmFaceSwapInviteJoin);
+  const invite = useQuery(
+    getPublicInviteSession,
+    id ? { inviteId: id } : "skip",
+  );
   const [password, setPassword] = useState("");
   const [joining, setJoining] = useState(false);
   const [room, setRoom] = useState<Room | null>(null);
@@ -51,29 +54,35 @@ export default function GuestVideoCallPage() {
   const handleJoin = async () => {
     if (!id || !password.trim()) return;
     setJoining(true);
-    const deadline = createDeadline(GUEST_JOIN_TIMEOUT_MS, "guest-join");
-    let nextRoom: Room | null = null;
+    setCallEnded(false);
+    const nextRoom = new Room({
+      adaptiveStream: false,
+      dynacast: true,
+      videoCaptureDefaults: {
+        resolution: { width: 1280, height: 720, frameRate: 24 },
+        facingMode: "user",
+      },
+    });
+    let audioStarted = false;
     try {
-      const join = await deadline.run(joinInvite({
-        inviteId: id,
-        password: password.trim(),
-      }));
-      nextRoom = new Room({
-        adaptiveStream: false,
-        dynacast: true,
-        videoCaptureDefaults: {
-          resolution: { width: 1280, height: 720, frameRate: 24 },
-          facingMode: "user",
-        },
-      });
-      nextRoom.on(RoomEvent.Disconnected, () => {
-        setConnected(false);
-        setCallEnded(true);
-      });
-      await deadline.run(nextRoom.connect(join.serverUrl, join.token, {
-        autoSubscribe: true,
-      }));
-      await deadline.run(nextRoom.startAudio());
+      // Keep this first attempt in the direct tap handler for iOS autoplay.
+      // A denied audio unlock must not consume or terminate the invite.
+      audioStarted = await nextRoom
+        .startAudio()
+        .then(() => true)
+        .catch(() => false);
+      const deadline = createDeadline(GUEST_JOIN_TIMEOUT_MS, "guest-join");
+      const join = await deadline.run(
+        joinInvite({
+          inviteId: id,
+          password: password.trim(),
+        }),
+      );
+      await deadline.run(
+        nextRoom.connect(join.serverUrl, join.token, {
+          autoSubscribe: true,
+        }),
+      );
       await deadline.run(nextRoom.localParticipant.setMicrophoneEnabled(true));
       await deadline.run(
         nextRoom.localParticipant.setCameraEnabled(true, {
@@ -81,6 +90,17 @@ export default function GuestVideoCallPage() {
           facingMode: "user",
         }),
       );
+      if (!audioStarted) {
+        audioStarted = await nextRoom
+          .startAudio()
+          .then(() => true)
+          .catch(() => false);
+      }
+      await deadline.run(confirmInvite({ inviteId: id, token: join.token }));
+      nextRoom.on(RoomEvent.Disconnected, () => {
+        setConnected(false);
+        setCallEnded(true);
+      });
       setRoom(nextRoom);
       setConnected(true);
       setCallEnded(false);
@@ -125,7 +145,9 @@ export default function GuestVideoCallPage() {
                 <Video size={20} />
               </div>
               <div>
-                <h1 className="text-xl font-semibold">{copy.enterPasswordTitle}</h1>
+                <h1 className="text-xl font-semibold">
+                  {copy.enterPasswordTitle}
+                </h1>
                 <p className="mt-1 text-sm text-white/55">
                   {copy.enterPasswordBody}
                 </p>
@@ -144,7 +166,9 @@ export default function GuestVideoCallPage() {
               />
               <button
                 type="button"
-                disabled={joining || !password.trim() || invite?.available === false}
+                disabled={
+                  joining || !password.trim() || invite?.available === false
+                }
                 onClick={() => void handleJoin()}
                 className="w-full rounded-2xl bg-red-500 px-4 py-3 text-base font-semibold disabled:opacity-50"
               >

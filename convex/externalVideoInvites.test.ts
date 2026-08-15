@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "./schema";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 
 const modules = import.meta.glob("./**/*.*s");
 
@@ -154,7 +154,7 @@ describe("external video invites", () => {
       passwordSalt: "salt-3",
       expiresAt: Date.now() + 60_000,
     });
-    await t.mutation(api.externalVideoInvites.markGuestJoined, {
+    await t.mutation(internal.externalVideoInvites.markGuestJoined, {
       inviteId: "invite-3",
       guestIdentity: "guest-invite-3",
     });
@@ -169,7 +169,7 @@ describe("external video invites", () => {
       guestJoined: true,
     });
     await expect(
-      t.mutation(api.externalVideoInvites.markGuestJoined, {
+      t.mutation(internal.externalVideoInvites.markGuestJoined, {
         inviteId: "invite-3",
         guestIdentity: "guest-invite-3b",
       }),

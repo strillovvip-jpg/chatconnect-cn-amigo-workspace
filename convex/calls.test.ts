@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { convexTest } from "convex-test";
 import { RoomServiceClient } from "livekit-server-sdk";
+import { makeFunctionReference } from "convex/server";
 import schema from "./schema";
 import { api } from "./_generated/api";
 
@@ -228,5 +229,98 @@ describe("external face-swap invite host credentials", () => {
       canPublish: false,
       canSubscribe: true,
     });
+  });
+
+  test("consumes the invite only after the guest confirms a connected room", async () => {
+    vi.spyOn(RoomServiceClient.prototype, "createRoom").mockResolvedValue(
+      {} as never,
+    );
+    vi.spyOn(RoomServiceClient.prototype, "deleteRoom").mockResolvedValue(
+      undefined as never,
+    );
+    const t = convexTest({ schema, modules });
+    await t.run(async (ctx) => {
+      const profileId = await ctx.db.insert("license_profiles", {
+        name: "Full",
+        features: fullFeatures,
+        createdBy: "AAAAA",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      await ctx.db.insert("auth_codes", {
+        code: "AAAAA",
+        deviceId: "device-a",
+        name: "Caller A",
+        usedAt: new Date().toISOString(),
+      });
+      await ctx.db.insert("allowed_codes", {
+        code: "AAAAA",
+        role: "user",
+        enabled: true,
+        licenseProfileId: profileId,
+      });
+    });
+
+    const created = await t.action(api.calls.createFaceSwapInvite, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      origin: "capacitor://localhost",
+    });
+    const join = await t.action(api.calls.joinFaceSwapInvite, {
+      inviteId: created.inviteId,
+      password: created.password,
+    });
+
+    expect(
+      await t.query(api.externalVideoInvites.getPublicInviteSession, {
+        inviteId: created.inviteId,
+      }),
+    ).toMatchObject({
+      status: "pending",
+      available: true,
+      guestJoined: false,
+    });
+
+    const confirmGuestJoin = makeFunctionReference<
+      "action",
+      { inviteId: string; token: string },
+      { confirmed: true }
+    >("calls:confirmFaceSwapInviteJoin");
+    await expect(
+      t.action(confirmGuestJoin, {
+        inviteId: created.inviteId,
+        token: `${join.token}tampered`,
+      }),
+    ).rejects.toThrow("来宾通话凭证无效");
+    expect(
+      await t.query(api.externalVideoInvites.getPublicInviteSession, {
+        inviteId: created.inviteId,
+      }),
+    ).toMatchObject({
+      status: "pending",
+      available: true,
+      guestJoined: false,
+    });
+    await expect(
+      t.action(confirmGuestJoin, {
+        inviteId: created.inviteId,
+        token: join.token,
+      }),
+    ).resolves.toEqual({ confirmed: true });
+    expect(
+      await t.query(api.externalVideoInvites.getPublicInviteSession, {
+        inviteId: created.inviteId,
+      }),
+    ).toMatchObject({
+      status: "active",
+      available: false,
+      guestJoined: true,
+    });
+    await expect(
+      t.action(api.calls.joinFaceSwapInvite, {
+        inviteId: created.inviteId,
+        password: created.password,
+      }),
+    ).rejects.toThrow("该视讯邀请已被使用");
   });
 });

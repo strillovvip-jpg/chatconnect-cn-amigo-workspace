@@ -22,6 +22,7 @@ __pycache__
 *.local
 .eslintcache
 tsconfig.tsbuildinfo
+.worktrees/
 
 # Editor directories and files
 .vscode/*

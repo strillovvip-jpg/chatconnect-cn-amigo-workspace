@@ -1,10 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAction } from "convex/react";
-import { Copy, Share2, Video, X } from "lucide-react";
+import { ArrowLeft, Copy, PhoneOff, Share2, Video, X } from "lucide-react";
+import { Room, RoomEvent } from "livekit-client";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api.js";
+import { LiveKitStage } from "@/components/livekit-stage";
 import { useI18n } from "@/lib/i18n";
-import { nativeAmigoRoom } from "@/lib/amigo/native-room";
+import {
+  disconnectNativePublisherWithRetry,
+  nativeAmigoRoom,
+} from "@/lib/amigo/native-room";
 import { uiErrorMessage } from "@/lib/utils";
 import { OVERLAY_LAYERS } from "@/lib/ui/overlay-layers";
 import { SavedFaceValidationError } from "@/lib/amigo/saved-face";
@@ -20,6 +25,8 @@ type CreatedInvite = {
   serverUrl: string;
   operatorToken: string;
   operatorIdentity: string;
+  operatorViewerToken: string;
+  operatorViewerIdentity: string;
 };
 
 type FaceErrorCopy = {
@@ -43,6 +50,7 @@ type FaceSwapCallCreationStage =
   | "enable-native-face-swap"
   | "create-room-invite-token"
   | "connect-native-room"
+  | "connect-host-viewer-room"
   | "livekit-room-connect"
   | "microphone-publish"
   | "processed-video-publish"
@@ -88,6 +96,16 @@ export function FaceSwapInviteModal({
   const [creating, setCreating] = useState(false);
   const [ending, setEnding] = useState(false);
   const [invite, setInvite] = useState<CreatedInvite | null>(null);
+  const [viewerRoom, setViewerRoom] = useState<Room | null>(null);
+  const [showRoom, setShowRoom] = useState(false);
+  const endingRef = useRef(false);
+
+  useEffect(
+    () => () => {
+      void viewerRoom?.disconnect();
+    },
+    [viewerRoom],
+  );
 
   useEffect(() => {
     if (!open || !nativeAmigoRoom.isAvailable) {
@@ -115,6 +133,7 @@ export function FaceSwapInviteModal({
       toast.error(copy.uploadFaceFirst);
       return;
     }
+    endingRef.current = false;
     setCreating(true);
     try {
       const permissions = await runFaceSwapCallCreationStep(
@@ -163,6 +182,8 @@ export function FaceSwapInviteModal({
             origin: window.location.origin,
           }),
       );
+      let nextViewerRoom: Room | null = null;
+      let monitorUnexpectedDisconnect = false;
       try {
         const connectedStatus = await runFaceSwapCallCreationStep(
           "connect-native-room",
@@ -189,9 +210,68 @@ export function FaceSwapInviteModal({
           roomUrl: connectedStatus.roomUrl,
           pipeline: connectedStatus.pipeline,
         });
+        nextViewerRoom = new Room({
+          adaptiveStream: false,
+          dynacast: true,
+        });
+        nextViewerRoom.on(RoomEvent.Disconnected, () => {
+          if (!monitorUnexpectedDisconnect || endingRef.current) return;
+          endingRef.current = true;
+          setEnding(true);
+          setShowRoom(false);
+          setViewerRoom((activeRoom) =>
+            activeRoom === nextViewerRoom ? null : activeRoom,
+          );
+          toast.error(copy.hostConnectionLost);
+          void (async () => {
+            await disconnectNativePublisherWithRetry().catch((error) => {
+              console.error(
+                "[FaceSwap:viewer] native fail-closed disconnect failed",
+                error,
+              );
+            });
+            try {
+              await endInvite({
+                code: userCode,
+                deviceId,
+                inviteId: created.inviteId,
+              });
+              setInvite((activeInvite) =>
+                activeInvite?.inviteId === created.inviteId
+                  ? null
+                  : activeInvite,
+              );
+              onClose();
+            } catch (error) {
+              console.error(
+                "[FaceSwap:viewer] failed to invalidate disconnected invite",
+                error,
+              );
+              toast.error(uiErrorMessage(error, copy.endFailed));
+            } finally {
+              setEnding(false);
+              endingRef.current = false;
+            }
+          })();
+        });
+        await runFaceSwapCallCreationStep(
+          "connect-host-viewer-room",
+          async () => {
+            await nextViewerRoom!.connect(
+              created.serverUrl,
+              created.operatorViewerToken,
+              { autoSubscribe: true },
+            );
+            return { connected: true };
+          },
+        );
+        monitorUnexpectedDisconnect = true;
+        setViewerRoom(nextViewerRoom);
       } catch (error) {
+        monitorUnexpectedDisconnect = false;
+        await nextViewerRoom?.disconnect().catch(() => undefined);
         await nativeAmigoRoom.setFaceSwapEnabled(false).catch(() => undefined);
-        await nativeAmigoRoom.disconnect().catch(() => undefined);
+        await disconnectNativePublisherWithRetry().catch(() => undefined);
         await rollbackFaceSwapInvite(() =>
           endInvite({
             code: userCode,
@@ -260,20 +340,46 @@ export function FaceSwapInviteModal({
     }
   };
 
+  const handleEnterRoom = async () => {
+    if (!viewerRoom) return;
+    try {
+      // Keep this call inside the user's direct click handler so iOS allows
+      // remote audio playback under its autoplay policy.
+      await viewerRoom.startAudio();
+      setShowRoom(true);
+    } catch (error) {
+      console.error("[FaceSwap:viewer] remote audio start failed", error);
+      toast.error(uiErrorMessage(error, copy.hostAudioStartFailed));
+    }
+  };
+
   const handleEnd = async () => {
     if (creating || ending) return;
     if (!invite) {
       onClose();
       return;
     }
+    endingRef.current = true;
     setEnding(true);
+    setShowRoom(false);
+    setViewerRoom(null);
+    // Stop local camera/microphone first. A backend/network failure must never
+    // leave the native processed stream publishing after the user taps End.
+    const disconnectResults = await Promise.allSettled([
+      viewerRoom?.disconnect(),
+      disconnectNativePublisherWithRetry(),
+    ]);
+    for (const result of disconnectResults) {
+      if (result.status === "rejected") {
+        console.error("[FaceSwap:end] local disconnect failed", result.reason);
+      }
+    }
     try {
       await endInvite({
         code: userCode,
         deviceId,
         inviteId: invite.inviteId,
       });
-      await nativeAmigoRoom.disconnect().catch(() => undefined);
       setInvite(null);
       toast.success(copy.ended);
       onClose();
@@ -281,8 +387,52 @@ export function FaceSwapInviteModal({
       toast.error(uiErrorMessage(error, copy.endFailed));
     } finally {
       setEnding(false);
+      endingRef.current = false;
     }
   };
+
+  if (invite && viewerRoom && showRoom) {
+    return (
+      <div
+        className="fixed inset-0 flex min-h-[100dvh] flex-col bg-black text-white"
+        style={{ zIndex: OVERLAY_LAYERS.featureModal }}
+      >
+        <header className="flex items-center justify-between gap-3 border-b border-white/10 px-4 pb-3 pt-[max(0.75rem,var(--app-safe-area-top))]">
+          <button
+            type="button"
+            onClick={() => setShowRoom(false)}
+            className="flex items-center gap-2 rounded-full bg-white/10 px-3 py-2 text-sm font-medium"
+          >
+            <ArrowLeft size={16} />
+            {copy.backToInvite}
+          </button>
+          <div className="min-w-0 text-center">
+            <div className="truncate text-sm font-semibold">
+              {copy.hostRoomTitle}
+            </div>
+            <div className="text-xs text-white/55">{copy.waitingGuest}</div>
+          </div>
+          <button
+            type="button"
+            disabled={ending}
+            onClick={() => void handleEnd()}
+            className="flex items-center gap-2 rounded-full bg-red-600 px-3 py-2 text-sm font-semibold disabled:opacity-50"
+          >
+            <PhoneOff size={15} />
+            {ending ? copy.endBusy : copy.endIdle}
+          </button>
+        </header>
+        <div className="min-h-0 flex-1 pb-[var(--app-safe-area-bottom)]">
+          <LiveKitStage
+            room={viewerRoom}
+            mode="p2p"
+            showSelfPreview
+            localPublisherIdentity={invite.operatorIdentity}
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -376,6 +526,16 @@ export function FaceSwapInviteModal({
                 {copy.copyPassword}
               </button>
             </div>
+
+            <button
+              type="button"
+              disabled={!viewerRoom}
+              onClick={() => void handleEnterRoom()}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold disabled:opacity-50"
+            >
+              <Video size={16} />
+              {copy.enterRoom}
+            </button>
 
             <button
               type="button"

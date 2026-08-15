@@ -10,10 +10,39 @@ const mocks = vi.hoisted(() => ({
   nativeSetFaceSwapEnabled: vi.fn(),
   nativeConnect: vi.fn(),
   nativeDisconnect: vi.fn(),
+  viewerConnect: vi.fn(),
+  viewerStartAudio: vi.fn(),
+  viewerDisconnect: vi.fn(),
+  viewerOn: vi.fn(),
   onFaceReadyChange: vi.fn(),
   onClose: vi.fn(),
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
+}));
+
+vi.mock("livekit-client", () => ({
+  Room: class {
+    remoteParticipants = new Map();
+    localParticipant = { identity: "operator-viewer-1" };
+    connect = mocks.viewerConnect;
+    startAudio = mocks.viewerStartAudio;
+    disconnect = mocks.viewerDisconnect;
+    on = mocks.viewerOn;
+  },
+  RoomEvent: { Disconnected: "disconnected" },
+}));
+
+vi.mock("@/components/livekit-stage", () => ({
+  LiveKitStage: ({
+    localPublisherIdentity,
+  }: {
+    localPublisherIdentity?: string;
+  }) => (
+    <div
+      data-testid="host-call-stage"
+      data-publisher={localPublisherIdentity}
+    />
+  ),
 }));
 
 vi.mock("convex/react", () => ({
@@ -26,6 +55,7 @@ vi.mock("sonner", () => ({
 }));
 
 vi.mock("@/lib/amigo/native-room", () => ({
+  disconnectNativePublisherWithRetry: mocks.nativeDisconnect,
   nativeAmigoRoom: {
     isAvailable: true,
     getStatus: mocks.nativeGetStatus,
@@ -78,6 +108,12 @@ vi.mock("@/lib/i18n", () => ({
         copyPassword: "Copy password",
         endBusy: "Ending...",
         endIdle: "End call",
+        enterRoom: "Enter call",
+        backToInvite: "Back to invite",
+        hostRoomTitle: "Private call",
+        waitingGuest: "Waiting for guest",
+        hostAudioStartFailed: "Tap again to enable call audio.",
+        hostConnectionLost: "The call viewer disconnected.",
         linkLabel: "link",
         passwordLabel: "password",
       },
@@ -146,6 +182,9 @@ describe("FaceSwapInviteModal", () => {
       faceSwapEnabled: true,
       pipeline: "native-livekit",
     });
+    mocks.viewerConnect.mockResolvedValue(undefined);
+    mocks.viewerStartAudio.mockResolvedValue(undefined);
+    mocks.viewerDisconnect.mockResolvedValue(undefined);
     mocks.endInvite.mockResolvedValue({ ended: true });
     mocks.createInvite.mockResolvedValue({
       inviteId: "invite-1",
@@ -155,6 +194,8 @@ describe("FaceSwapInviteModal", () => {
       serverUrl: "wss://live.example.test",
       operatorToken: "token-1",
       operatorIdentity: "operator-1",
+      operatorViewerToken: "viewer-token-1",
+      operatorViewerIdentity: "operator-viewer-1",
     });
   });
 
@@ -202,9 +243,97 @@ describe("FaceSwapInviteModal", () => {
       enableMicrophone: true,
       enableCamera: true,
     });
+    expect(mocks.viewerConnect).toHaveBeenCalledWith(
+      "wss://live.example.test",
+      "viewer-token-1",
+      { autoSubscribe: true },
+    );
+    expect(mocks.viewerStartAudio).not.toHaveBeenCalled();
+    expect(mocks.nativeConnect.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.viewerConnect.mock.invocationCallOrder[0],
+    );
     expect(
       screen.getByText("https://example.test/video_call/invite-1"),
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Enter call" }),
+    ).toBeInTheDocument();
+  });
+
+  it("opens a host call stage that hides the viewer identity and previews the processed publisher", async () => {
+    renderModal(true);
+    await waitFor(() =>
+      expect(mocks.onFaceReadyChange).toHaveBeenCalledWith(true),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create call" }));
+    await screen.findByRole("button", { name: "Enter call" });
+    fireEvent.click(screen.getByRole("button", { name: "Enter call" }));
+
+    await waitFor(() =>
+      expect(mocks.viewerStartAudio).toHaveBeenCalledTimes(1),
+    );
+    expect(await screen.findByTestId("host-call-stage")).toHaveAttribute(
+      "data-publisher",
+      "operator-1",
+    );
+    expect(
+      screen.getByRole("button", { name: "Back to invite" }),
+    ).toBeInTheDocument();
+  });
+
+  it("rolls everything back if the host viewer cannot join", async () => {
+    mocks.viewerConnect.mockRejectedValue(new Error("viewer connect failed"));
+    renderModal(true);
+    await waitFor(() =>
+      expect(mocks.onFaceReadyChange).toHaveBeenCalledWith(true),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create call" }));
+
+    await waitFor(() => expect(mocks.endInvite).toHaveBeenCalledTimes(1));
+    expect(mocks.viewerDisconnect).toHaveBeenCalled();
+    expect(mocks.nativeDisconnect).toHaveBeenCalled();
+    expect(
+      screen.queryByText("https://example.test/video_call/invite-1"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("stops both local connections even when backend ending fails", async () => {
+    renderModal(true);
+    await waitFor(() =>
+      expect(mocks.onFaceReadyChange).toHaveBeenCalledWith(true),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Create call" }));
+    await screen.findByRole("button", { name: "Enter call" });
+    mocks.endInvite.mockRejectedValue(new Error("backend unavailable"));
+
+    fireEvent.click(screen.getByRole("button", { name: "End call" }));
+
+    await waitFor(() => expect(mocks.viewerDisconnect).toHaveBeenCalled());
+    expect(mocks.nativeDisconnect).toHaveBeenCalled();
+  });
+
+  it("fails closed when the host viewer disconnects unexpectedly", async () => {
+    renderModal(true);
+    await waitFor(() =>
+      expect(mocks.onFaceReadyChange).toHaveBeenCalledWith(true),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Create call" }));
+    await screen.findByRole("button", { name: "Enter call" });
+    const disconnected = mocks.viewerOn.mock.calls.find(
+      ([event]) => event === "disconnected",
+    )?.[1] as (() => void) | undefined;
+    expect(disconnected).toEqual(expect.any(Function));
+
+    disconnected?.();
+
+    await waitFor(() => expect(mocks.nativeDisconnect).toHaveBeenCalled());
+    expect(mocks.endInvite).toHaveBeenCalledWith({
+      code: "QQAUF",
+      deviceId: "device-1",
+      inviteId: "invite-1",
+    });
   });
 
   it("refuses the call if native memory no longer contains the enrolled face", async () => {

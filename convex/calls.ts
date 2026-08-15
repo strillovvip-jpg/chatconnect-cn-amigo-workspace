@@ -76,22 +76,21 @@ const prepareInviteSession = makeFunctionReference<
 const getInviteSessionForJoin = makeFunctionReference<
   "query",
   { inviteId: string },
-  | {
-      _id: string;
-      inviteId: string;
-      roomName: string;
-      operatorCode: string;
-      operatorName: string;
-      operatorIdentity: string;
-      passwordHash: string;
-      passwordSalt: string;
-      status: "pending" | "active" | "ended" | "expired";
-      expiresAt: number;
-      endedAt?: number;
-      guestJoinedAt?: number;
-      guestIdentity?: string;
-    }
-  | null
+  {
+    _id: string;
+    inviteId: string;
+    roomName: string;
+    operatorCode: string;
+    operatorName: string;
+    operatorIdentity: string;
+    passwordHash: string;
+    passwordSalt: string;
+    status: "pending" | "active" | "ended" | "expired";
+    expiresAt: number;
+    endedAt?: number;
+    guestJoinedAt?: number;
+    guestIdentity?: string;
+  } | null
 >("externalVideoInvites:getInviteSessionForJoin");
 
 const markGuestJoined = makeFunctionReference<
@@ -348,11 +347,16 @@ export const createFaceSwapInvite = action({
     serverUrl: string;
     operatorToken: string;
     operatorIdentity: string;
+    operatorViewerToken: string;
+    operatorViewerIdentity: string;
   }> => {
     const { serverUrl, apiUrl, apiKey, apiSecret } = liveKitConfig();
     const inviteId = crypto.randomUUID();
     const roomName = `guest-${inviteId}`;
-    const operatorIdentity = `${args.code.trim().toUpperCase()}-host-${crypto.randomUUID()}`;
+    // LiveKit participant metadata is visible to every participant in the room.
+    // Never put the operator's authorization code in an identity or display name.
+    const operatorIdentity = `host-publisher-${crypto.randomUUID()}`;
+    const operatorViewerIdentity = `host-viewer-${crypto.randomUUID()}`;
     const password = createInvitePassword();
     const passwordSalt = crypto.randomUUID();
     const passwordHash = sha256Hex(`${passwordSalt}:${password}`);
@@ -361,7 +365,9 @@ export const createFaceSwapInvite = action({
 
     await roomService.createRoom({
       name: roomName,
-      maxParticipants: 2,
+      // One native publisher, one browser viewer for the operator, and one guest.
+      // Guest token issuance remains one-time, so this does not permit a second guest.
+      maxParticipants: 3,
       emptyTimeout: 300,
       departureTimeout: 0,
     });
@@ -384,14 +390,28 @@ export const createFaceSwapInvite = action({
 
     const token = new AccessToken(apiKey, apiSecret, {
       identity: operatorIdentity,
-      name: args.code.trim().toUpperCase(),
+      name: "Host",
       ttl: "30m",
     });
     token.addGrant({
       roomJoin: true,
       room: roomName,
       canPublish: true,
+      canSubscribe: false,
+      canPublishData: false,
+      canPublishSources: [TrackSource.CAMERA, TrackSource.MICROPHONE],
+    });
+    const viewerToken = new AccessToken(apiKey, apiSecret, {
+      identity: operatorViewerIdentity,
+      name: "Host Viewer",
+      ttl: "30m",
+    });
+    viewerToken.addGrant({
+      roomJoin: true,
+      room: roomName,
+      canPublish: false,
       canSubscribe: true,
+      canPublishData: false,
     });
 
     return {
@@ -402,6 +422,8 @@ export const createFaceSwapInvite = action({
       serverUrl,
       operatorToken: await token.toJwt(),
       operatorIdentity,
+      operatorViewerToken: await viewerToken.toJwt(),
+      operatorViewerIdentity,
     };
   },
 });
@@ -440,7 +462,9 @@ export const joinFaceSwapInvite = action({
         code: "FORBIDDEN",
         message: "该视讯邀请已被使用。",
       });
-    const suppliedHash = sha256Hex(`${invite.passwordSalt}:${args.password.trim()}`);
+    const suppliedHash = sha256Hex(
+      `${invite.passwordSalt}:${args.password.trim()}`,
+    );
     if (suppliedHash !== invite.passwordHash)
       throw new ConvexError({
         code: "FORBIDDEN",

@@ -122,6 +122,12 @@ export type Messages = {
     copyPassword: string;
     endBusy: string;
     endIdle: string;
+    enterRoom: string;
+    backToInvite: string;
+    hostRoomTitle: string;
+    waitingGuest: string;
+    hostAudioStartFailed: string;
+    hostConnectionLost: string;
     linkLabel: string;
     passwordLabel: string;
     manageFaces: string;
@@ -2244,6 +2250,12 @@ export const messages: Record<AppLocale, Messages> = {
       copyPassword: "パスワードをコピー",
       endBusy: "終了中...",
       endIdle: "通話を終了",
+      enterRoom: "通話画面を開く",
+      backToInvite: "招待情報へ戻る",
+      hostRoomTitle: "1 対 1 通話",
+      waitingGuest: "相手の参加を待っています",
+      hostAudioStartFailed: "通話音声を開始できません。もう一度タップしてください。",
+      hostConnectionLost: "通話画面の接続が切れたため、安全のため通話を終了します。",
       linkLabel: "リンク",
       passwordLabel: "パスワード",
     },
@@ -2472,6 +2484,12 @@ export const messages: Record<AppLocale, Messages> = {
       copyPassword: "复制密码",
       endBusy: "结束中...",
       endIdle: "结束通话",
+      enterRoom: "进入聊天室",
+      backToInvite: "返回邀请信息",
+      hostRoomTitle: "一对一视讯",
+      waitingGuest: "正在等待对方加入",
+      hostAudioStartFailed: "无法开启通话声音，请再次点击。",
+      hostConnectionLost: "聊天室连接已中断，系统正在安全结束通话。",
       linkLabel: "链接",
       passwordLabel: "密码",
     },
@@ -2699,6 +2717,12 @@ export const messages: Record<AppLocale, Messages> = {
       copyPassword: "複製密碼",
       endBusy: "結束中...",
       endIdle: "結束通話",
+      enterRoom: "進入聊天室",
+      backToInvite: "返回邀請資訊",
+      hostRoomTitle: "一對一視訊",
+      waitingGuest: "正在等待對方加入",
+      hostAudioStartFailed: "無法開啟通話聲音，請再次點擊。",
+      hostConnectionLost: "聊天室連線已中斷，系統正在安全結束通話。",
       linkLabel: "連結",
       passwordLabel: "密碼",
     },
@@ -2927,6 +2951,12 @@ export const messages: Record<AppLocale, Messages> = {
       copyPassword: "Copy password",
       endBusy: "Ending...",
       endIdle: "End call",
+      enterRoom: "Enter call",
+      backToInvite: "Back to invite",
+      hostRoomTitle: "One-to-one call",
+      waitingGuest: "Waiting for the other person",
+      hostAudioStartFailed: "Unable to start call audio. Tap again to retry.",
+      hostConnectionLost: "The call viewer disconnected, so the call is being ended safely.",
       linkLabel: "link",
       passwordLabel: "password",
     },

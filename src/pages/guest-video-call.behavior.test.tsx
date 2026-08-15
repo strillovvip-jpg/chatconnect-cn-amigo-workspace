@@ -194,6 +194,23 @@ describe("GuestVideoCallPage", () => {
     expect(mocks.disconnect).not.toHaveBeenCalled();
   });
 
+  it("gives the connected call a definite dynamic viewport height on iPhone Safari", async () => {
+    mocks.startAudio.mockReset().mockResolvedValue(undefined);
+    render(<GuestVideoCallPage />);
+    fireEvent.change(screen.getByPlaceholderText("Password"), {
+      target: { value: "123456" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Join call" }));
+
+    const stage = await screen.findByTestId("guest-call-stage");
+    const mediaRegion = stage.parentElement;
+    const connectedViewport = mediaRegion?.parentElement;
+
+    expect(connectedViewport).toHaveClass("h-[100dvh]", "overflow-hidden");
+    expect(connectedViewport).not.toHaveClass("min-h-[100dvh]");
+    expect(mediaRegion).toHaveClass("min-h-0", "flex-1", "overflow-hidden");
+  });
+
   it("stops every acquired media track when room publication fails", async () => {
     mocks.startAudio.mockReset().mockResolvedValue(undefined);
     mocks.publishTrack.mockRejectedValueOnce(new Error("publish failed"));

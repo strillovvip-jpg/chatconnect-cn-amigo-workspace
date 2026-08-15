@@ -213,7 +213,7 @@ export default function GuestVideoCallPage() {
           </div>
         </div>
       ) : (
-        <div className="flex min-h-[100dvh] flex-col">
+        <div className="flex h-[100dvh] flex-col overflow-hidden">
           <div className="flex items-center justify-between border-b border-white/10 px-4 py-4">
             <div>
               <div className="text-sm font-semibold">{copy.oneToOneTitle}</div>
@@ -228,7 +228,7 @@ export default function GuestVideoCallPage() {
               {copy.end}
             </button>
           </div>
-          <div className="min-h-0 flex-1">
+          <div className="min-h-0 flex-1 overflow-hidden">
             {room && (
               <LiveKitStage
                 room={room}

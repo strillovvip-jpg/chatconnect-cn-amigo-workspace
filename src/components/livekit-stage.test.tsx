@@ -189,5 +189,55 @@ describe("LiveKitStage native publisher filtering", () => {
     expect(remoteTile).toBeInTheDocument();
     expect(remoteTile?.style.left).toBe("");
     expect(remoteTile?.style.top).toBe("");
+    const remoteTileWrapper = remoteTile?.parentElement;
+    expect(remoteTileWrapper).toBeInTheDocument();
+    expect(remoteTileWrapper?.style.left).toBe("");
+    expect(remoteTileWrapper?.style.top).toBe("");
+  });
+
+  it("does not produce negative coordinates when the stage is smaller than the preview", () => {
+    const remote = participant("callee", "Callee");
+    const room = {
+      remoteParticipants: new Map([[remote.identity, remote]]),
+      localParticipant: participant("guest", "Guest"),
+      startAudio: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
+      off: vi.fn(),
+    };
+
+    render(<LiveKitStage room={room as never} mode="p2p" showSelfPreview />);
+
+    const preview = screen.getByTestId("self-preview");
+    const stage = preview.parentElement;
+    if (!stage) throw new Error("Expected self preview stage parent");
+    Object.defineProperty(stage, "getBoundingClientRect", {
+      value: () => ({
+        left: 0,
+        top: 0,
+        width: 80,
+        height: 100,
+        right: 80,
+        bottom: 100,
+      }),
+    });
+    Object.defineProperty(preview, "getBoundingClientRect", {
+      value: () => ({
+        left: 0,
+        top: 0,
+        width: 100,
+        height: 150,
+        right: 100,
+        bottom: 150,
+      }),
+    });
+
+    fireEvent.pointerDown(preview, { pointerId: 8, clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(preview, {
+      pointerId: 8,
+      clientX: 20,
+      clientY: 20,
+    });
+
+    expect(preview).toHaveStyle({ left: "0px", top: "0px" });
   });
 });

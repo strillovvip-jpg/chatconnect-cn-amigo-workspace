@@ -139,12 +139,12 @@ function DraggableSelfPreview({
       x: clamp(
         drag.startX + event.clientX - drag.startClientX,
         0,
-        stageRect.width - previewRect.width,
+        Math.max(0, stageRect.width - previewRect.width),
       ),
       y: clamp(
         drag.startY + event.clientY - drag.startClientY,
         0,
-        stageRect.height - previewRect.height,
+        Math.max(0, stageRect.height - previewRect.height),
       ),
     });
   };

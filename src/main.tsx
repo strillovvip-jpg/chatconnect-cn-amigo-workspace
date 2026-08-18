@@ -1,5 +1,6 @@
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
+import { AppErrorBoundary } from "./components/app-error-boundary.tsx";
 import { messages, resolveLocaleFromNavigator } from "./lib/i18n";
 
 function renderFatal(message: string) {
@@ -19,25 +20,19 @@ function renderFatal(message: string) {
 }
 
 window.addEventListener("error", (event) => {
-  const message = event.error?.message || event.message || "Unknown error";
   console.error("ChatConnect fatal error", event.error || event.message);
-  renderFatal(message);
 });
 
 window.addEventListener("unhandledrejection", (event) => {
-  const reason = event.reason;
-  const message =
-    reason instanceof Error
-      ? reason.message
-      : typeof reason === "string"
-        ? reason
-        : JSON.stringify(reason) || messages[resolveLocaleFromNavigator()].app.genericError;
-  console.error("ChatConnect unhandled rejection", reason);
-  renderFatal(message || "Unhandled promise rejection");
+  console.error("ChatConnect unhandled rejection", event.reason);
 });
 
 try {
-  createRoot(document.getElementById("root")!).render(<App />);
+  createRoot(document.getElementById("root")!).render(
+    <AppErrorBoundary>
+      <App />
+    </AppErrorBoundary>,
+  );
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
   console.error("ChatConnect bootstrap error", error);

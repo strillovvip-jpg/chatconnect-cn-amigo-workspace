@@ -453,17 +453,18 @@ export function FaceSwapInviteModal({
     }
   };
 
-  const handleEnterRoom = async () => {
+  const handleEnterRoom = () => {
     if (!viewerRoom) return;
-    try {
-      // Keep this call inside the user's direct click handler so iOS allows
-      // remote audio playback under its autoplay policy.
-      await viewerRoom.startAudio();
-      setShowRoom(true);
-    } catch (error) {
+    // Keep this call inside the user's direct click handler so iOS allows
+    // remote audio playback under its autoplay policy. Do not make entering
+    // the room depend on this promise: WKWebView can leave startAudio pending
+    // even though the already-connected room is ready to render.
+    const audioStart = viewerRoom.startAudio();
+    setShowRoom(true);
+    void audioStart.catch((error) => {
       console.error("[FaceSwap:viewer] remote audio start failed", error);
       toast.error(uiErrorMessage(error, copy.hostAudioStartFailed));
-    }
+    });
   };
 
   const handleEnd = async () => {
@@ -642,7 +643,7 @@ export function FaceSwapInviteModal({
             <button
               type="button"
               disabled={!viewerRoom}
-              onClick={() => void handleEnterRoom()}
+              onClick={handleEnterRoom}
               className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold disabled:opacity-50"
             >
               <Video size={16} />

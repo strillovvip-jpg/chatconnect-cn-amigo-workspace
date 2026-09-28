@@ -321,6 +321,20 @@ describe("FaceSwapInviteModal", () => {
     ).toBeInTheDocument();
   });
 
+  it("opens the host call stage even when iOS audio activation remains pending", async () => {
+    mocks.viewerStartAudio.mockReturnValue(new Promise(() => undefined));
+    renderModal(true);
+    await waitFor(() =>
+      expect(mocks.onFaceReadyChange).toHaveBeenCalledWith(true),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create call" }));
+    await screen.findByRole("button", { name: "Enter call" });
+    fireEvent.click(screen.getByRole("button", { name: "Enter call" }));
+
+    expect(await screen.findByTestId("host-call-stage")).toBeInTheDocument();
+  });
+
   it("rolls everything back if the host viewer cannot join", async () => {
     mocks.viewerConnect.mockRejectedValue(new Error("viewer connect failed"));
     renderModal(true);

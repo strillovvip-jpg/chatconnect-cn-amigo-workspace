@@ -90,10 +90,6 @@ export function FaceSettingsModal({
         LOCAL_STEP_TIMEOUT_MS,
         "decode-face-photo",
       );
-      // Amigo's first initialization downloads a large encrypted model. Do
-      // not wrap this native operation in a non-cancelling Promise timeout:
-      // that previously let enrollment finish in the background after the UI
-      // had already reported failure, leaving JS and native state divergent.
       const enrolled = await amigoFaceSwap.enrollFaceFile(faceFile);
       if (!enrolled)
         throw new SavedFaceValidationError(
@@ -303,6 +299,7 @@ function faceSettingsErrorMessage(
   if (
     error.code.startsWith("SDK_") ||
     error.code === "FACE_NOT_DETECTED" ||
+    error.code === "FACE_ENROLL_TIMEOUT" ||
     error.code === "FACE_ENROLL_FAILED"
   ) {
     return `[${error.code}] ${error instanceof Error ? error.message : copy.photoErrorEnroll}`;

@@ -24,3 +24,36 @@ test("model download diagnostics are throttled instead of writing every callback
     /let bucket = min\(100, max\(0, Int\(progress \* 100\)\)\) \/ 5 \* 5/,
   );
 });
+
+test("native initialization and enrollment settle each Capacitor call exactly once after a watchdog timeout", () => {
+  assert.match(plugin, /private final class AmigoPluginCallSettlement/);
+  assert.match(plugin, /private static let initializationTimeoutNanoseconds/);
+  assert.match(plugin, /private static let enrollmentTimeoutNanoseconds/);
+  assert.match(plugin, /private var initializationGeneration = 0/);
+  assert.match(
+    plugin,
+    /guard requestGeneration == self\.initializationGeneration else \{[\s\S]{0,600}self\.didInitialize = true/,
+  );
+  assert.match(
+    plugin,
+    /self\.initializationGeneration \+= 1[\s\S]{0,300}self\.initializationTask = nil[\s\S]{0,300}task\.cancel\(\)/,
+  );
+  assert.match(plugin, /mappedCode=SDK_INITIALIZATION_TIMEOUT/);
+  assert.match(plugin, /code: "SDK_INITIALIZATION_TIMEOUT"/);
+  assert.match(plugin, /mappedCode=FACE_ENROLL_TIMEOUT/);
+  assert.match(plugin, /code: "FACE_ENROLL_TIMEOUT"/);
+  assert.match(plugin, /operationTask\.cancel\(\)/);
+  assert.match(
+    plugin,
+    /let sdkTask = Task\.detached\(priority: \.userInitiated\)/,
+  );
+  assert.match(
+    plugin,
+    /Task\.detached\(priority: \.userInitiated\)[\s\S]{0,500}primeVisionCPUContext[\s\S]{0,500}AmigoFaceSwap\.enrollFace/,
+  );
+  assert.match(plugin, /sdkTask\.cancel\(\)/);
+  assert.match(
+    plugin,
+    /guard settlement\.claim\(\) else \{[\s\S]{0,300}lateCompletionIgnored/,
+  );
+});

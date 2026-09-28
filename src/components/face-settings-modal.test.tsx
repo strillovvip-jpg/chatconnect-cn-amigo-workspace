@@ -251,11 +251,23 @@ describe("FaceSettingsModal", () => {
     }
   });
 
-  it("shows native model-download progress without falsely timing out an active enrollment", async () => {
+  it("leaves the busy state and shows the original code when native enrollment times out", async () => {
     vi.useFakeTimers();
     try {
       mocks.enrollFaceFile.mockImplementation(
-        () => new Promise(() => undefined),
+        () =>
+          new Promise((_, reject) => {
+            setTimeout(
+              () =>
+                reject(
+                  Object.assign(
+                    new Error("Native face enrollment did not finish in time."),
+                    { code: "FACE_ENROLL_TIMEOUT" },
+                  ),
+                ),
+              105_000,
+            );
+          }),
       );
       const { container, unmount } = render(
         <FaceSettingsModal
@@ -284,11 +296,16 @@ describe("FaceSettingsModal", () => {
       );
 
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(180_000);
+        await vi.advanceTimersByTimeAsync(105_000);
       });
-      expect(mocks.toastError).not.toHaveBeenCalled();
+      await vi.waitFor(() =>
+        expect(mocks.toastError).toHaveBeenCalledWith(
+          "[FACE_ENROLL_TIMEOUT] Native face enrollment did not finish in time.",
+        ),
+      );
       expect(mocks.generateUploadUrl).not.toHaveBeenCalled();
       expect(mocks.onReadyChange).toHaveBeenLastCalledWith(false);
+      expect(screen.getByRole("button", { name: "Enable face" })).toBeEnabled();
       unmount();
     } finally {
       vi.useRealTimers();

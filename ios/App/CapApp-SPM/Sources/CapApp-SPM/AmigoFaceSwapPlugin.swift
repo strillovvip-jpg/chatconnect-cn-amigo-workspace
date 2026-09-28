@@ -256,6 +256,22 @@ private final class AmigoInitializationProgressLogger: @unchecked Sendable {
     }
 }
 
+/// Coordinates the SDK operation and its watchdog so a Capacitor promise is
+/// resolved or rejected exactly once, even when the vendor task completes
+/// after the timeout.
+private final class AmigoPluginCallSettlement: @unchecked Sendable {
+    private let lock = NSLock()
+    private var settled = false
+
+    func claim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !settled else { return false }
+        settled = true
+        return true
+    }
+}
+
 /**
  * Native bridge for the Amigo Face Swap iOS SDK.
  *
@@ -270,6 +286,8 @@ private final class AmigoInitializationProgressLogger: @unchecked Sendable {
  */
 @objc(AmigoFaceSwapPlugin)
 public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
+    private static let initializationTimeoutNanoseconds: UInt64 = 300_000_000_000
+    private static let enrollmentTimeoutNanoseconds: UInt64 = 90_000_000_000
     public let identifier = "AmigoFaceSwapPlugin"
     public let jsName = "AmigoFaceSwap"
     public let pluginMethods: [CAPPluginMethod] = [
@@ -289,6 +307,7 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
     private var didInitialize = false
     private let initializationStateLock = NSLock()
     private var initializationTask: Task<Void, Error>?
+    private var initializationGeneration = 0
     private var didLogFirstProcessedFrame = false
     private let enrollmentStateLock = NSLock()
     private var enrollmentGeneration = 0
@@ -436,10 +455,12 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
 
         let task: Task<Void, Error>
         let reusedTask: Bool
+        let requestGeneration: Int
         initializationStateLock.lock()
         if let activeTask = initializationTask {
             task = activeTask
             reusedTask = true
+            requestGeneration = initializationGeneration
         } else {
             let progressLogger = AmigoInitializationProgressLogger { [weak self] percent in
                 DispatchQueue.main.async {
@@ -455,13 +476,18 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
                 }
             }
             initializationTask = task
+            initializationGeneration += 1
+            requestGeneration = initializationGeneration
             reusedTask = false
         }
         initializationStateLock.unlock()
 
+        let settlement = AmigoPluginCallSettlement()
         Task { @MainActor [weak self] in
             guard let self else {
-                call.reject("The native image processor plugin was released.", "SDK_PLUGIN_RELEASED")
+                if settlement.claim() {
+                    call.reject("The native image processor plugin was released.", "SDK_PLUGIN_RELEASED")
+                }
                 return
             }
             AmigoSDKDiagnostics.record(
@@ -469,7 +495,23 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
             )
             do {
                 try await task.value
+                guard settlement.claim() else {
+                    AmigoSDKDiagnostics.record(
+                        "[AmigoSDK] stage=initialize result=lateCompletionIgnored outcome=success generation=\(requestGeneration)"
+                    )
+                    return
+                }
                 self.initializationStateLock.lock()
+                guard requestGeneration == self.initializationGeneration else {
+                    self.initializationStateLock.unlock()
+                    self.reject(
+                        call,
+                        stage: "initialize",
+                        code: "SDK_INITIALIZATION_SUPERSEDED",
+                        message: "A newer initialization attempt replaced this request."
+                    )
+                    return
+                }
                 self.didInitialize = true
                 self.initializationTask = nil
                 self.initializationStateLock.unlock()
@@ -478,12 +520,56 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
                 )
                 call.resolve(["initialized": true, "reused": reusedTask])
             } catch {
+                guard settlement.claim() else {
+                    AmigoSDKDiagnostics.record(
+                        "[AmigoSDK] stage=initialize result=lateCompletionIgnored outcome=error generation=\(requestGeneration)"
+                    )
+                    return
+                }
                 self.initializationStateLock.lock()
+                guard requestGeneration == self.initializationGeneration else {
+                    self.initializationStateLock.unlock()
+                    self.reject(
+                        call,
+                        stage: "initialize",
+                        code: "SDK_INITIALIZATION_SUPERSEDED",
+                        message: "A newer initialization attempt replaced this request."
+                    )
+                    return
+                }
                 self.didInitialize = false
                 self.initializationTask = nil
                 self.initializationStateLock.unlock()
                 self.rejectSDKError(call, stage: "initialize", error: error)
             }
+        }
+        Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: Self.initializationTimeoutNanoseconds)
+            } catch {
+                return
+            }
+            guard let self, settlement.claim() else { return }
+            self.initializationStateLock.lock()
+            let ownsGeneration = requestGeneration == self.initializationGeneration
+            if ownsGeneration {
+                self.initializationGeneration += 1
+                self.initializationTask = nil
+                self.didInitialize = false
+            }
+            self.initializationStateLock.unlock()
+            if ownsGeneration {
+                task.cancel()
+            }
+            AmigoSDKDiagnostics.record(
+                "[AmigoSDK] stage=initialize result=error mappedCode=SDK_INITIALIZATION_TIMEOUT generation=\(requestGeneration)"
+            )
+            self.reject(
+                call,
+                stage: "initialize",
+                code: "SDK_INITIALIZATION_TIMEOUT",
+                message: "The native image processor did not finish initializing in time."
+            )
         }
     }
 
@@ -623,9 +709,18 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
         enrollmentGeneration += 1
         let requestGeneration = enrollmentGeneration
         enrollmentStateLock.unlock()
-        Task { @MainActor [weak self] in
+        let settlement = AmigoPluginCallSettlement()
+        let sdkTask = Task.detached(priority: .userInitiated) {
+            // Keep Vision and the vendor's asynchronous inference path off the
+            // main actor so the independent watchdog can always fire.
+            Self.primeVisionCPUContext(for: decodedImage)
+            return try await AmigoFaceSwap.enrollFace(from: decodedImage)
+        }
+        let operationTask = Task { @MainActor [weak self] in
             guard let self else {
-                call.reject("The native image processor plugin was released.", "SDK_PLUGIN_RELEASED")
+                if settlement.claim() {
+                    call.reject("The native image processor plugin was released.", "SDK_PLUGIN_RELEASED")
+                }
                 return
             }
             AmigoSDKDiagnostics.record("[AmigoSDK] stage=enrollFace result=started")
@@ -633,14 +728,25 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
             do {
                 // Official Amigo flow: decoded UIImage -> FaceLatent. The
                 // error is intentionally returned unchanged to JavaScript.
-                Self.primeVisionCPUContext(for: decodedImage)
-                latent = try await AmigoFaceSwap.enrollFace(from: decodedImage)
+                latent = try await sdkTask.value
             } catch {
+                guard settlement.claim() else {
+                    AmigoSDKDiagnostics.record(
+                        "[AmigoSDK] stage=enrollFace result=lateCompletionIgnored outcome=error generation=\(requestGeneration)"
+                    )
+                    return
+                }
                 self.rejectSDKError(
                     call,
                     stage: "enroll",
                     error: error,
                     details: imageDetails
+                )
+                return
+            }
+            guard settlement.claim() else {
+                AmigoSDKDiagnostics.record(
+                    "[AmigoSDK] stage=enrollFace result=lateCompletionIgnored outcome=success generation=\(requestGeneration)"
                 )
                 return
             }
@@ -714,6 +820,31 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
                 verifier.start()
             }
             #endif
+        }
+        Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: Self.enrollmentTimeoutNanoseconds)
+            } catch {
+                return
+            }
+            guard let self, settlement.claim() else { return }
+            self.enrollmentStateLock.lock()
+            if requestGeneration == self.enrollmentGeneration {
+                self.enrollmentGeneration += 1
+            }
+            self.enrollmentStateLock.unlock()
+            sdkTask.cancel()
+            operationTask.cancel()
+            AmigoSDKDiagnostics.record(
+                "[AmigoSDK] stage=enrollFace result=error mappedCode=FACE_ENROLL_TIMEOUT generation=\(requestGeneration)"
+            )
+            self.reject(
+                call,
+                stage: "enroll",
+                code: "FACE_ENROLL_TIMEOUT",
+                message: "Native face enrollment did not finish in time.",
+                details: imageDetails
+            )
         }
     }
 

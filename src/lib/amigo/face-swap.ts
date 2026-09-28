@@ -1,6 +1,8 @@
 import { amigoBridge, type AmigoInitializationProgress } from "./bridge.ts";
 
 const MODEL_DOWNLOAD_RETRY_DELAYS_MS = [1_000, 3_000, 8_000] as const;
+const NATIVE_INITIALIZATION_TIMEOUT_MS = 330_000;
+const NATIVE_ENROLLMENT_TIMEOUT_MS = 105_000;
 
 export type FaceSwapStage = "initialize" | "read" | "decode" | "enroll";
 
@@ -8,6 +10,7 @@ export type FaceSwapErrorCode =
   | "NATIVE_BRIDGE_UNAVAILABLE"
   | "SDK_API_KEY_MISSING"
   | "SDK_NOT_INITIALIZED"
+  | "SDK_INITIALIZATION_TIMEOUT"
   | "SDK_INITIALIZATION_FAILED"
   | "SDK_AUTHORIZATION_FAILED"
   | "SDK_INVALID_API_KEY"
@@ -91,7 +94,15 @@ export class AmigoFaceSwapService {
   private async doInitialize(): Promise<void> {
     for (let attempt = 0; ; attempt += 1) {
       try {
-        await amigoBridge.initialize();
+        await withFaceSwapTimeout(
+          amigoBridge.initialize(),
+          NATIVE_INITIALIZATION_TIMEOUT_MS,
+          new FaceSwapError(
+            "SDK_INITIALIZATION_TIMEOUT",
+            "initialize",
+            "The native image processor did not finish initializing in time.",
+          ),
+        );
         break;
       } catch (error) {
         const normalized = normalizeFaceSwapError(
@@ -198,7 +209,15 @@ export class AmigoFaceSwapService {
     allowInitializationRecovery: boolean,
   ): Promise<boolean> {
     try {
-      const result = await amigoBridge.enrollFace(imageData);
+      const result = await withFaceSwapTimeout(
+        amigoBridge.enrollFace(imageData),
+        NATIVE_ENROLLMENT_TIMEOUT_MS,
+        new FaceSwapError(
+          "FACE_ENROLL_TIMEOUT",
+          "enroll",
+          "Native face enrollment did not finish in time.",
+        ),
+      );
       const ready =
         result.success === true &&
         result.enrolled === true &&
@@ -299,6 +318,20 @@ function wait(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+function withFaceSwapTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  timeoutError: FaceSwapError,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(timeoutError), timeoutMs);
+  });
+  return Promise.race([promise, deadline]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
+}
+
 function normalizeFaceSwapError(
   error: unknown,
   fallbackCode: FaceSwapErrorCode,
@@ -340,6 +373,7 @@ function isFaceSwapErrorCode(value: unknown): value is FaceSwapErrorCode {
     "NATIVE_BRIDGE_UNAVAILABLE",
     "SDK_API_KEY_MISSING",
     "SDK_NOT_INITIALIZED",
+    "SDK_INITIALIZATION_TIMEOUT",
     "SDK_INITIALIZATION_FAILED",
     "SDK_AUTHORIZATION_FAILED",
     "SDK_INVALID_API_KEY",

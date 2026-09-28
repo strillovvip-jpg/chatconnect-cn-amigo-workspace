@@ -162,6 +162,30 @@ describe("AmigoFaceSwapService", () => {
     expect(service.isInitialized).toBe(true);
   });
 
+  it("times out a native initialization that never settles and allows a retry", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.initialize
+        .mockImplementationOnce(() => new Promise(() => undefined))
+        .mockResolvedValueOnce(undefined);
+      const service = new AmigoFaceSwapService();
+
+      const firstInitialization = service.initialize();
+      const firstResult = expect(firstInitialization).rejects.toMatchObject({
+        code: "SDK_INITIALIZATION_TIMEOUT",
+        stage: "initialize",
+      });
+      await vi.advanceTimersByTimeAsync(330_000);
+      await firstResult;
+
+      await expect(service.initialize()).resolves.toBeUndefined();
+      expect(mocks.initialize).toHaveBeenCalledTimes(2);
+      expect(service.isInitialized).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("automatically retries one interrupted model download without clearing its cache", async () => {
     vi.useFakeTimers();
     try {
@@ -352,5 +376,39 @@ describe("AmigoFaceSwapService", () => {
 
     expect(mocks.enrollFace).toHaveBeenCalledTimes(2);
     expect(service.hasTargetFace).toBe(true);
+  });
+
+  it("times out a stuck enrollment so the serialized queue can try the next photo", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.enrollFace
+        .mockImplementationOnce(() => new Promise(() => undefined))
+        .mockResolvedValueOnce({
+          success: true,
+          enrolled: true,
+          hasTargetFace: true,
+        });
+      const service = new AmigoFaceSwapService();
+      const first = service.enrollFaceFile(
+        new File(["first"], "first.jpeg", { type: "image/jpeg" }),
+      );
+      const firstResult = expect(first).rejects.toMatchObject({
+        code: "FACE_ENROLL_TIMEOUT",
+        stage: "enroll",
+      });
+      const second = service.enrollFaceFile(
+        new File(["second"], "second.jpeg", { type: "image/jpeg" }),
+      );
+      await vi.waitFor(() => expect(mocks.enrollFace).toHaveBeenCalledTimes(1));
+
+      await vi.advanceTimersByTimeAsync(105_000);
+      await firstResult;
+      await expect(second).resolves.toBe(true);
+
+      expect(mocks.enrollFace).toHaveBeenCalledTimes(2);
+      expect(service.hasTargetFace).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

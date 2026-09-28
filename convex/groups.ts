@@ -6,8 +6,14 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
-import { requireSession } from "./roles";
+import { assertSameTenant, requireSession, tenantIdForAllowed } from "./roles";
 import { internal } from "./_generated/api";
+import {
+  assertCodeInTenant,
+  codeIsInTenant,
+  requireGroupTenant,
+  tenantIdForGroup,
+} from "./tenantBoundaries";
 
 const MAX_GROUP_MEMBERS = 20;
 const authArgs = { code: v.string(), deviceId: v.string() };
@@ -15,12 +21,20 @@ const authArgs = { code: v.string(), deviceId: v.string() };
 async function activeMember(
   ctx: QueryCtx | MutationCtx,
   groupId: Id<"chat_groups">,
-  userId: string,
+  auth: {
+    code: string;
+    allowed?: { companyId?: string } | null;
+  },
 ) {
+  const { group, tenantId } = await requireGroupTenant(
+    ctx,
+    groupId,
+    auth.allowed,
+  );
   const member = await ctx.db
     .query("chat_group_members")
     .withIndex("by_group_user", (q) =>
-      q.eq("groupId", groupId).eq("userId", userId),
+      q.eq("groupId", groupId).eq("userId", auth.code),
     )
     .unique();
   if (!member || member.status !== "active")
@@ -28,10 +42,14 @@ async function activeMember(
       code: "FORBIDDEN",
       message: "没有权限执行此操作。",
     });
-  return member;
+  return { group, member, tenantId };
 }
 
-async function manageableTarget(ctx: QueryCtx | MutationCtx, code: string) {
+async function manageableTarget(
+  ctx: QueryCtx | MutationCtx,
+  code: string,
+  requesterAllowed?: { companyId?: string } | null,
+) {
   const normalized = code.trim().toUpperCase();
   const user = await ctx.db
     .query("auth_codes")
@@ -39,6 +57,11 @@ async function manageableTarget(ctx: QueryCtx | MutationCtx, code: string) {
     .unique();
   if (!user)
     throw new ConvexError({ code: "NOT_FOUND", message: "此授权码不可用。" });
+  const allowed = await ctx.db
+    .query("allowed_codes")
+    .withIndex("by_code", (q) => q.eq("code", normalized))
+    .unique();
+  assertSameTenant(requesterAllowed, allowed);
   return user;
 }
 
@@ -46,7 +69,7 @@ export const generateUploadUrl = mutation({
   args: { ...authArgs, groupId: v.id("chat_groups") },
   handler: async (ctx, args) => {
     const auth = await requireSession(ctx, args.code, args.deviceId);
-    await activeMember(ctx, args.groupId, auth.code);
+    await activeMember(ctx, args.groupId, auth);
     return await ctx.storage.generateUploadUrl();
   },
 });
@@ -60,7 +83,7 @@ export const updateGroup = mutation({
   },
   handler: async (ctx, args) => {
     const auth = await requireSession(ctx, args.code, args.deviceId);
-    const actor = await activeMember(ctx, args.groupId, auth.code);
+    const { member: actor } = await activeMember(ctx, args.groupId, auth);
     if (actor.role === "member")
       throw new ConvexError({
         code: "FORBIDDEN",
@@ -106,12 +129,13 @@ export const create = mutation({
         code: "LIMIT",
         message: `群组最多可有 ${MAX_GROUP_MEMBERS} 人。`,
       });
-    for (const code of codes) await manageableTarget(ctx, code);
+    for (const code of codes) await manageableTarget(ctx, code, auth.allowed);
     const now = Date.now();
     const groupId = await ctx.db.insert("chat_groups", {
       name,
       avatar: args.avatar,
       ownerUserId: auth.code,
+      tenantId: tenantIdForAllowed(auth.allowed),
       maxMembers: MAX_GROUP_MEMBERS,
       status: "active",
       createdAt: now,
@@ -177,6 +201,8 @@ export const listMine = query({
     for (const membership of memberships) {
       const group = await ctx.db.get(membership.groupId);
       if (!group || group.status !== "active") continue;
+      const tenantId = await tenantIdForGroup(ctx, group);
+      if (tenantId !== tenantIdForAllowed(auth.allowed)) continue;
       const members = await ctx.db
         .query("chat_group_members")
         .withIndex("by_group", (q) => q.eq("groupId", group._id))
@@ -197,7 +223,15 @@ export const listMine = query({
       results.push({
         ...group,
         myRole: membership.role,
-        memberCount: members.filter((m) => m.status === "active").length,
+        memberCount: (
+          await Promise.all(
+            members
+              .filter((member) => member.status === "active")
+              .map(async (member) =>
+                codeIsInTenant(ctx, member.userId, tenantId),
+              ),
+          )
+        ).filter(Boolean).length,
         activeCall,
       });
     }
@@ -209,9 +243,8 @@ export const get = query({
   args: { ...authArgs, groupId: v.id("chat_groups") },
   handler: async (ctx, args) => {
     const auth = await requireSession(ctx, args.code, args.deviceId);
-    await activeMember(ctx, args.groupId, auth.code);
-    const group = await ctx.db.get(args.groupId);
-    if (!group || group.status !== "active")
+    const { group, tenantId } = await activeMember(ctx, args.groupId, auth);
+    if (group.status !== "active")
       throw new ConvexError({ code: "NOT_FOUND", message: "找不到群组。" });
     const memberships = await ctx.db
       .query("chat_group_members")
@@ -219,6 +252,7 @@ export const get = query({
       .collect();
     const members = [];
     for (const membership of memberships.filter((m) => m.status === "active")) {
+      if (!(await codeIsInTenant(ctx, membership.userId, tenantId))) continue;
       const user = await ctx.db
         .query("auth_codes")
         .withIndex("by_code", (q) => q.eq("code", membership.userId))
@@ -237,7 +271,17 @@ export const get = query({
           .withIndex("by_call", (q) => q.eq("groupCallId", activeCall._id))
           .collect()
       : [];
-    return { group, members, activeCall, callParticipants };
+    const visibleCallParticipants = [];
+    for (const participant of callParticipants) {
+      if (await codeIsInTenant(ctx, participant.userId, tenantId))
+        visibleCallParticipants.push(participant);
+    }
+    return {
+      group,
+      members,
+      activeCall,
+      callParticipants: visibleCallParticipants,
+    };
   },
 });
 
@@ -245,13 +289,17 @@ export const addMember = mutation({
   args: { ...authArgs, groupId: v.id("chat_groups"), targetCode: v.string() },
   handler: async (ctx, args) => {
     const auth = await requireSession(ctx, args.code, args.deviceId);
-    const actor = await activeMember(ctx, args.groupId, auth.code);
+    const { group, member: actor } = await activeMember(
+      ctx,
+      args.groupId,
+      auth,
+    );
     if (actor.role === "member")
       throw new ConvexError({
         code: "FORBIDDEN",
         message: "只有群主或管理员可以添加成员。",
       });
-    const target = await manageableTarget(ctx, args.targetCode);
+    const target = await manageableTarget(ctx, args.targetCode, auth.allowed);
     const members = await ctx.db
       .query("chat_group_members")
       .withIndex("by_group", (q) => q.eq("groupId", args.groupId))
@@ -283,7 +331,6 @@ export const addMember = mutation({
         joinedAt: Date.now(),
         status: "active",
       });
-    const group = await ctx.db.get(args.groupId);
     await ctx.db.insert("notifications", {
       notificationId: crypto.randomUUID(),
       userId: target.code,
@@ -331,17 +378,29 @@ export const updateMember = mutation({
   },
   handler: async (ctx, args) => {
     const auth = await requireSession(ctx, args.code, args.deviceId);
-    const actor = await activeMember(ctx, args.groupId, auth.code);
+    const { member: actor, tenantId } = await activeMember(
+      ctx,
+      args.groupId,
+      auth,
+    );
     if (actor.role !== "owner")
       throw new ConvexError({
         code: "FORBIDDEN",
         message: "只有群主可以执行此操作。",
       });
-    const target = await activeMember(
-      ctx,
-      args.groupId,
-      args.targetCode.trim().toUpperCase(),
-    );
+    const targetCode = args.targetCode.trim().toUpperCase();
+    await assertCodeInTenant(ctx, targetCode, tenantId);
+    const target = await ctx.db
+      .query("chat_group_members")
+      .withIndex("by_group_user", (q) =>
+        q.eq("groupId", args.groupId).eq("userId", targetCode),
+      )
+      .unique();
+    if (!target || target.status !== "active")
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "没有权限执行此操作。",
+      });
     if (target.role === "owner")
       throw new ConvexError({
         code: "FORBIDDEN",
@@ -360,7 +419,7 @@ export const leaveOrDissolve = mutation({
   args: { ...authArgs, groupId: v.id("chat_groups"), dissolve: v.boolean() },
   handler: async (ctx, args) => {
     const auth = await requireSession(ctx, args.code, args.deviceId);
-    const member = await activeMember(ctx, args.groupId, auth.code);
+    const { member } = await activeMember(ctx, args.groupId, auth);
     if (args.dissolve) {
       if (member.role !== "owner")
         throw new ConvexError({
@@ -410,7 +469,7 @@ export const messages = query({
   args: { ...authArgs, groupId: v.id("chat_groups") },
   handler: async (ctx, args) => {
     const auth = await requireSession(ctx, args.code, args.deviceId);
-    await activeMember(ctx, args.groupId, auth.code);
+    await activeMember(ctx, args.groupId, auth);
     const records = await ctx.db
       .query("chat_group_messages")
       .withIndex("by_group", (q) => q.eq("groupId", args.groupId))
@@ -442,7 +501,7 @@ export const sendMessage = mutation({
   },
   handler: async (ctx, args) => {
     const auth = await requireSession(ctx, args.code, args.deviceId);
-    await activeMember(ctx, args.groupId, auth.code);
+    await activeMember(ctx, args.groupId, auth);
     if (args.type === "text" && !args.text?.trim())
       throw new ConvexError({ code: "BAD_REQUEST", message: "请输入消息。" });
     if (args.type === "text" && args.text!.trim().length > 5000)

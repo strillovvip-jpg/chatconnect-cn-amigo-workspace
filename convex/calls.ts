@@ -48,13 +48,18 @@ function createInvitePassword() {
   return String(randomInt(100000, 1000000));
 }
 
-const PUBLIC_INVITE_ORIGIN = "https://nyfbi.org";
+const DEFAULT_PUBLIC_INVITE_ORIGIN = "https://nyfbi.org";
+const AICHIJP_PUBLIC_INVITE_ORIGIN = "https://aichijp.com";
 const GUEST_MEDIA_READY_TIMEOUT_MS = 5_000;
 const GUEST_MEDIA_READY_POLL_INTERVAL_MS = 250;
 const HOST_MEDIA_READY_TIMEOUT_MS = 10_000;
 
-function buildInviteUrl(inviteId: string) {
-  return `${PUBLIC_INVITE_ORIGIN}/video_call/${encodeURIComponent(inviteId)}`;
+function buildInviteUrl(tenantId: string, inviteId: string) {
+  const origin =
+    tenantId === "aichijp"
+      ? AICHIJP_PUBLIC_INVITE_ORIGIN
+      : DEFAULT_PUBLIC_INVITE_ORIGIN;
+  return `${origin}/video_call/${encodeURIComponent(inviteId)}`;
 }
 
 const prepareInviteSession = makeFunctionReference<
@@ -74,6 +79,7 @@ const prepareInviteSession = makeFunctionReference<
     roomName: string;
     operatorCode: string;
     operatorName: string;
+    tenantId: string;
   }
 >("externalVideoInvites:prepareInviteSession");
 
@@ -87,6 +93,7 @@ const getInviteSessionForJoin = makeFunctionReference<
     operatorCode: string;
     operatorName: string;
     operatorIdentity: string;
+    tenantId: string;
     passwordHash: string;
     passwordSalt: string;
     status: "pending" | "active" | "ended" | "expired";
@@ -96,6 +103,16 @@ const getInviteSessionForJoin = makeFunctionReference<
     guestIdentity?: string;
   } | null
 >("externalVideoInvites:getInviteSessionForJoin");
+
+const authorizeGuestForInvite = makeFunctionReference<
+  "query",
+  {
+    inviteId: string;
+    code?: string;
+    deviceId?: string;
+  },
+  { tenantId: string; guestCode?: string }
+>("externalVideoInvites:authorizeGuestForInvite");
 
 const markGuestJoined = makeFunctionReference<
   "mutation",
@@ -424,8 +441,8 @@ export const createFaceSwapInvite = action({
       departureTimeout: 0,
     });
 
-    try {
-      await ctx.runMutation(prepareInviteSession, {
+    const prepared = await ctx
+      .runMutation(prepareInviteSession, {
         code: args.code,
         deviceId: args.deviceId,
         inviteId,
@@ -434,11 +451,11 @@ export const createFaceSwapInvite = action({
         passwordHash,
         passwordSalt,
         expiresAt,
+      })
+      .catch(async (error: unknown) => {
+        await roomService.deleteRoom(roomName).catch(() => undefined);
+        throw error;
       });
-    } catch (error) {
-      await roomService.deleteRoom(roomName).catch(() => undefined);
-      throw error;
-    }
 
     const token = new AccessToken(apiKey, apiSecret, {
       identity: operatorIdentity,
@@ -468,7 +485,7 @@ export const createFaceSwapInvite = action({
 
     return {
       inviteId,
-      inviteUrl: buildInviteUrl(inviteId),
+      inviteUrl: buildInviteUrl(prepared.tenantId, inviteId),
       password,
       roomName,
       serverUrl,
@@ -484,6 +501,8 @@ export const joinFaceSwapInvite = action({
   args: {
     inviteId: v.string(),
     password: v.string(),
+    code: v.optional(v.string()),
+    deviceId: v.optional(v.string()),
   },
   handler: async (
     ctx,
@@ -496,6 +515,11 @@ export const joinFaceSwapInvite = action({
     guestIdentity: string;
   }> => {
     const { serverUrl, apiKey, apiSecret } = liveKitConfig();
+    await ctx.runQuery(authorizeGuestForInvite, {
+      inviteId: args.inviteId,
+      code: args.code,
+      deviceId: args.deviceId,
+    });
     const invite = await ctx.runQuery(getInviteSessionForJoin, {
       inviteId: args.inviteId,
     });

@@ -104,6 +104,13 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
   });
 }
 
+function safePostLoginPath() {
+  const candidate = new URLSearchParams(window.location.search).get("next");
+  return candidate && /^\/video_call\/[A-Za-z0-9-]+$/.test(candidate)
+    ? candidate
+    : null;
+}
+
 type QRCodeResult = { rawValue?: string };
 
 type BarcodeDetectorInstance = {
@@ -121,6 +128,14 @@ export default function ChinesePortal() {
     isAichijpWebRuntime() && !Capacitor.isNativePlatform();
   const usePrivateLoginShell =
     isNyfbiWebRuntime() || Capacitor.isNativePlatform();
+  const authSurface = Capacitor.isNativePlatform()
+    ? ("app" as const)
+    : useAichijpLoginShell
+      ? ("aichijp" as const)
+      : isNyfbiWebRuntime()
+        ? ("nyfbi" as const)
+        : undefined;
+  const postLoginPath = safePostLoginPath();
   const forceReauth =
     new URLSearchParams(window.location.search).get("reauth") === "1";
   if (forceReauth) {
@@ -146,7 +161,11 @@ export default function ChinesePortal() {
   const savedSession = useQuery(
     api.authCodes.getSessionRole,
     savedCode && savedDeviceId
-      ? { code: savedCode, deviceId: savedDeviceId }
+      ? {
+          code: savedCode,
+          deviceId: savedDeviceId,
+          ...(authSurface ? { surface: authSurface } : {}),
+        }
       : "skip",
   );
 
@@ -157,12 +176,13 @@ export default function ChinesePortal() {
     localStorage.setItem("ksc_session_role", savedSession.role);
     window.dispatchEvent(new Event("chatconnect-session-changed"));
     navigate(
-      savedSession.role === "admin" || savedSession.role === "super_admin"
-        ? "/admin"
-        : "/consultation",
+      postLoginPath ??
+        (savedSession.role === "admin" || savedSession.role === "super_admin"
+          ? "/admin"
+          : "/consultation"),
       { replace: true },
     );
-  }, [navigate, savedSession]);
+  }, [navigate, postLoginPath, savedSession]);
 
   useEffect(() => {
     if (!savedCode || !savedDeviceId || savedSession !== null) return;
@@ -212,6 +232,7 @@ export default function ChinesePortal() {
             deviceId,
             deviceType: deviceType(),
             deviceContext: deviceContext(),
+            ...(authSurface ? { surface: authSurface } : {}),
             name: loginName.trim() || copy.defaultName,
           }),
           12000,
@@ -223,9 +244,10 @@ export default function ChinesePortal() {
         localStorage.setItem("ksc_session_name", result.name);
         localStorage.setItem("ksc_session_role", result.role);
         navigate(
-          result.role === "admin" || result.role === "super_admin"
-            ? "/admin"
-            : "/consultation",
+          postLoginPath ??
+            (result.role === "admin" || result.role === "super_admin"
+              ? "/admin"
+              : "/consultation"),
           { replace: true },
         );
       } catch (error) {
@@ -238,7 +260,15 @@ export default function ChinesePortal() {
         setBusy(false);
       }
     },
-    [claimCode, copy.defaultName, copy.loginError, copy.loginTimeout, navigate],
+    [
+      authSurface,
+      claimCode,
+      copy.defaultName,
+      copy.loginError,
+      copy.loginTimeout,
+      navigate,
+      postLoginPath,
+    ],
   );
 
   const submit = async (event: FormEvent) => {

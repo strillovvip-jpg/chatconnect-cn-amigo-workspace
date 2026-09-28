@@ -7,7 +7,7 @@ import {
   Room,
   RoomEvent,
 } from "livekit-client";
-import { useParams } from "react-router-dom";
+import { Navigate, useParams } from "react-router-dom";
 import { PhoneOff, Video } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api.js";
@@ -19,6 +19,7 @@ import {
   createDeadline,
   OperationTimeoutError,
 } from "@/lib/async/with-timeout";
+import { isAichijpWebRuntime } from "@/lib/runtime-surface";
 
 const GUEST_JOIN_TIMEOUT_MS = 60_000;
 
@@ -38,8 +39,21 @@ export default function GuestVideoCallPage() {
   const { messages } = useI18n();
   const copy = messages.guest;
   const { id = "" } = useParams<{ id: string }>();
+  const requiresTenantSession = isAichijpWebRuntime();
+  const sessionCode = localStorage.getItem("ksc_session_code") ?? "";
+  const sessionDeviceId = localStorage.getItem("ksc_device_id") ?? "";
   const joinInvite = useAction(api.calls.joinFaceSwapInvite);
   const confirmInvite = useAction(api.calls.confirmFaceSwapInviteJoin);
+  const tenantSession = useQuery(
+    api.authCodes.getSessionRole,
+    requiresTenantSession && sessionCode && sessionDeviceId
+      ? {
+          code: sessionCode,
+          deviceId: sessionDeviceId,
+          surface: "aichijp" as const,
+        }
+      : "skip",
+  );
   const invite = useQuery(
     getPublicInviteSession,
     id ? { inviteId: id } : "skip",
@@ -103,6 +117,9 @@ export default function GuestVideoCallPage() {
         joinInvite({
           inviteId: id,
           password: password.trim(),
+          ...(requiresTenantSession
+            ? { code: sessionCode, deviceId: sessionDeviceId }
+            : {}),
         }),
       );
       await deadline.run(
@@ -152,6 +169,28 @@ export default function GuestVideoCallPage() {
         {copy.invalidLink}
       </main>
     );
+  }
+
+  if (requiresTenantSession && (!sessionCode || !sessionDeviceId)) {
+    return (
+      <Navigate
+        to={`/?next=${encodeURIComponent(`/video_call/${id}`)}`}
+        replace
+      />
+    );
+  }
+
+  if (requiresTenantSession && tenantSession === null) {
+    return (
+      <Navigate
+        to={`/?reauth=1&next=${encodeURIComponent(`/video_call/${id}`)}`}
+        replace
+      />
+    );
+  }
+
+  if (requiresTenantSession && tenantSession === undefined) {
+    return <main className="min-h-[100dvh] bg-[#0d1525]" />;
   }
 
   return (

@@ -4,8 +4,9 @@ import { paginationOptsValidator } from "convex/server";
 import type { Id } from "./_generated/dataModel.d.ts";
 import type { MutationCtx } from "./_generated/server";
 import { ConvexError } from "convex/values";
-import { requireSession } from "./roles";
+import { assertSameTenant, requireSession } from "./roles";
 import { internal } from "./_generated/api";
+import { allowedForCode } from "./tenantBoundaries";
 
 async function notifyMessage(
   ctx: MutationCtx,
@@ -49,7 +50,7 @@ export const generateUploadUrl = mutation({
   args: { myCode: v.string(), deviceId: v.string(), theirCode: v.string() },
   handler: async (ctx, args) => {
     const auth = await requireSession(ctx, args.myCode, args.deviceId);
-    await requireContact(ctx, auth.code, args.theirCode);
+    await requireContact(ctx, auth.code, auth.allowed, args.theirCode);
     return await ctx.storage.generateUploadUrl();
   },
 });
@@ -57,6 +58,7 @@ export const generateUploadUrl = mutation({
 async function requireContact(
   ctx: Parameters<typeof requireSession>[0],
   ownerCode: string,
+  ownerAllowed: { companyId?: string } | null | undefined,
   targetCode: string,
 ) {
   const normalizedTarget = targetCode.trim().toUpperCase();
@@ -68,6 +70,7 @@ async function requireContact(
     .unique();
   if (!contact)
     throw new ConvexError({ code: "FORBIDDEN", message: "只能与联系人聊天。" });
+  assertSameTenant(ownerAllowed, await allowedForCode(ctx, normalizedTarget));
   return normalizedTarget;
 }
 
@@ -81,7 +84,12 @@ export const sendText = mutation({
   },
   handler: async (ctx, args) => {
     const auth = await requireSession(ctx, args.myCode, args.deviceId);
-    const targetCode = await requireContact(ctx, auth.code, args.theirCode);
+    const targetCode = await requireContact(
+      ctx,
+      auth.code,
+      auth.allowed,
+      args.theirCode,
+    );
     const text = args.text.trim();
     if (!text || text.length > 5000)
       throw new ConvexError({
@@ -124,7 +132,12 @@ export const sendMedia = mutation({
   },
   handler: async (ctx, args) => {
     const auth = await requireSession(ctx, args.myCode, args.deviceId);
-    const targetCode = await requireContact(ctx, auth.code, args.theirCode);
+    const targetCode = await requireContact(
+      ctx,
+      auth.code,
+      auth.allowed,
+      args.theirCode,
+    );
     const url = await ctx.storage.getUrl(args.storageId);
     if (!url)
       throw new ConvexError({
@@ -186,7 +199,12 @@ export const listMessages = query({
     continueCursor: string;
   }> => {
     const auth = await requireSession(ctx, args.myCode, args.deviceId);
-    const targetCode = await requireContact(ctx, auth.code, args.theirCode);
+    const targetCode = await requireContact(
+      ctx,
+      auth.code,
+      auth.allowed,
+      args.theirCode,
+    );
     const rid = roomId(auth.code, targetCode);
     const result = await ctx.db
       .query("messages")

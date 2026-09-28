@@ -1,8 +1,17 @@
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import type { Id } from "./_generated/dataModel";
-import { requireAdmin, requireSession, requireSuperAdmin } from "./roles";
+import type { Doc, Id } from "./_generated/dataModel";
+import {
+  assertAuthorizationSetCanExpand,
+  assertAdminCanAccessCode,
+  getAdminCompanyScope,
+  listVisibleAllowedCodes,
+  requireAdmin,
+  requireSession,
+  requireSuperAdmin,
+  tenantIdForAllowed,
+} from "./roles";
 
 export const featureKeys = [
   "canVideoCall",
@@ -66,12 +75,76 @@ export const allFeatureFlags: Record<FeatureKey, boolean> = {
 };
 
 type DbCtx = QueryCtx | MutationCtx;
+
+type AdminAuth = {
+  code: string;
+  role: "super_admin" | "admin" | "user";
+  allowed?: { companyId?: string } | null;
+};
+
+async function profileTenantId(ctx: DbCtx, profile: Doc<"license_profiles">) {
+  if (profile.companyId?.trim()) return profile.companyId.trim().toLowerCase();
+  const creator = await ctx.db
+    .query("allowed_codes")
+    .withIndex("by_code", (q) => q.eq("code", profile.createdBy))
+    .unique();
+  return tenantIdForAllowed(creator);
+}
+
+async function assertAdminCanAccessProfile(
+  ctx: DbCtx,
+  auth: AdminAuth,
+  profile: Doc<"license_profiles">,
+) {
+  const tenantId = getAdminCompanyScope(auth);
+  if (tenantId && (await profileTenantId(ctx, profile)) !== tenantId)
+    throw new ConvexError({
+      code: "FORBIDDEN",
+      message: "没有权限执行此操作。",
+    });
+}
+
+async function visibleProfiles(ctx: DbCtx, auth: AdminAuth) {
+  const profiles = await ctx.db.query("license_profiles").collect();
+  const tenantId = getAdminCompanyScope(auth);
+  if (!tenantId) return profiles;
+  const resolved = await Promise.all(
+    profiles.map(async (profile) => ({
+      profile,
+      tenantId: await profileTenantId(ctx, profile),
+    })),
+  );
+  return resolved
+    .filter((item) => item.tenantId === tenantId)
+    .map((item) => item.profile);
+}
+
+async function findVisibleProfileByName(
+  ctx: DbCtx,
+  auth: AdminAuth,
+  name: string,
+) {
+  const matching = await ctx.db
+    .query("license_profiles")
+    .withIndex("by_name", (q) => q.eq("name", name))
+    .collect();
+  const tenantId = getAdminCompanyScope(auth);
+  if (!tenantId) return matching[0] ?? null;
+  for (const profile of matching)
+    if ((await profileTenantId(ctx, profile)) === tenantId) return profile;
+  return null;
+}
+
 export async function effectiveFeatures(
   ctx: DbCtx,
-  allowed: {
-    role?: string | null;
-    licenseProfileId?: Id<"license_profiles">;
-  } | null | undefined,
+  allowed:
+    | {
+        role?: string | null;
+        companyId?: string;
+        licenseProfileId?: Id<"license_profiles">;
+      }
+    | null
+    | undefined,
 ) {
   // Admins always keep every call feature regardless of the license profile.
   if (allowed?.role === "admin" || allowed?.role === "super_admin")
@@ -88,6 +161,12 @@ export async function effectiveFeatures(
     };
   const profile = await ctx.db.get(allowed.licenseProfileId);
   if (!profile)
+    return {
+      profileId: null,
+      profileName: "标准",
+      features: defaultFeatureFlags,
+    };
+  if ((await profileTenantId(ctx, profile)) !== tenantIdForAllowed(allowed))
     return {
       profileId: null,
       profileName: "标准",
@@ -158,8 +237,8 @@ export const authorizeVideoSource = mutation({
 export const listProfiles = query({
   args: credentialArgs,
   handler: async (ctx, args) => {
-    await requireAdmin(ctx, args.password);
-    return await ctx.db.query("license_profiles").collect();
+    const auth = await requireAdmin(ctx, args.password);
+    return await visibleProfiles(ctx, auth);
   },
 });
 
@@ -178,18 +257,14 @@ export const createProfile = mutation({
         code: "BAD_REQUEST",
         message: "请输入授权配置名称。",
       });
-    if (
-      await ctx.db
-        .query("license_profiles")
-        .withIndex("by_name", (q) => q.eq("name", name))
-        .unique()
-    )
+    if (await findVisibleProfileByName(ctx, auth, name))
       throw new ConvexError({
         code: "CONFLICT",
         message: "已存在同名授权配置。",
       });
     return await ctx.db.insert("license_profiles", {
       name,
+      companyId: getAdminCompanyScope(auth) ?? undefined,
       description: args.description?.trim(),
       features: args.features,
       createdBy: auth.code,
@@ -208,10 +283,11 @@ export const updateProfile = mutation({
     features: featureFlagsValidator,
   },
   handler: async (ctx, args) => {
-    await requireSuperAdmin(ctx, args.password);
+    const auth = await requireSuperAdmin(ctx, args.password);
     const profile = await ctx.db.get(args.profileId);
     if (!profile)
       throw new ConvexError({ code: "NOT_FOUND", message: "找不到授权配置。" });
+    await assertAdminCanAccessProfile(ctx, auth, profile);
     await ctx.db.patch(profile._id, {
       name: args.name.trim(),
       description: args.description?.trim(),
@@ -238,13 +314,21 @@ export const configureCode = mutation({
       .unique();
     if (!target)
       throw new ConvexError({ code: "NOT_FOUND", message: "找不到授权码。" });
+    await assertAdminCanAccessCode(ctx, auth, code);
     if (target.role === "super_admin" && auth.role !== "super_admin")
       throw new ConvexError({
         code: "FORBIDDEN",
         message: "无法修改总管理员的设置。",
       });
-    if (args.profileId && !(await ctx.db.get(args.profileId)))
-      throw new ConvexError({ code: "NOT_FOUND", message: "找不到授权配置。" });
+    if (args.profileId) {
+      const profile = await ctx.db.get(args.profileId);
+      if (!profile)
+        throw new ConvexError({
+          code: "NOT_FOUND",
+          message: "找不到授权配置。",
+        });
+      await assertAdminCanAccessProfile(ctx, auth, profile);
+    }
     await ctx.db.patch(target._id, {
       licenseProfileId: args.profileId,
       enabled: args.enabled,
@@ -276,6 +360,7 @@ export const createAuthorizationCode = mutation({
   },
   handler: async (ctx, args) => {
     const auth = await requireSuperAdmin(ctx, args.password);
+    assertAuthorizationSetCanExpand(auth);
     const code = args.targetCode.normalize("NFKC").trim().toUpperCase();
     if (!/^[A-Z0-9]{4,20}$/.test(code))
       throw new ConvexError({
@@ -289,18 +374,23 @@ export const createAuthorizationCode = mutation({
         .unique()
     )
       throw new ConvexError({ code: "CONFLICT", message: "此授权码已注册。" });
-    if (args.profileId && !(await ctx.db.get(args.profileId)))
-      throw new ConvexError({ code: "NOT_FOUND", message: "找不到授权配置。" });
+    if (args.profileId) {
+      const profile = await ctx.db.get(args.profileId);
+      if (!profile)
+        throw new ConvexError({
+          code: "NOT_FOUND",
+          message: "找不到授权配置。",
+        });
+      await assertAdminCanAccessProfile(ctx, auth, profile);
+    }
     let profileId = args.profileId;
     if (!profileId) {
-      const standard = await ctx.db
-        .query("license_profiles")
-        .withIndex("by_name", (q) => q.eq("name", "标准"))
-        .unique();
+      const standard = await findVisibleProfileByName(ctx, auth, "标准");
       profileId =
         standard?._id ??
         (await ctx.db.insert("license_profiles", {
           name: "标准",
+          companyId: getAdminCompanyScope(auth) ?? undefined,
           description: "默认通信功能",
           features: defaultFeatureFlags,
           createdBy: auth.code,
@@ -311,6 +401,7 @@ export const createAuthorizationCode = mutation({
     await ctx.db.insert("allowed_codes", {
       code,
       role: "user",
+      companyId: auth.allowed?.companyId,
       enabled: true,
       licenseProfileId: profileId,
       expiresAt: args.expiresAt,
@@ -338,21 +429,19 @@ export const migrateUnassignedCodes = mutation({
   args: credentialArgs,
   handler: async (ctx, args) => {
     const auth = await requireSuperAdmin(ctx, args.password);
-    const existing = await ctx.db
-      .query("license_profiles")
-      .withIndex("by_name", (q) => q.eq("name", "标准"))
-      .unique();
+    const existing = await findVisibleProfileByName(ctx, auth, "标准");
     const profileId =
       existing?._id ??
       (await ctx.db.insert("license_profiles", {
         name: "标准",
+        companyId: getAdminCompanyScope(auth) ?? undefined,
         description: "默认通信功能",
         features: defaultFeatureFlags,
         createdBy: auth.code,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       }));
-    const codes = await ctx.db.query("allowed_codes").collect();
+    const codes = await listVisibleAllowedCodes(ctx, auth);
     const missing = codes.filter((item) => !item.licenseProfileId);
     for (const item of missing)
       await ctx.db.patch(item._id, {

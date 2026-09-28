@@ -162,6 +162,7 @@ describe("nyfbi private login shell", () => {
         code: "IGIDM",
         deviceType: "mobile",
         deviceContext: "standalone",
+        surface: "app",
       }),
     );
   });

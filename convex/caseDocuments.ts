@@ -1,7 +1,12 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { requireAdmin } from "./roles";
+import {
+  assertAdminCanAccessCode,
+  getAdminCompanyScope,
+  listVisibleAllowedCodes,
+  requireAdmin,
+} from "./roles";
 
 function normalize(value: string) {
   return value
@@ -99,9 +104,10 @@ export const saveDocument = mutation({
 export const deleteDocument = mutation({
   args: { password: v.string(), documentId: v.id("case_documents") },
   handler: async (ctx: MutationCtx, args) => {
-    await requireAdmin(ctx, args.password);
+    const auth = await requireAdmin(ctx, args.password);
     const doc = await ctx.db.get(args.documentId);
     if (doc) {
+      await assertAdminCanAccessCode(ctx, auth, doc.uploadedByCode);
       await ctx.storage.delete(doc.storageId);
       await ctx.db.delete(args.documentId);
     }
@@ -112,8 +118,22 @@ export const deleteDocument = mutation({
 export const listAll = query({
   args: { password: v.string() },
   handler: async (ctx: QueryCtx, args) => {
-    await requireAdmin(ctx, args.password);
-    const docs = await ctx.db.query("case_documents").order("desc").take(100);
+    const auth = await requireAdmin(ctx, args.password);
+    const scope = getAdminCompanyScope(auth);
+    const visible = scope
+      ? new Set(
+          (await listVisibleAllowedCodes(ctx, auth)).map(
+            (record) => record.code,
+          ),
+        )
+      : null;
+    const docs = (
+      await ctx.db.query("case_documents").order("desc").take(100)
+    ).filter(
+      (doc) =>
+        visible === null ||
+        visible.has(doc.uploadedByCode.trim().toUpperCase()),
+    );
     return await Promise.all(
       docs.map(async (doc) => ({
         ...doc,

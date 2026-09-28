@@ -1,6 +1,10 @@
 import { ConvexError, v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { requireSession } from "./roles";
+import {
+  getAdminCompanyScope,
+  requireSession,
+  tenantIdForAllowed,
+} from "./roles";
 import { internal } from "./_generated/api";
 
 const authArgs = { code: v.string(), deviceId: v.string() };
@@ -132,6 +136,12 @@ export const shareResource = mutation({
         code: "FORBIDDEN",
         message: "案件和文件只能与管理员共享。",
       });
+    const scope = getAdminCompanyScope(auth);
+    if (scope && tenantIdForAllowed(targetAccess) !== scope)
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "无法访问其他授权群组的用户。",
+      });
     const target = await ctx.db
       .query("auth_codes")
       .withIndex("by_code", (q) => q.eq("code", targetCode))
@@ -195,9 +205,31 @@ export const announce = mutation({
         code: "FORBIDDEN",
         message: "没有权限执行此操作。",
       });
+    const accessByCode = new Map(
+      (await ctx.db.query("allowed_codes").collect()).map((record) => [
+        record.code,
+        record,
+      ]),
+    );
+    const senderTenant = getAdminCompanyScope(auth);
     const users = args.targetCode
       ? [args.targetCode.trim().toUpperCase()]
-      : (await ctx.db.query("auth_codes").collect()).map((user) => user.code);
+      : (await ctx.db.query("auth_codes").collect())
+          .filter(
+            (user) =>
+              senderTenant === null ||
+              tenantIdForAllowed(accessByCode.get(user.code)) === senderTenant,
+          )
+          .map((user) => user.code);
+    if (
+      args.targetCode &&
+      senderTenant !== null &&
+      tenantIdForAllowed(accessByCode.get(users[0])) !== senderTenant
+    )
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "没有权限向其他授权群组发送公告。",
+      });
     for (const userId of users) {
       await ctx.db.insert("notifications", {
         notificationId: crypto.randomUUID(),

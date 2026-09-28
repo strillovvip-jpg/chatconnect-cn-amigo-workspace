@@ -6,7 +6,24 @@ import {
   query,
 } from "./_generated/server";
 import { effectiveFeatures } from "./features";
-import { requireSession } from "./roles";
+import {
+  assertSameTenant,
+  DEFAULT_TENANT_ID,
+  getAdminCompanyScope,
+  requireSession,
+  tenantIdForAllowed,
+} from "./roles";
+
+type InviteAuth = Awaited<ReturnType<typeof requireSession>>;
+
+function assertInviteTenantAccess(auth: InviteAuth, tenantId?: string) {
+  const isAdmin = auth.role === "admin" || auth.role === "super_admin";
+  const isLegacyGlobalAdmin = isAdmin && getAdminCompanyScope(auth) === null;
+  if (isLegacyGlobalAdmin) return;
+  assertSameTenant(auth.allowed, {
+    companyId: tenantId ?? DEFAULT_TENANT_ID,
+  });
+}
 
 export function canCreateExternalInvite(
   features: Awaited<ReturnType<typeof effectiveFeatures>>["features"],
@@ -71,6 +88,7 @@ export const prepareInviteSession = mutation({
   },
   handler: async (ctx, args) => {
     const auth = await requireSession(ctx, args.code, args.deviceId);
+    const tenantId = tenantIdForAllowed(auth.allowed);
     const license = await effectiveFeatures(ctx, auth.allowed);
     if (!canCreateExternalInvite(license.features))
       throw new ConvexError({
@@ -99,6 +117,7 @@ export const prepareInviteSession = mutation({
       operatorCode: auth.code,
       operatorName: auth.session.name,
       operatorIdentity: args.operatorIdentity.trim(),
+      tenantId,
       passwordHash: args.passwordHash,
       passwordSalt: args.passwordSalt,
       status: "pending",
@@ -110,6 +129,7 @@ export const prepareInviteSession = mutation({
       roomName,
       operatorCode: auth.code,
       operatorName: auth.session.name,
+      tenantId,
     };
   },
 });
@@ -140,6 +160,7 @@ export const getInviteSessionForJoin = internalQuery({
       operatorCode: record.operatorCode,
       operatorName: record.operatorName,
       operatorIdentity: record.operatorIdentity,
+      tenantId: record.tenantId ?? DEFAULT_TENANT_ID,
       passwordHash: record.passwordHash,
       passwordSalt: record.passwordSalt,
       status: resolveStatus(record),
@@ -148,6 +169,37 @@ export const getInviteSessionForJoin = internalQuery({
       guestJoinedAt: record.guestJoinedAt,
       guestIdentity: record.guestIdentity,
     };
+  },
+});
+
+export const authorizeGuestForInvite = internalQuery({
+  args: {
+    inviteId: v.string(),
+    code: v.optional(v.string()),
+    deviceId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const record = await ctx.db
+      .query("external_video_invites")
+      .withIndex("by_invite_id", (q) => q.eq("inviteId", args.inviteId.trim()))
+      .unique();
+    if (!record)
+      throw new ConvexError({
+        code: "NOT_FOUND",
+        message: "找不到该视讯邀请。",
+      });
+
+    const tenantId = record.tenantId ?? DEFAULT_TENANT_ID;
+    if (tenantId === DEFAULT_TENANT_ID) return { tenantId };
+    if (!args.code?.trim() || !args.deviceId?.trim())
+      throw new ConvexError({
+        code: "UNAUTHENTICATED",
+        message: "请先使用有效授权码登录。",
+      });
+
+    const auth = await requireSession(ctx, args.code, args.deviceId);
+    assertSameTenant({ companyId: tenantId }, auth.allowed);
+    return { tenantId, guestCode: auth.code };
   },
 });
 
@@ -168,6 +220,7 @@ export const getOwnedInviteSessionForHost = internalQuery({
         code: "NOT_FOUND",
         message: "Video invitation not found.",
       });
+    assertInviteTenantAccess(auth, record.tenantId);
     if (record.operatorCode !== auth.code && auth.role !== "super_admin")
       throw new ConvexError({
         code: "FORBIDDEN",
@@ -282,6 +335,7 @@ export const endInviteSession = mutation({
         code: "NOT_FOUND",
         message: "找不到该视讯邀请。",
       });
+    assertInviteTenantAccess(auth, record.tenantId);
     if (record.operatorCode !== auth.code && auth.role !== "super_admin")
       throw new ConvexError({
         code: "FORBIDDEN",

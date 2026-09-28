@@ -5,10 +5,15 @@ import { RequireRole } from "./role-guard";
 
 const mocks = vi.hoisted(() => ({
   session: null as null | undefined | { role: "user" },
+  useQuery: vi.fn(),
+  aichijp: false,
 }));
 
 vi.mock("convex/react", () => ({
-  useQuery: () => mocks.session,
+  useQuery: (...args: unknown[]) => {
+    mocks.useQuery(...args);
+    return mocks.session;
+  },
 }));
 
 vi.mock("@/convex/_generated/api.js", () => ({
@@ -27,14 +32,25 @@ vi.mock("@/lib/i18n", () => ({
   }),
 }));
 
+vi.mock("@/lib/runtime-surface", () => ({
+  isAichijpWebRuntime: () => mocks.aichijp,
+  isNyfbiWebRuntime: () => false,
+}));
+
 function LoginProbe() {
   const location = useLocation();
-  return <output aria-label="login location">{location.pathname + location.search}</output>;
+  return (
+    <output aria-label="login location">
+      {location.pathname + location.search}
+    </output>
+  );
 }
 
 describe("RequireRole invalidated sessions", () => {
   beforeEach(() => {
     mocks.session = null;
+    mocks.aichijp = false;
+    mocks.useQuery.mockClear();
     const values = new Map<string, string>();
     Object.defineProperty(window, "localStorage", {
       configurable: true,
@@ -77,5 +93,24 @@ describe("RequireRole invalidated sessions", () => {
       expect(window.localStorage.getItem("ksc_session_role")).toBeNull();
     });
     expect(window.localStorage.getItem("ksc_device_id")).toBe("old-device");
+  });
+
+  it("validates a protected aichijp route against the aichijp session scope", () => {
+    mocks.aichijp = true;
+    mocks.session = undefined;
+
+    render(
+      <MemoryRouter initialEntries={["/protected"]}>
+        <RequireRole role="user">
+          <div>protected</div>
+        </RequireRole>
+      </MemoryRouter>,
+    );
+
+    expect(mocks.useQuery).toHaveBeenCalledWith("getSessionRole", {
+      code: "OLD01",
+      deviceId: "old-device",
+      surface: "aichijp",
+    });
   });
 });

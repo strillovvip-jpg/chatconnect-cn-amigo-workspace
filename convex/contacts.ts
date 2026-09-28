@@ -1,8 +1,9 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
-import { requireSession } from "./roles";
+import { assertSameTenant, requireSession, tenantIdForAllowed } from "./roles";
 import { internal } from "./_generated/api";
+import { allowedForCode } from "./tenantBoundaries";
 
 // Search for a user by auth code or name (partial match on name)
 export const searchUser = query({
@@ -17,8 +18,17 @@ export const searchUser = query({
       .query("auth_codes")
       .withIndex("by_code", (qb) => qb.eq("code", q))
       .first();
+    const allowedRecords = await ctx.db.query("allowed_codes").collect();
+    const allowedByCode = new Map(
+      allowedRecords.map((record) => [record.code, record]),
+    );
+    const requesterTenant = tenantIdForAllowed(auth.allowed);
 
-    if (byCode && byCode.code !== auth.code) {
+    if (
+      byCode &&
+      byCode.code !== auth.code &&
+      tenantIdForAllowed(allowedByCode.get(byCode.code)) === requesterTenant
+    ) {
       return [
         { code: byCode.code, name: byCode.name, department: byCode.department },
       ];
@@ -29,6 +39,7 @@ export const searchUser = query({
     const results = all.filter(
       (r) =>
         r.code !== auth.code &&
+        tenantIdForAllowed(allowedByCode.get(r.code)) === requesterTenant &&
         (r.name.toLowerCase().includes(qOriginal) || r.code.includes(q)),
     );
 
@@ -63,6 +74,11 @@ export const addContact = mutation({
     if (!target) {
       throw new ConvexError({ code: "NOT_FOUND", message: "找不到用户。" });
     }
+    const targetAllowed = await ctx.db
+      .query("allowed_codes")
+      .withIndex("by_code", (q) => q.eq("code", targetCode))
+      .unique();
+    assertSameTenant(auth.allowed, targetAllowed);
 
     // Check already added
     const existing = await ctx.db
@@ -156,6 +172,11 @@ export const respondFriendRequest = mutation({
       .query("auth_codes")
       .withIndex("by_code", (q) => q.eq("code", request.requesterUserId))
       .unique();
+    const requesterAllowed = await ctx.db
+      .query("allowed_codes")
+      .withIndex("by_code", (q) => q.eq("code", request.requesterUserId))
+      .unique();
+    assertSameTenant(auth.allowed, requesterAllowed);
     const now = Date.now();
     await ctx.db.patch(request._id, {
       status: args.accept ? "accepted" : "rejected",
@@ -281,18 +302,23 @@ export const getContacts = query({
       .order("asc")
       .collect();
     const now = Date.now();
-    return await Promise.all(
-      contacts.map(async (contact) => {
-        const presence = await ctx.db
-          .query("user_presence")
-          .withIndex("by_user", (q) => q.eq("userId", contact.targetCode))
-          .unique();
-        return {
-          ...contact,
-          online: Boolean(presence && now - presence.lastSeenAt < 90_000),
-          lastSeenAt: presence?.lastSeenAt,
-        };
-      }),
-    );
+    const visible = [];
+    for (const contact of contacts) {
+      const targetAllowed = await allowedForCode(ctx, contact.targetCode);
+      if (
+        tenantIdForAllowed(targetAllowed) !== tenantIdForAllowed(auth.allowed)
+      )
+        continue;
+      const presence = await ctx.db
+        .query("user_presence")
+        .withIndex("by_user", (q) => q.eq("userId", contact.targetCode))
+        .unique();
+      visible.push({
+        ...contact,
+        online: Boolean(presence && now - presence.lastSeenAt < 90_000),
+        lastSeenAt: presence?.lastSeenAt,
+      });
+    }
+    return visible;
   },
 });

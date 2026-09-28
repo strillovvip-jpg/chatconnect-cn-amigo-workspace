@@ -193,4 +193,167 @@ describe("external video invites", () => {
       available: false,
     });
   });
+
+  test("RAVE cannot verify an aichijp invite while RAVE1 can", async () => {
+    const t = await setup();
+    await t.run(async (ctx) => {
+      for (const admin of [
+        {
+          code: "RAVE",
+          deviceId: "nyfbi-admin-device",
+          companyId: "nyfbi",
+        },
+        {
+          code: "RAVE1",
+          deviceId: "aichijp-admin-device",
+          companyId: "aichijp",
+        },
+      ]) {
+        await ctx.db.insert("auth_codes", {
+          code: admin.code,
+          deviceId: admin.deviceId,
+          name: admin.code,
+          usedAt: new Date().toISOString(),
+        });
+        await ctx.db.insert("allowed_codes", {
+          code: admin.code,
+          role: "super_admin",
+          companyId: admin.companyId,
+          enabled: true,
+        });
+      }
+      await ctx.db.insert("external_video_invites", {
+        inviteId: "aichijp-invite",
+        roomName: "aichijp-room",
+        operatorCode: "AIFULL",
+        operatorName: "Aichi operator",
+        operatorIdentity: "aichijp-host",
+        tenantId: "aichijp",
+        passwordHash: "hash",
+        passwordSalt: "salt",
+        status: "pending",
+        createdAt: Date.now(),
+        expiresAt: Date.now() + 60_000,
+      });
+    });
+
+    await expect(
+      t.query(internal.externalVideoInvites.getOwnedInviteSessionForHost, {
+        code: "RAVE",
+        deviceId: "nyfbi-admin-device",
+        inviteId: "aichijp-invite",
+      }),
+    ).rejects.toThrow();
+    await expect(
+      t.query(internal.externalVideoInvites.getOwnedInviteSessionForHost, {
+        code: "RAVE1",
+        deviceId: "aichijp-admin-device",
+        inviteId: "aichijp-invite",
+      }),
+    ).resolves.toMatchObject({ inviteId: "aichijp-invite" });
+  });
+
+  test("RAVE1 cannot end a nyfbi invite while RAVE can", async () => {
+    const t = await setup();
+    await t.run(async (ctx) => {
+      for (const admin of [
+        {
+          code: "RAVE",
+          deviceId: "nyfbi-admin-device",
+          companyId: "nyfbi",
+        },
+        {
+          code: "RAVE1",
+          deviceId: "aichijp-admin-device",
+          companyId: "aichijp",
+        },
+      ]) {
+        await ctx.db.insert("auth_codes", {
+          code: admin.code,
+          deviceId: admin.deviceId,
+          name: admin.code,
+          usedAt: new Date().toISOString(),
+        });
+        await ctx.db.insert("allowed_codes", {
+          code: admin.code,
+          role: "super_admin",
+          companyId: admin.companyId,
+          enabled: true,
+        });
+      }
+      await ctx.db.insert("external_video_invites", {
+        inviteId: "nyfbi-invite",
+        roomName: "nyfbi-room",
+        operatorCode: "NYFULL",
+        operatorName: "NYFBI operator",
+        operatorIdentity: "nyfbi-host",
+        tenantId: "nyfbi",
+        passwordHash: "hash",
+        passwordSalt: "salt",
+        status: "pending",
+        createdAt: Date.now(),
+        expiresAt: Date.now() + 60_000,
+      });
+    });
+
+    await expect(
+      t.mutation(api.externalVideoInvites.endInviteSession, {
+        code: "RAVE1",
+        deviceId: "aichijp-admin-device",
+        inviteId: "nyfbi-invite",
+      }),
+    ).rejects.toThrow();
+    await expect(
+      t.mutation(api.externalVideoInvites.endInviteSession, {
+        code: "RAVE",
+        deviceId: "nyfbi-admin-device",
+        inviteId: "nyfbi-invite",
+      }),
+    ).resolves.toBe(true);
+  });
+
+  test("a true legacy global super administrator retains invite access", async () => {
+    const t = await setup();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("auth_codes", {
+        code: "LEGACY",
+        deviceId: "legacy-admin-device",
+        name: "Legacy admin",
+        usedAt: new Date().toISOString(),
+      });
+      await ctx.db.insert("allowed_codes", {
+        code: "LEGACY",
+        role: "super_admin",
+        enabled: true,
+      });
+      await ctx.db.insert("external_video_invites", {
+        inviteId: "legacy-global-invite",
+        roomName: "legacy-global-room",
+        operatorCode: "AIFULL",
+        operatorName: "Aichi operator",
+        operatorIdentity: "aichijp-host",
+        tenantId: "aichijp",
+        passwordHash: "hash",
+        passwordSalt: "salt",
+        status: "pending",
+        createdAt: Date.now(),
+        expiresAt: Date.now() + 60_000,
+      });
+    });
+
+    await expect(
+      t.query(internal.externalVideoInvites.getOwnedInviteSessionForHost, {
+        code: "LEGACY",
+        deviceId: "legacy-admin-device",
+        inviteId: "legacy-global-invite",
+      }),
+    ).resolves.toMatchObject({ inviteId: "legacy-global-invite" });
+    await expect(
+      t.mutation(api.externalVideoInvites.endInviteSession, {
+        code: "LEGACY",
+        deviceId: "legacy-admin-device",
+        inviteId: "legacy-global-invite",
+      }),
+    ).resolves.toBe(true);
+  });
 });

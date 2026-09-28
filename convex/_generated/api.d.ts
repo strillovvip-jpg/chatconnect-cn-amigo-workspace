@@ -34,6 +34,7 @@ import type * as pushSubscriptions from "../pushSubscriptions.js";
 import type * as roleManagement from "../roleManagement.js";
 import type * as roles from "../roles.js";
 import type * as secureGroupCalls from "../secureGroupCalls.js";
+import type * as tenantBoundaries from "../tenantBoundaries.js";
 import type * as users from "../users.js";
 
 import type {
@@ -69,6 +70,7 @@ declare const fullApi: ApiFromModules<{
   roleManagement: typeof roleManagement;
   roles: typeof roles;
   secureGroupCalls: typeof secureGroupCalls;
+  tenantBoundaries: typeof tenantBoundaries;
   users: typeof users;
 }>;
 

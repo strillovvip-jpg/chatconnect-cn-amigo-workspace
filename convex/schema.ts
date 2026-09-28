@@ -61,6 +61,7 @@ export default defineSchema({
 
   license_profiles: defineTable({
     name: v.string(),
+    companyId: v.optional(v.string()),
     description: v.optional(v.string()),
     features: v.object({
       canVideoCall: v.boolean(),
@@ -263,6 +264,7 @@ export default defineSchema({
     operatorCode: v.string(),
     operatorName: v.string(),
     operatorIdentity: v.string(),
+    tenantId: v.optional(v.string()),
     passwordHash: v.string(),
     passwordSalt: v.string(),
     status: v.union(
@@ -353,6 +355,7 @@ export default defineSchema({
     name: v.string(),
     avatar: v.optional(v.string()),
     ownerUserId: v.string(),
+    tenantId: v.optional(v.string()),
     maxMembers: v.number(),
     status: v.union(v.literal("active"), v.literal("dissolved")),
     createdAt: v.number(),

@@ -1,9 +1,10 @@
 import { ConvexError, v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
-import { requireSession } from "./roles";
+import { assertSameTenant, requireSession, tenantIdForAllowed } from "./roles";
 import { effectiveFeatures, requireFeature } from "./features";
 import { internal } from "./_generated/api";
 import { canCreateExternalInvite } from "./externalVideoInvites";
+import { codeIsInTenant } from "./tenantBoundaries";
 
 const authArgs = { code: v.string(), deviceId: v.string() };
 const callerMediaModeValidator = v.union(
@@ -24,6 +25,81 @@ const activeCallStatuses = new Set([
 ]);
 function activeStatusesForBusyCheck(status: string) {
   return activeCallStatuses.has(status);
+}
+
+type DbCtx = Parameters<typeof requireSession>[0];
+type TenantAuth = { allowed?: { companyId?: string } | null };
+
+async function codesMatchAuthTenant(
+  ctx: DbCtx,
+  auth: TenantAuth,
+  codes: string[],
+) {
+  const tenantId = tenantIdForAllowed(auth.allowed);
+  for (const code of new Set(codes)) {
+    if (!(await codeIsInTenant(ctx, code, tenantId))) return false;
+  }
+  return true;
+}
+
+async function requireCodesInAuthTenant(
+  ctx: DbCtx,
+  auth: TenantAuth,
+  codes: string[],
+) {
+  if (await codesMatchAuthTenant(ctx, auth, codes)) return;
+  throw new ConvexError({
+    code: "FORBIDDEN",
+    message: "无法访问其他授权群组的通话。",
+  });
+}
+
+async function callMatchesAuthTenant(
+  ctx: DbCtx,
+  auth: TenantAuth,
+  call: { participantCodes: string[] },
+) {
+  return await codesMatchAuthTenant(ctx, auth, call.participantCodes);
+}
+
+async function requireCallInAuthTenant(
+  ctx: DbCtx,
+  auth: TenantAuth,
+  call: { participantCodes: string[] },
+) {
+  await requireCodesInAuthTenant(ctx, auth, call.participantCodes);
+}
+
+async function transferMatchesAuthTenant(
+  ctx: DbCtx,
+  auth: TenantAuth,
+  transfer: {
+    fromUserId: string;
+    remoteUserId: string;
+    targetUserId: string;
+  },
+) {
+  return await codesMatchAuthTenant(ctx, auth, [
+    transfer.fromUserId,
+    transfer.remoteUserId,
+    transfer.targetUserId,
+  ]);
+}
+
+async function requireTransferInAuthTenant(
+  ctx: DbCtx,
+  auth: TenantAuth,
+  transfer: {
+    fromUserId: string;
+    remoteUserId: string;
+    targetUserId: string;
+  },
+) {
+  await requireCodesInAuthTenant(ctx, auth, [
+    transfer.fromUserId,
+    transfer.remoteUserId,
+    transfer.targetUserId,
+  ]);
 }
 
 export const prepareP2P = mutation({
@@ -58,6 +134,11 @@ export const prepareP2P = mutation({
         code: "NOT_FOUND",
         message: "对方的授权码无效或尚未登录。",
       });
+    const peerAllowed = await ctx.db
+      .query("allowed_codes")
+      .withIndex("by_code", (q) => q.eq("code", peerCode))
+      .unique();
+    assertSameTenant(auth.allowed, peerAllowed);
     if (callerMediaMode === "face-swap") {
       await requireFeature(ctx, args.code, args.deviceId, "canVideoSource");
       await requireFeature(ctx, args.code, args.deviceId, "canAIFace");
@@ -78,10 +159,6 @@ export const prepareP2P = mutation({
           message: "只能向联系人发起换脸视讯。",
         });
     }
-    const peerAllowed = await ctx.db
-      .query("allowed_codes")
-      .withIndex("by_code", (q) => q.eq("code", peerCode))
-      .unique();
     const peerLicense = await effectiveFeatures(ctx, peerAllowed);
     if (
       !peerLicense.features[
@@ -307,6 +384,7 @@ export const incomingCall = query({
       .order("desc")
       .first();
     if (!call || !call.expiresAt || call.expiresAt <= Date.now()) return null;
+    if (!(await callMatchesAuthTenant(ctx, auth, call))) return null;
     return {
       _id: call._id,
       callId: call.callId,
@@ -331,6 +409,7 @@ export const outgoingCall = query({
       .withIndex("by_call_id", (q) => q.eq("callId", args.callId!))
       .unique();
     if (!call || call.callerUserId !== auth.code) return null;
+    if (!(await callMatchesAuthTenant(ctx, auth, call))) return null;
     return {
       status: call.status,
       calleeName: call.calleeName,
@@ -349,6 +428,7 @@ export const callStatus = query({
       .withIndex("by_call_id", (q) => q.eq("callId", args.callId!))
       .unique();
     if (!call || !call.participantCodes.includes(auth.code)) return null;
+    if (!(await callMatchesAuthTenant(ctx, auth, call))) return null;
     const peerCode = call.participantCodes.find((code) => code !== auth.code);
     const peer = peerCode
       ? await ctx.db
@@ -378,6 +458,7 @@ export const markParticipantConnected = mutation({
         code: "FORBIDDEN",
         message: "您无法加入此通话。",
       });
+    await requireCallInAuthTenant(ctx, auth, call);
     if (!["accepted", "connecting", "connected"].includes(call.status))
       throw new ConvexError({
         code: "CONFLICT",
@@ -417,6 +498,7 @@ export const heartbeatCall = mutation({
         code: "FORBIDDEN",
         message: "您无法加入此通话。",
       });
+    await requireCallInAuthTenant(ctx, auth, call);
     if (
       !["accepted", "connecting", "connected", "active"].includes(call.status)
     )
@@ -457,29 +539,33 @@ export const callHistory = query({
   handler: async (ctx, args) => {
     const auth = await requireSession(ctx, args.code, args.deviceId);
     const calls = await ctx.db.query("live_calls").order("desc").take(200);
-    return calls
-      .filter((call) => call.participantCodes.includes(auth.code))
-      .slice(0, 50)
-      .map((call) => {
-        const outgoing = call.callerUserId === auth.code;
-        return {
-          callId: call.callId,
-          callType: call.type,
-          status: call.status,
-          direction: outgoing ? ("outgoing" as const) : ("incoming" as const),
-          peerCode: outgoing ? call.calleeUserId : call.callerUserId,
-          peerName: outgoing ? call.calleeName : call.callerName,
-          createdAt: call.createdAt,
-          endedAt: call.endedAt,
-          canCallBack: [
-            "missed",
-            "rejected",
-            "cancelled",
-            "expired",
-            "ended",
-          ].includes(call.status),
-        };
-      });
+    const visibleCalls = [];
+    for (const call of calls) {
+      if (!call.participantCodes.includes(auth.code)) continue;
+      if (!(await callMatchesAuthTenant(ctx, auth, call))) continue;
+      visibleCalls.push(call);
+      if (visibleCalls.length === 50) break;
+    }
+    return visibleCalls.map((call) => {
+      const outgoing = call.callerUserId === auth.code;
+      return {
+        callId: call.callId,
+        callType: call.type,
+        status: call.status,
+        direction: outgoing ? ("outgoing" as const) : ("incoming" as const),
+        peerCode: outgoing ? call.calleeUserId : call.callerUserId,
+        peerName: outgoing ? call.calleeName : call.callerName,
+        createdAt: call.createdAt,
+        endedAt: call.endedAt,
+        canCallBack: [
+          "missed",
+          "rejected",
+          "cancelled",
+          "expired",
+          "ended",
+        ].includes(call.status),
+      };
+    });
   },
 });
 
@@ -496,6 +582,7 @@ export const respondIncomingCall = mutation({
         code: "FORBIDDEN",
         message: "此来电不属于当前用户。",
       });
+    await requireCallInAuthTenant(ctx, auth, call);
     if (
       call.status !== "ringing" ||
       !call.expiresAt ||
@@ -596,6 +683,7 @@ export const authorizeOutgoingJoin = mutation({
         code: "FORBIDDEN",
         message: "您无法加入此通话。",
       });
+    await requireCallInAuthTenant(ctx, auth, call);
     if (!["accepted", "connecting", "connected"].includes(call.status))
       throw new ConvexError({ code: "CONFLICT", message: "对方尚未接听。" });
     if (call.status === "accepted")
@@ -637,6 +725,7 @@ export const authorizeIncomingJoin = mutation({
         code: "FORBIDDEN",
         message: "不允许接听此来电。",
       });
+    await requireCallInAuthTenant(ctx, auth, call);
     if (call.status === "accepted")
       await ctx.db.patch(call._id, { status: "connecting" });
     return {
@@ -672,6 +761,7 @@ export const acceptAndAuthorizeIncomingJoin = mutation({
         code: "FORBIDDEN",
         message: "此来电不属于当前用户。",
       });
+    await requireCallInAuthTenant(ctx, auth, call);
     if (
       call.status === "ringing" &&
       (!call.expiresAt || call.expiresAt <= Date.now())
@@ -723,6 +813,7 @@ export const endP2PCall = mutation({
         code: "FORBIDDEN",
         message: "没有权限执行此操作。",
       });
+    await requireCallInAuthTenant(ctx, auth, call);
     if (
       [
         "ended",
@@ -780,6 +871,7 @@ export const initiateTransfer = mutation({
         code: "FORBIDDEN",
         message: "不能转接您未参与的通话。",
       });
+    await requireCallInAuthTenant(ctx, auth, call);
     if (storedCallerMediaMode(call) === "face-swap")
       throw new ConvexError({
         code: "FEATURE_DISABLED",
@@ -810,6 +902,7 @@ export const initiateTransfer = mutation({
       .query("allowed_codes")
       .withIndex("by_code", (q) => q.eq("code", targetCode))
       .unique();
+    assertSameTenant(auth.allowed, allowed);
     if (allowed?.enabled === false)
       throw new ConvexError({
         code: "FORBIDDEN",
@@ -926,14 +1019,22 @@ export const pendingTransfer = query({
   args: authArgs,
   handler: async (ctx, args) => {
     const auth = await requireSession(ctx, args.code, args.deviceId);
-    const transfer = await ctx.db
+    const transfers = await ctx.db
       .query("call_transfers")
       .withIndex("by_target_status", (q) =>
         q.eq("targetUserId", auth.code).eq("status", "pending"),
       )
       .order("desc")
-      .first();
-    if (!transfer || transfer.expiresAt <= Date.now()) return null;
+      .collect();
+    let transfer = null;
+    for (const candidate of transfers) {
+      if (candidate.expiresAt <= Date.now()) continue;
+      if (await transferMatchesAuthTenant(ctx, auth, candidate)) {
+        transfer = candidate;
+        break;
+      }
+    }
+    if (!transfer) return null;
     const from = await ctx.db
       .query("auth_codes")
       .withIndex("by_code", (q) => q.eq("code", transfer.fromUserId))
@@ -965,7 +1066,14 @@ export const myOutgoingTransfer = query({
       .withIndex("by_call", (q) => q.eq("callId", args.callId!))
       .order("desc")
       .collect();
-    return transfers.find((item) => item.fromUserId === auth.code) ?? null;
+    for (const transfer of transfers) {
+      if (
+        transfer.fromUserId === auth.code &&
+        (await transferMatchesAuthTenant(ctx, auth, transfer))
+      )
+        return transfer;
+    }
+    return null;
   },
 });
 
@@ -988,6 +1096,7 @@ export const respondTransfer = mutation({
         code: "FORBIDDEN",
         message: "没有权限执行此操作。",
       });
+    await requireTransferInAuthTenant(ctx, auth, transfer);
     if (transfer.status !== "pending" || transfer.expiresAt <= Date.now())
       throw new ConvexError({
         code: "CONFLICT",
@@ -1044,6 +1153,7 @@ export const authorizeTransferJoin = mutation({
         code: "FORBIDDEN",
         message: "不允许加入此转接通话。",
       });
+    await requireTransferInAuthTenant(ctx, auth, transfer);
     await ctx.db.patch(transfer._id, { status: "joining" });
     console.info("[CALL_TRANSFER] target joining", {
       transferId: transfer._id,
@@ -1077,6 +1187,7 @@ export const confirmTransferJoined = mutation({
         code: "CONFLICT",
         message: "通话转接状态无效。",
       });
+    await requireTransferInAuthTenant(ctx, auth, transfer);
     const now = Date.now();
     const call = await ctx.db
       .query("live_calls")
@@ -1097,6 +1208,7 @@ export const confirmTransferJoined = mutation({
         message: "原通话已结束，无法完成转接。",
       });
     }
+    await requireCallInAuthTenant(ctx, auth, call);
     const remote = await ctx.db
       .query("auth_codes")
       .withIndex("by_code", (q) => q.eq("code", transfer.remoteUserId))
@@ -1137,6 +1249,7 @@ export const cancelTransfer = mutation({
         code: "FORBIDDEN",
         message: "没有权限执行此操作。",
       });
+    await requireTransferInAuthTenant(ctx, auth, transfer);
     if (!["pending", "accepted", "joining"].includes(transfer.status))
       throw new ConvexError({
         code: "CONFLICT",
@@ -1176,6 +1289,7 @@ export const failTransferJoin = mutation({
         code: "FORBIDDEN",
         message: "没有权限执行此操作。",
       });
+    await requireTransferInAuthTenant(ctx, auth, transfer);
     if (!["accepted", "joining"].includes(transfer.status)) return;
     await ctx.db.patch(transfer._id, {
       status: "failed",

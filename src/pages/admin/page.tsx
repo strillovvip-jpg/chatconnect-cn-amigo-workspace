@@ -32,11 +32,7 @@ import {
 import { cn, localizedUiData, uiErrorMessage } from "@/lib/utils.ts";
 import type { Id } from "@/convex/_generated/dataModel.d.ts";
 import { useLocation, useNavigate } from "react-router-dom";
-import {
-  localePunctuation,
-  localeToHtmlLang,
-  useI18n,
-} from "@/lib/i18n";
+import { localePunctuation, localeToHtmlLang, useI18n } from "@/lib/i18n";
 import type { Messages } from "@/lib/i18n";
 import { logoutToLogin } from "@/lib/session-storage";
 
@@ -110,6 +106,10 @@ const LIMITED_LICENSE_FLAGS: LicenseFlags = {
   canVideoSource: true,
   canPlayVideo: false,
 };
+
+export function limitedLicenseFlagsForTenant(_tenantId: string): LicenseFlags {
+  return { ...LIMITED_LICENSE_FLAGS };
+}
 
 function LicenseEditor({
   password,
@@ -302,10 +302,9 @@ function LicenseEditor({
   );
 }
 
-function getCaseStatusLabels(copy: Messages["admin"]): Record<
-  string,
-  { label: string; color: string; icon: React.ReactNode }
-> {
+function getCaseStatusLabels(
+  copy: Messages["admin"],
+): Record<string, { label: string; color: string; icon: React.ReactNode }> {
   return {
     open: {
       label: copy.statuses.open,
@@ -493,7 +492,9 @@ function BulkCaseModal({
                   className="rounded-lg bg-[#172238] px-3 py-2 text-xs"
                 >
                   <option value="open">{copy.statuses.open}</option>
-                  <option value="in_progress">{copy.statuses.inProgress}</option>
+                  <option value="in_progress">
+                    {copy.statuses.inProgress}
+                  </option>
                   <option value="closed">{copy.statuses.closed}</option>
                   <option value="suspended">{copy.statuses.suspended}</option>
                 </select>
@@ -563,6 +564,7 @@ export default function AdminPage() {
     sessionCode && deviceId ? { code: sessionCode, deviceId } : "skip",
   );
   const isSuperAdmin = sessionRole?.role === "super_admin";
+  const sessionTenantId = sessionRole?.companyId ?? "nyfbi";
   const canManageCallCompliance = isSuperAdmin || sessionRole?.role === "admin";
 
   // PDF upload state
@@ -648,7 +650,7 @@ export default function AdminPage() {
               features:
                 newCodeTier === "advanced"
                   ? ADVANCED_LICENSE_FLAGS
-                  : LIMITED_LICENSE_FLAGS,
+                  : limitedLicenseFlagsForTenant(sessionTenantId),
             });
           }
           await createLicensedCode({
@@ -679,8 +681,7 @@ export default function AdminPage() {
   };
 
   const handleDelete = async (code: string) => {
-    if (!window.confirm(copy.deleteCodeConfirm(code)))
-      return;
+    if (!window.confirm(copy.deleteCodeConfirm(code))) return;
     try {
       if (isSuperAdmin) await deleteAuthCode({ password, targetCode: code });
       else await deleteUser({ password, code });
@@ -720,9 +721,15 @@ export default function AdminPage() {
     if (idNumber === null) return;
     const title = window.prompt(copy.promptCaseTitle, record.title);
     if (title === null) return;
-    const description = window.prompt(copy.promptCaseDescription, record.description);
+    const description = window.prompt(
+      copy.promptCaseDescription,
+      record.description,
+    );
     if (description === null) return;
-    const adminContent = window.prompt(copy.promptAdminNotes, record.adminContent ?? "");
+    const adminContent = window.prompt(
+      copy.promptAdminNotes,
+      record.adminContent ?? "",
+    );
     if (adminContent === null) return;
     try {
       await updateCaseDetails({
@@ -815,7 +822,8 @@ export default function AdminPage() {
   };
   const formatDateTime = (value: number | string | Date) =>
     new Date(value).toLocaleString(localeTag);
-  const formatDate = (value: number) => new Date(value).toLocaleDateString(localeTag);
+  const formatDate = (value: number) =>
+    new Date(value).toLocaleDateString(localeTag);
 
   const filteredUsers = (codes ?? []).filter((r) => {
     const q = userSearch.toLowerCase();
@@ -843,8 +851,8 @@ export default function AdminPage() {
   const fullProfileId = licenseProfiles?.find(
     (profile) => profile.name === FULL_PROFILE_NAME,
   )?._id;
-  const limitedProfileId = licenseProfiles?.find(
-    (profile) => LEGACY_LIMITED_PROFILE_NAMES.includes(profile.name),
+  const limitedProfileId = licenseProfiles?.find((profile) =>
+    LEGACY_LIMITED_PROFILE_NAMES.includes(profile.name),
   )?._id;
   const selectedProfileId =
     newCodeTier === "advanced" ? fullProfileId : limitedProfileId;
@@ -1151,11 +1159,13 @@ export default function AdminPage() {
                       </div>
                       {newCodeTier === "advanced" && (
                         <div className="grid grid-cols-2 gap-x-3 gap-y-1 rounded-lg bg-amber-500/10 p-3 text-[10px] text-amber-100 sm:grid-cols-3">
-                          {copy.featureSummary.map((feature: string, index: number) => (
-                            <span key={feature}>
-                              {index + 1}. {feature}
-                            </span>
-                          ))}
+                          {copy.featureSummary.map(
+                            (feature: string, index: number) => (
+                              <span key={feature}>
+                                {index + 1}. {feature}
+                              </span>
+                            ),
+                          )}
                         </div>
                       )}
                     </div>
@@ -1167,7 +1177,9 @@ export default function AdminPage() {
                 onClick={() =>
                   void migrateLicenses({ password })
                     .then((result) =>
-                      toast.success(copy.defaultProfilesApplied(result.migrated)),
+                      toast.success(
+                        copy.defaultProfilesApplied(result.migrated),
+                      ),
                     )
                     .catch(() => toast.error(copy.defaultProfilesApplyFailed))
                 }
@@ -1245,7 +1257,8 @@ export default function AdminPage() {
                           >
                             <div className="text-xs opacity-40 space-y-1">
                               <div>
-                                {copy.mobileDevice}{punctuation.colon}
+                                {copy.mobileDevice}
+                                {punctuation.colon}
                                 <span className="font-mono text-[10px]">
                                   {record.mobileDeviceId ??
                                     (record.desktopDeviceId
@@ -1254,18 +1267,21 @@ export default function AdminPage() {
                                 </span>
                               </div>
                               <div>
-                                {copy.desktopDevice}{punctuation.colon}
+                                {copy.desktopDevice}
+                                {punctuation.colon}
                                 <span className="font-mono text-[10px]">
                                   {record.desktopDeviceId ??
                                     copy.statuses.unregistered}
                                 </span>
                               </div>
                               <div>
-                                {copy.registeredAt}{punctuation.colon}
+                                {copy.registeredAt}
+                                {punctuation.colon}
                                 {formatDateTime(record.usedAt)}
                               </div>
                               <div>
-                                {copy.role}{punctuation.colon}
+                                {copy.role}
+                                {punctuation.colon}
                                 {record.role === "super_admin"
                                   ? copy.superAdmin
                                   : record.role === "admin"
@@ -1273,7 +1289,8 @@ export default function AdminPage() {
                                     : copy.user}
                               </div>
                               <div>
-                                {copy.status}{punctuation.colon}
+                                {copy.status}
+                                {punctuation.colon}
                                 {record.online
                                   ? copy.statuses.online
                                   : copy.statuses.offline}
@@ -1284,13 +1301,15 @@ export default function AdminPage() {
                               </div>
                               {record.lastSeenAt && (
                                 <div>
-                                  {copy.lastSeen}{punctuation.colon}
+                                  {copy.lastSeen}
+                                  {punctuation.colon}
                                   {formatDateTime(record.lastSeenAt)}
                                 </div>
                               )}
                               {record.expiresAt && (
                                 <div>
-                                  {copy.expiresAt}{punctuation.colon}
+                                  {copy.expiresAt}
+                                  {punctuation.colon}
                                   {formatDate(record.expiresAt)}
                                 </div>
                               )}
@@ -1366,7 +1385,9 @@ export default function AdminPage() {
                                     }
                                     className="rounded-lg bg-white/10 px-3 py-1.5 text-xs"
                                   >
-                                    {record.enabled ? copy.disable : copy.enable}
+                                    {record.enabled
+                                      ? copy.disable
+                                      : copy.enable}
                                   </button>
                                   <button
                                     onClick={() => handleReset(record.code)}
@@ -1477,7 +1498,7 @@ export default function AdminPage() {
               )}
             </div>
             {codes === undefined && (
-                <div className="text-xs opacity-30 text-center py-8">
+              <div className="text-xs opacity-30 text-center py-8">
                 {copy.loading}
               </div>
             )}
@@ -1575,7 +1596,7 @@ export default function AdminPage() {
               )}
             </div>
             {allCases === undefined && (
-                <div className="text-xs opacity-30 text-center py-8">
+              <div className="text-xs opacity-30 text-center py-8">
                 {copy.loading}
               </div>
             )}
@@ -1585,8 +1606,7 @@ export default function AdminPage() {
               </div>
             )}
             {filteredCases.map((c) => {
-              const st =
-                caseStatusLabels[c.status] ?? caseStatusLabels["open"];
+              const st = caseStatusLabels[c.status] ?? caseStatusLabels["open"];
               return (
                 <div
                   key={c._id}
@@ -1621,7 +1641,9 @@ export default function AdminPage() {
                         {c.title}
                       </div>
                       <div className="text-[10px] opacity-40 mt-0.5">
-                        {copy.assignee}{punctuation.colon}{c.assignedName}
+                        {copy.assignee}
+                        {punctuation.colon}
+                        {c.assignedName}
                       </div>
                     </div>
                     <div className="flex gap-1">
@@ -1848,7 +1870,8 @@ export default function AdminPage() {
                               {line.originalText &&
                                 line.originalText !== line.text && (
                                   <span className="mt-0.5 block text-[10px] text-white/35">
-                                    {copy.originalText}{punctuation.colon}
+                                    {copy.originalText}
+                                    {punctuation.colon}
                                     {line.originalText}
                                   </span>
                                 )}
@@ -1910,7 +1933,9 @@ export default function AdminPage() {
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
-                  <label className="text-[10px] opacity-40">{copy.caseNumber}</label>
+                  <label className="text-[10px] opacity-40">
+                    {copy.caseNumber}
+                  </label>
                   <input
                     type="text"
                     value={docCaseNumber}
@@ -1924,7 +1949,9 @@ export default function AdminPage() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] opacity-40">{copy.idNumber}</label>
+                  <label className="text-[10px] opacity-40">
+                    {copy.idNumber}
+                  </label>
                   <input
                     type="text"
                     value={docIdNumber}
@@ -1954,7 +1981,9 @@ export default function AdminPage() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] opacity-40">{copy.caseName}</label>
+                  <label className="text-[10px] opacity-40">
+                    {copy.caseName}
+                  </label>
                   <input
                     type="text"
                     value={docCaseName}
@@ -2135,7 +2164,7 @@ export default function AdminPage() {
               )}
             </div>
             {allMessages === undefined && (
-                <div className="text-xs opacity-30 text-center py-8">
+              <div className="text-xs opacity-30 text-center py-8">
                 {copy.loading}
               </div>
             )}

@@ -1,7 +1,11 @@
 import { ConvexError, v } from "convex/values";
 import { mutation } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
-import { requireSuperAdmin } from "./roles";
+import {
+  assertAdminCanAccessCode,
+  assertAuthorizationSetCanExpand,
+  requireSuperAdmin,
+} from "./roles";
 
 const credentialArgs = { password: v.string() };
 const normalize = (value: string) => value.trim().toUpperCase();
@@ -183,6 +187,7 @@ export const setRole = mutation({
   },
   handler: async (ctx, args) => {
     const auth = await requireSuperAdmin(ctx, args.password);
+    assertAuthorizationSetCanExpand(auth);
     const targetCode = normalize(args.targetCode);
     const target = await ctx.db
       .query("allowed_codes")
@@ -190,6 +195,7 @@ export const setRole = mutation({
       .unique();
     if (!target)
       throw new ConvexError({ code: "NOT_FOUND", message: "找不到授权码。" });
+    await assertAdminCanAccessCode(ctx, auth, targetCode);
     if (target.role === "super_admin")
       throw new ConvexError({
         code: "FORBIDDEN",
@@ -208,6 +214,7 @@ export const createCode = mutation({
   },
   handler: async (ctx, args) => {
     const auth = await requireSuperAdmin(ctx, args.password);
+    assertAuthorizationSetCanExpand(auth);
     const targetCode = normalize(args.targetCode);
     if (!/^[A-Z0-9]{4,20}$/.test(targetCode))
       throw new ConvexError({
@@ -224,6 +231,7 @@ export const createCode = mutation({
     await ctx.db.insert("allowed_codes", {
       code: targetCode,
       role: args.role,
+      companyId: auth.allowed?.companyId,
       enabled: true,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -242,6 +250,7 @@ export const createOrPromoteAdmin = mutation({
   args: { ...credentialArgs, targetCode: v.string() },
   handler: async (ctx, args) => {
     const auth = await requireSuperAdmin(ctx, args.password);
+    assertAuthorizationSetCanExpand(auth);
     const targetCode = normalize(args.targetCode.normalize("NFKC"));
     if (!/^[A-Z0-9]{4,20}$/.test(targetCode)) {
       throw new ConvexError({
@@ -260,6 +269,7 @@ export const createOrPromoteAdmin = mutation({
       .withIndex("by_code", (q) => q.eq("code", targetCode))
       .unique();
     if (existing) {
+      await assertAdminCanAccessCode(ctx, auth, targetCode);
       if (existing.role === "super_admin")
         throw new ConvexError({
           code: "FORBIDDEN",
@@ -279,6 +289,7 @@ export const createOrPromoteAdmin = mutation({
     await ctx.db.insert("allowed_codes", {
       code: targetCode,
       role: "admin",
+      companyId: auth.allowed?.companyId,
       enabled: true,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -301,6 +312,7 @@ export const setEnabled = mutation({
       .unique();
     if (!target)
       throw new ConvexError({ code: "NOT_FOUND", message: "找不到授权码。" });
+    await assertAdminCanAccessCode(ctx, auth, targetCode);
     if (target.role === "super_admin")
       throw new ConvexError({
         code: "FORBIDDEN",
@@ -334,7 +346,16 @@ export const setCompanyScope = mutation({
       .unique();
     if (!target)
       throw new ConvexError({ code: "NOT_FOUND", message: "找不到授权码。" });
+    await assertAdminCanAccessCode(ctx, auth, targetCode);
     const normalizedCompanyId = args.companyId?.trim() || undefined;
+    if (
+      auth.allowed?.companyId &&
+      normalizedCompanyId !== auth.allowed.companyId
+    )
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "无法将授权码移到其他授权群组。",
+      });
     await ctx.db.patch(target._id, {
       companyId: normalizedCompanyId,
       updatedAt: Date.now(),
@@ -357,6 +378,7 @@ export const deleteCode = mutation({
       .unique();
     if (!target)
       throw new ConvexError({ code: "NOT_FOUND", message: "找不到授权码。" });
+    await assertAdminCanAccessCode(ctx, auth, targetCode);
     if (target.role === "super_admin")
       throw new ConvexError({
         code: "FORBIDDEN",

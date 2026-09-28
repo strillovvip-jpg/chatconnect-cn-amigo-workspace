@@ -1,7 +1,8 @@
 import { mutation, query, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
-import { requireSession } from "./roles";
+import { assertSurfaceAccess, requireSession } from "./roles";
+import type { MutationCtx } from "./_generated/server";
 
 const authorizationCodePattern = /^[A-Z0-9]{4,20}$/;
 const profileFeatureKeys = [
@@ -21,15 +22,41 @@ const profileFeatureKeys = [
 
 type ProfileFeatures = Record<(typeof profileFeatureKeys)[number], boolean>;
 
+const fullProfileFeatures: ProfileFeatures = {
+  canVideoCall: true,
+  canVoiceCall: true,
+  canAIFace: true,
+  canVideoSource: true,
+  canPlayVideo: true,
+  canScreenShare: true,
+  canTransferCall: true,
+  canGroupCall: true,
+  canPictureInPicture: true,
+  canFloatingWindow: true,
+  canFileSearch: true,
+  canRecord: true,
+};
+
+const limitedProfileFeatures: ProfileFeatures = {
+  ...fullProfileFeatures,
+  canPlayVideo: false,
+  canScreenShare: false,
+  canTransferCall: false,
+};
+
 function normalizeAuthorizationCode(value: string) {
   return value.normalize("NFKC").trim().toUpperCase();
 }
 
-function validateTierCodes(values: string[], label: string) {
-  if (values.length !== 50)
+function validateTierCodes(
+  values: string[],
+  label: string,
+  expectedCount = 50,
+) {
+  if (values.length !== expectedCount)
     throw new ConvexError({
       code: "BAD_REQUEST",
-      message: `${label}授权码必须正好包含 50 个。`,
+      message: `${label}授权码必须正好包含 ${expectedCount} 个。`,
     });
   const codes = values.map(normalizeAuthorizationCode);
   if (codes.some((code) => !authorizationCodePattern.test(code)))
@@ -95,6 +122,44 @@ function selectProfile<T extends { name: string; features: ProfileFeatures }>(
   });
 }
 
+async function ensureAichijpProfile(
+  ctx: MutationCtx,
+  profiles: Array<{
+    _id: import("./_generated/dataModel").Id<"license_profiles">;
+    name: string;
+    companyId?: string;
+    features: ProfileFeatures;
+  }>,
+  kind: "full" | "limited",
+  createdBy: string,
+) {
+  const tenantProfiles = profiles.filter(
+    (profile) => profile.companyId?.trim().toLowerCase() === "aichijp",
+  );
+  const matching = tenantProfiles.filter((profile) =>
+    kind === "full"
+      ? isFullProfile(profile.features)
+      : isLimitedProfile(profile.features),
+  );
+  if (matching.length > 0) return selectProfile(tenantProfiles, kind)._id;
+
+  return await ctx.db.insert("license_profiles", {
+    name:
+      kind === "full"
+        ? "Aichijp full-feature authorization"
+        : "Aichijp limited authorization (without 6, 9, and 11)",
+    companyId: "aichijp",
+    description:
+      kind === "full"
+        ? "All communication features"
+        : "Without screen sharing, call transfer, and camera/album video switching",
+    features: kind === "full" ? fullProfileFeatures : limitedProfileFeatures,
+    createdBy,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  });
+}
+
 const administratorValidator = v.object({
   code: v.string(),
   role: v.union(v.literal("super_admin"), v.literal("admin")),
@@ -105,6 +170,7 @@ const administratorValidator = v.object({
 export const replaceAuthorizationCodes = internalMutation({
   args: {
     password: v.string(),
+    companyId: v.optional(v.string()),
     fullCodes: v.array(v.string()),
     limitedCodes: v.array(v.string()),
     administrators: v.array(administratorValidator),
@@ -117,7 +183,13 @@ export const replaceAuthorizationCodes = internalMutation({
         message: "授权码替换验证失败。",
       });
 
-    const fullCodes = validateTierCodes(args.fullCodes, "全功能");
+    const companyId = args.companyId?.trim().toLowerCase() || undefined;
+    const fullCodeCount = companyId === "aichijp" ? 20 : 50;
+    const fullCodes = validateTierCodes(
+      args.fullCodes,
+      "全功能",
+      fullCodeCount,
+    );
     const limitedCodes = validateTierCodes(args.limitedCodes, "受限");
     const userCodes = [...fullCodes, ...limitedCodes];
     if (new Set(userCodes).size !== userCodes.length)
@@ -161,7 +233,10 @@ export const replaceAuthorizationCodes = internalMutation({
       administrators.set(code, {
         code,
         role: item.role,
-        companyId: item.companyId?.trim() || undefined,
+        companyId:
+          (companyId
+            ? item.companyId?.trim().toLowerCase()
+            : item.companyId?.trim()) || undefined,
         unlimitedDevices: item.unlimitedDevices,
       });
     };
@@ -170,6 +245,18 @@ export const replaceAuthorizationCodes = internalMutation({
     // In particular, do not silently revive codes from legacy environment
     // variables when the operator has requested a complete authorization reset.
     for (const item of args.administrators) addAdministrator(item);
+    if (companyId) {
+      if (
+        administrators.size !== 1 ||
+        [...administrators.values()].some(
+          (administrator) => administrator.companyId !== companyId,
+        )
+      )
+        throw new ConvexError({
+          code: "BAD_REQUEST",
+          message: "固定授权群组必须正好包含一位同群组总管理员。",
+        });
+    }
     if (
       ![...administrators.values()].some(
         (administrator) => administrator.role === "super_admin",
@@ -181,24 +268,55 @@ export const replaceAuthorizationCodes = internalMutation({
       });
 
     const profiles = await ctx.db.query("license_profiles").collect();
-    const fullProfile = selectProfile(profiles, "full");
-    const limitedProfile = selectProfile(profiles, "limited");
+    const profileOwner = [...administrators.values()].find(
+      (administrator) => administrator.role === "super_admin",
+    )!.code;
+    const fullProfileId =
+      companyId === "aichijp"
+        ? await ensureAichijpProfile(ctx, profiles, "full", profileOwner)
+        : selectProfile(profiles, "full")._id;
+    const limitedProfileId =
+      companyId === "aichijp"
+        ? await ensureAichijpProfile(ctx, profiles, "limited", profileOwner)
+        : selectProfile(profiles, "limited")._id;
 
     // Convex mutations are transactional. All validation and profile lookup
     // happens before these writes, so a failure cannot leave a half-imported
     // authorization set.
-    const sessions = await ctx.db.query("auth_codes").collect();
     const existingCodes = await ctx.db.query("allowed_codes").collect();
+    const recordsToReplace = companyId
+      ? existingCodes.filter(
+          (record) => record.companyId?.trim().toLowerCase() === companyId,
+        )
+      : existingCodes;
+    const recordsToKeep = companyId
+      ? existingCodes.filter((record) => !recordsToReplace.includes(record))
+      : [];
+    const incomingCodes = new Set([...userCodes, ...administrators.keys()]);
+    if (recordsToKeep.some((record) => incomingCodes.has(record.code)))
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "授权码已属于其他授权群组。",
+      });
+
+    const replacedCodes = new Set(
+      recordsToReplace.map((record) => record.code),
+    );
+    const allSessions = await ctx.db.query("auth_codes").collect();
+    const sessions = companyId
+      ? allSessions.filter((session) => replacedCodes.has(session.code))
+      : allSessions;
     for (const session of sessions) await ctx.db.delete(session._id);
-    for (const record of existingCodes) await ctx.db.delete(record._id);
+    for (const record of recordsToReplace) await ctx.db.delete(record._id);
 
     const now = Date.now();
     for (const code of fullCodes)
       await ctx.db.insert("allowed_codes", {
         code,
         role: "user",
+        companyId,
         enabled: true,
-        licenseProfileId: fullProfile._id,
+        licenseProfileId: fullProfileId,
         createdAt: now,
         updatedAt: now,
       });
@@ -206,8 +324,9 @@ export const replaceAuthorizationCodes = internalMutation({
       await ctx.db.insert("allowed_codes", {
         code,
         role: "user",
+        companyId,
         enabled: true,
-        licenseProfileId: limitedProfile._id,
+        licenseProfileId: limitedProfileId,
         createdAt: now,
         updatedAt: now,
       });
@@ -277,6 +396,37 @@ export const importAllowedCodes = internalMutation({
   },
 });
 
+export const assignAuthorizationCodeTenant = internalMutation({
+  args: {
+    password: v.string(),
+    code: v.string(),
+    companyId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const importSecret = process.env.AUTH_CODE_IMPORT_SECRET;
+    if (!importSecret || args.password !== importSecret)
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "授权码群组设置验证失败。",
+      });
+    const code = normalizeAuthorizationCode(args.code);
+    const companyId = args.companyId.trim().toLowerCase();
+    if (!authorizationCodePattern.test(code) || !companyId)
+      throw new ConvexError({
+        code: "BAD_REQUEST",
+        message: "授权码或授权群组无效。",
+      });
+    const target = await ctx.db
+      .query("allowed_codes")
+      .withIndex("by_code", (q) => q.eq("code", code))
+      .unique();
+    if (!target)
+      throw new ConvexError({ code: "NOT_FOUND", message: "找不到授权码。" });
+    await ctx.db.patch(target._id, { companyId, updatedAt: Date.now() });
+    return { code, companyId };
+  },
+});
+
 // Check if a code is already used and by which device
 export const getCodeStatus = query({
   args: { code: v.string() },
@@ -291,16 +441,24 @@ export const getCodeStatus = query({
 });
 
 export const getSessionRole = query({
-  args: { code: v.string(), deviceId: v.string() },
+  args: {
+    code: v.string(),
+    deviceId: v.string(),
+    surface: v.optional(
+      v.union(v.literal("app"), v.literal("aichijp"), v.literal("nyfbi")),
+    ),
+  },
   handler: async (ctx, args) => {
     try {
       const auth = await requireSession(ctx, args.code, args.deviceId);
+      assertSurfaceAccess(auth.allowed, args.surface);
       return {
         role: auth.role,
         code: auth.code,
         name: auth.session.name,
         expiresAt: auth.allowed?.expiresAt ?? null,
         licenseProfileId: auth.allowed?.licenseProfileId ?? null,
+        companyId: auth.allowed?.companyId?.trim().toLowerCase() ?? "nyfbi",
       };
     } catch {
       return null;
@@ -316,6 +474,9 @@ export const claimCode = mutation({
     deviceType: v.union(v.literal("mobile"), v.literal("desktop")),
     deviceContext: v.optional(
       v.union(v.literal("browser"), v.literal("standalone")),
+    ),
+    surface: v.optional(
+      v.union(v.literal("app"), v.literal("aichijp"), v.literal("nyfbi")),
     ),
     name: v.string(),
     department: v.optional(v.string()),
@@ -344,6 +505,7 @@ export const claimCode = mutation({
         message: "授权码无效，请输入正确的授权码。",
       });
     }
+    assertSurfaceAccess(allowed, args.surface);
     if (allowed.expiresAt && allowed.expiresAt <= Date.now()) {
       throw new ConvexError({
         code: "FORBIDDEN",

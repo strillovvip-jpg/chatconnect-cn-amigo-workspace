@@ -5,7 +5,62 @@ import {
   mutation,
   query,
 } from "./_generated/server";
-import { requireAdmin, requireSession } from "./roles";
+import { getAdminCompanyScope, requireAdmin, requireSession } from "./roles";
+import { codeIsInTenant, tenantIdForGroup } from "./tenantBoundaries";
+
+type AdminAuth = Awaited<ReturnType<typeof requireAdmin>>;
+
+async function adminCanAccessCall(
+  ctx: Parameters<typeof requireAdmin>[0],
+  auth: AdminAuth,
+  callId: string,
+  storedParticipantCodes: string[] = [],
+) {
+  const tenantId = getAdminCompanyScope(auth);
+  if (!tenantId) return true;
+
+  const participantCodes = new Set(storedParticipantCodes);
+  const call = await ctx.db
+    .query("live_calls")
+    .withIndex("by_call_id", (q) => q.eq("callId", callId))
+    .unique();
+  for (const code of call?.participantCodes ?? []) participantCodes.add(code);
+
+  const groupCall = await ctx.db
+    .query("chat_group_calls")
+    .withIndex("by_call_id", (q) => q.eq("callId", callId))
+    .unique();
+  if (groupCall) {
+    const group = await ctx.db.get(groupCall.groupId);
+    if (!group || (await tenantIdForGroup(ctx, group)) !== tenantId)
+      return false;
+    const groupParticipants = await ctx.db
+      .query("chat_group_call_participants")
+      .withIndex("by_call", (q) => q.eq("groupCallId", groupCall._id))
+      .collect();
+    for (const participant of groupParticipants)
+      participantCodes.add(participant.userId);
+  }
+
+  if (!participantCodes.size) return false;
+  const matches = await Promise.all(
+    [...participantCodes].map((code) => codeIsInTenant(ctx, code, tenantId)),
+  );
+  return matches.every(Boolean);
+}
+
+async function assertAdminCanAccessCall(
+  ctx: Parameters<typeof requireAdmin>[0],
+  auth: AdminAuth,
+  callId: string,
+  participantCodes: string[] = [],
+) {
+  if (!(await adminCanAccessCall(ctx, auth, callId, participantCodes)))
+    throw new ConvexError({
+      code: "FORBIDDEN",
+      message: "没有权限访问其他授权群组的通话。",
+    });
+}
 
 async function participant(
   ctx: Parameters<typeof requireSession>[0],
@@ -71,6 +126,7 @@ export const request = mutation({
         code: "NOT_FOUND",
         message: "找不到正在进行的通话。",
       });
+    await assertAdminCanAccessCall(ctx, auth, args.callId, participantCodes);
     const existing = await ctx.db
       .query("call_compliance")
       .withIndex("by_call", (q) => q.eq("callId", args.callId))
@@ -328,6 +384,12 @@ export const stop = mutation({
       .query("call_compliance")
       .withIndex("by_call", (q) => q.eq("callId", args.callId))
       .unique();
+    await assertAdminCanAccessCall(
+      ctx,
+      auth,
+      args.callId,
+      item?.participantCodes,
+    );
     if (item)
       await ctx.db.patch(item._id, {
         status: "stopped",
@@ -353,6 +415,12 @@ export const setTranslation = mutation({
       .query("call_compliance")
       .withIndex("by_call", (q) => q.eq("callId", args.callId))
       .unique();
+    await assertAdminCanAccessCall(
+      ctx,
+      auth,
+      args.callId,
+      item?.participantCodes,
+    );
     if (!item || item.status !== "active")
       throw new ConvexError({
         code: "BAD_REQUEST",
@@ -373,11 +441,27 @@ export const setTranslation = mutation({
 export const adminDashboard = query({
   args: { password: v.string() },
   handler: async (ctx, args) => {
-    await requireAdmin(ctx, args.password);
-    const sessions = await ctx.db
+    const auth = await requireAdmin(ctx, args.password);
+    const allSessions = await ctx.db
       .query("call_compliance")
       .order("desc")
-      .take(30);
+      .collect();
+    const sessions = (
+      await Promise.all(
+        allSessions.map(async (session) =>
+          (await adminCanAccessCall(
+            ctx,
+            auth,
+            session.callId,
+            session.participantCodes,
+          ))
+            ? session
+            : null,
+        ),
+      )
+    )
+      .filter((session): session is NonNullable<typeof session> => !!session)
+      .slice(0, 30);
     return await Promise.all(
       sessions.map(async (session) => {
         const transcripts = await ctx.db

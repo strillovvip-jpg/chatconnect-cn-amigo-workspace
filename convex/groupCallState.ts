@@ -7,20 +7,52 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
-import { requireSession } from "./roles";
+import { assertSameTenant, requireSession, tenantIdForAllowed } from "./roles";
 import { requireFeature } from "./features";
 import { internal } from "./_generated/api";
+import {
+  assertCodeInTenant,
+  codeIsInTenant,
+  tenantIdForGroup,
+  tenantIdForLegacyOwner,
+} from "./tenantBoundaries";
 
 const authArgs = { code: v.string(), deviceId: v.string() };
+
+async function groupCallTenant(
+  ctx: QueryCtx | MutationCtx,
+  groupId: Id<"chat_groups">,
+  fallbackOwnerCode: string | undefined,
+) {
+  const group = await ctx.db.get(groupId);
+  if (group) return { group, tenantId: await tenantIdForGroup(ctx, group) };
+  if (fallbackOwnerCode)
+    return {
+      group: null,
+      tenantId: await tenantIdForLegacyOwner(ctx, fallbackOwnerCode),
+    };
+  throw new ConvexError({ code: "NOT_FOUND", message: "找不到群组。" });
+}
+
 async function member(
   ctx: QueryCtx | MutationCtx,
   groupId: Id<"chat_groups">,
-  code: string,
+  auth: {
+    code: string;
+    allowed?: { companyId?: string } | null;
+  },
+  fallbackOwnerCode?: string,
 ) {
+  const { group, tenantId } = await groupCallTenant(
+    ctx,
+    groupId,
+    fallbackOwnerCode,
+  );
+  assertSameTenant({ companyId: tenantId }, auth.allowed);
   const result = await ctx.db
     .query("chat_group_members")
     .withIndex("by_group_user", (q) =>
-      q.eq("groupId", groupId).eq("userId", code),
+      q.eq("groupId", groupId).eq("userId", auth.code),
     )
     .unique();
   if (!result || result.status !== "active")
@@ -28,7 +60,7 @@ async function member(
       code: "FORBIDDEN",
       message: "只有群组成员可以加入通话。",
     });
-  return result;
+  return { group, membership: result, tenantId };
 }
 
 async function dismissCallNotifications(
@@ -68,8 +100,7 @@ export const createCall = mutation({
     if (args.type === "video")
       await requireFeature(ctx, args.code, args.deviceId, "canVideoCall");
     else await requireFeature(ctx, args.code, args.deviceId, "canVoiceCall");
-    await member(ctx, args.groupId, auth.code);
-    const group = await ctx.db.get(args.groupId);
+    const { group, tenantId } = await member(ctx, args.groupId, auth);
     if (!group || group.status !== "active")
       throw new ConvexError({ code: "NOT_FOUND", message: "找不到群组。" });
     const active =
@@ -86,6 +117,7 @@ export const createCall = mutation({
         )
         .first());
     if (active) {
+      await assertCodeInTenant(ctx, active.createdBy, tenantId);
       const participant = await ctx.db
         .query("chat_group_call_participants")
         .withIndex("by_call_user", (q) =>
@@ -139,6 +171,7 @@ export const createCall = mutation({
       .withIndex("by_group", (q) => q.eq("groupId", args.groupId))
       .collect();
     for (const item of memberships.filter((item) => item.status === "active")) {
+      if (!(await codeIsInTenant(ctx, item.userId, tenantId))) continue;
       const notificationId =
         item.userId === auth.code ? undefined : crypto.randomUUID();
       await ctx.db.insert("chat_group_call_participants", {
@@ -222,7 +255,13 @@ export const authorizeJoin = mutation({
       );
     if (!call || call.status === "ended")
       throw new ConvexError({ code: "NOT_FOUND", message: "群组通话已结束。" });
-    await member(ctx, call.groupId, auth.code);
+    const { group, tenantId } = await member(
+      ctx,
+      call.groupId,
+      auth,
+      call.createdBy,
+    );
+    await assertCodeInTenant(ctx, call.createdBy, tenantId);
     const participant = await ctx.db
       .query("chat_group_call_participants")
       .withIndex("by_call_user", (q) =>
@@ -274,7 +313,6 @@ export const authorizeJoin = mutation({
         livekitIdentity: identity,
         isHost: false,
       });
-    const group = await ctx.db.get(call.groupId);
     await ctx.db.patch(call._id, {
       status: "active",
       lastActivityAt: Date.now(),
@@ -304,7 +342,13 @@ export const incoming = query({
     for (const invite of invitations) {
       const call = await ctx.db.get(invite.groupCallId);
       if (!call || call.status === "ended") continue;
-      const group = await ctx.db.get(call.groupId);
+      const { group, tenantId } = await groupCallTenant(
+        ctx,
+        call.groupId,
+        call.createdBy,
+      );
+      if (tenantId !== tenantIdForAllowed(auth.allowed)) continue;
+      if (!(await codeIsInTenant(ctx, call.createdBy, tenantId))) continue;
       const creator = await ctx.db
         .query("auth_codes")
         .withIndex("by_code", (q) => q.eq("code", call.createdBy))
@@ -313,12 +357,18 @@ export const incoming = query({
         .query("chat_group_call_participants")
         .withIndex("by_call", (q) => q.eq("groupCallId", call._id))
         .collect();
+      const visibleParticipants = [];
+      for (const participant of participants) {
+        if (await codeIsInTenant(ctx, participant.userId, tenantId))
+          visibleParticipants.push(participant);
+      }
       return {
         ...call,
         groupName: group?.name ?? "__system_group__",
         creatorName: creator?.name ?? call.createdBy,
-        participantCount: participants.filter((p) => p.status === "joined")
-          .length,
+        participantCount: visibleParticipants.filter(
+          (participant) => participant.status === "joined",
+        ).length,
       };
     }
     return null;
@@ -331,7 +381,7 @@ export const decline = mutation({
     const auth = await requireSession(ctx, args.code, args.deviceId);
     const call = await ctx.db.get(args.groupCallId);
     if (!call || call.status === "ended") return;
-    await member(ctx, call.groupId, auth.code);
+    await member(ctx, call.groupId, auth, call.createdBy);
     const participant = await ctx.db
       .query("chat_group_call_participants")
       .withIndex("by_call_user", (q) =>
@@ -366,6 +416,7 @@ export const leave = mutation({
       .withIndex("by_call_id", (q) => q.eq("callId", args.callId))
       .unique();
     if (!call) return;
+    await member(ctx, call.groupId, auth, call.createdBy);
     const participant = await ctx.db
       .query("chat_group_call_participants")
       .withIndex("by_call_user", (q) =>
@@ -401,6 +452,7 @@ export const heartbeat = mutation({
       .withIndex("by_call_id", (q) => q.eq("callId", args.callId))
       .unique();
     if (!call || call.status === "ended") return;
+    await member(ctx, call.groupId, auth, call.createdBy);
     const participant = await ctx.db
       .query("chat_group_call_participants")
       .withIndex("by_call_user", (q) =>
@@ -458,7 +510,7 @@ export const callStatus = query({
       .withIndex("by_call_id", (q) => q.eq("callId", args.callId))
       .unique();
     if (!call) return null;
-    await member(ctx, call.groupId, auth.code);
+    await member(ctx, call.groupId, auth, call.createdBy);
     return { status: call.status, endedAt: call.endedAt };
   },
 });
@@ -477,6 +529,10 @@ export const authorizeHostAction = mutation({
   },
   handler: async (ctx, args) => {
     const auth = await requireSession(ctx, args.code, args.deviceId);
+    const call = await ctx.db.get(args.groupCallId);
+    if (!call)
+      throw new ConvexError({ code: "NOT_FOUND", message: "找不到群组通话。" });
+    const { tenantId } = await member(ctx, call.groupId, auth, call.createdBy);
     const actor = await ctx.db
       .query("chat_group_call_participants")
       .withIndex("by_call_user", (q) =>
@@ -488,9 +544,6 @@ export const authorizeHostAction = mutation({
         code: "FORBIDDEN",
         message: "只有主持人可以管理通话。",
       });
-    const call = await ctx.db.get(args.groupCallId);
-    if (!call)
-      throw new ConvexError({ code: "NOT_FOUND", message: "找不到群组通话。" });
     if (args.action === "end")
       return { roomName: call.roomName, action: args.action };
     if (!args.targetCode)
@@ -498,10 +551,12 @@ export const authorizeHostAction = mutation({
         code: "BAD_REQUEST",
         message: "未指定目标成员。",
       });
+    const targetCode = args.targetCode.trim().toUpperCase();
+    await assertCodeInTenant(ctx, targetCode, tenantId);
     const target = await ctx.db
       .query("chat_group_call_participants")
       .withIndex("by_call_user", (q) =>
-        q.eq("groupCallId", args.groupCallId).eq("userId", args.targetCode!),
+        q.eq("groupCallId", args.groupCallId).eq("userId", targetCode),
       )
       .unique();
     if (!target)
@@ -531,6 +586,10 @@ export const finalizeHostAction = mutation({
   },
   handler: async (ctx, args) => {
     const auth = await requireSession(ctx, args.code, args.deviceId);
+    const call = await ctx.db.get(args.groupCallId);
+    if (!call)
+      throw new ConvexError({ code: "NOT_FOUND", message: "找不到群组通话。" });
+    const { tenantId } = await member(ctx, call.groupId, auth, call.createdBy);
     const actor = await ctx.db
       .query("chat_group_call_participants")
       .withIndex("by_call_user", (q) =>
@@ -555,10 +614,12 @@ export const finalizeHostAction = mutation({
         code: "BAD_REQUEST",
         message: "未指定目标成员。",
       });
+    const targetCode = args.targetCode.trim().toUpperCase();
+    await assertCodeInTenant(ctx, targetCode, tenantId);
     const target = await ctx.db
       .query("chat_group_call_participants")
       .withIndex("by_call_user", (q) =>
-        q.eq("groupCallId", args.groupCallId).eq("userId", args.targetCode!),
+        q.eq("groupCallId", args.groupCallId).eq("userId", targetCode),
       )
       .unique();
     if (!target)

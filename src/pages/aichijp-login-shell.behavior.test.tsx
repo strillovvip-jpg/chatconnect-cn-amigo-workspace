@@ -94,6 +94,7 @@ describe("aichijp dedicated login shell", () => {
       value: vi.fn(() => ({ matches: false })),
     });
     mocks.claimCode.mockResolvedValue({ name: "山田 太郎", role: "user" });
+    window.history.replaceState({}, "", "/");
     vi.clearAllMocks();
   });
 
@@ -132,7 +133,26 @@ describe("aichijp dedicated login shell", () => {
         name: "山田 太郎",
         deviceType: "desktop",
         deviceContext: "browser",
+        surface: "aichijp",
       }),
     );
+  });
+
+  it("returns an authenticated aichijp visitor to the protected invitation", async () => {
+    window.history.replaceState({}, "", "/?next=%2Fvideo_call%2Finvite-1");
+    render(<ChinesePortal />);
+
+    fireEvent.change(screen.getByPlaceholderText("英字5文字"), {
+      target: { value: "PORT1" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("お名前を入力"), {
+      target: { value: "山田 太郎" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "認証して進む" }));
+
+    await waitFor(() => expect(mocks.navigate).toHaveBeenCalled());
+    expect(mocks.navigate).toHaveBeenCalledWith("/video_call/invite-1", {
+      replace: true,
+    });
   });
 });

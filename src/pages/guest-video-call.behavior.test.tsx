@@ -15,18 +15,24 @@ const mocks = vi.hoisted(() => ({
   on: vi.fn(),
   toastError: vi.fn(),
   stageProps: null as Record<string, unknown> | null,
+  aichijp: false,
+  session: { role: "user", code: "PORT1", name: "Guest" } as
+    Record<string, unknown> | null | undefined,
 }));
 
 vi.mock("convex/react", () => ({
   useAction: (name: string) =>
     name === "joinFaceSwapInvite" ? mocks.joinInvite : mocks.confirmInvite,
-  useQuery: () => ({
-    inviteId: "invite-1",
-    status: "pending",
-    requiresPassword: true,
-    available: true,
-    guestJoined: false,
-  }),
+  useQuery: (name: string) =>
+    name === "getSessionRole"
+      ? mocks.session
+      : {
+          inviteId: "invite-1",
+          status: "pending",
+          requiresPassword: true,
+          available: true,
+          guestJoined: false,
+        },
 }));
 
 vi.mock("@/convex/_generated/api.js", () => ({
@@ -35,11 +41,19 @@ vi.mock("@/convex/_generated/api.js", () => ({
       joinFaceSwapInvite: "joinFaceSwapInvite",
       confirmFaceSwapInviteJoin: "confirmFaceSwapInviteJoin",
     },
+    authCodes: { getSessionRole: "getSessionRole" },
   },
 }));
 
 vi.mock("react-router-dom", () => ({
   useParams: () => ({ id: "invite-1" }),
+  Navigate: ({ to }: { to: string }) => (
+    <div data-testid="navigate-target">{to}</div>
+  ),
+}));
+
+vi.mock("@/lib/runtime-surface.ts", () => ({
+  isAichijpWebRuntime: () => mocks.aichijp,
 }));
 
 vi.mock("livekit-client", () => ({
@@ -99,7 +113,20 @@ vi.mock("@/lib/i18n", () => ({
 
 describe("GuestVideoCallPage", () => {
   beforeEach(() => {
+    const values = new Map<string, string>();
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: {
+        clear: () => values.clear(),
+        getItem: (key: string) => values.get(key) ?? null,
+        removeItem: (key: string) => values.delete(key),
+        setItem: (key: string, value: string) => values.set(key, value),
+      },
+    });
     vi.clearAllMocks();
+    window.localStorage.clear();
+    mocks.aichijp = false;
+    mocks.session = { role: "user", code: "PORT1", name: "Guest" };
     mocks.joinInvite.mockResolvedValue({
       serverUrl: "wss://live.example.test",
       token: "guest-token",
@@ -118,6 +145,53 @@ describe("GuestVideoCallPage", () => {
     ]);
     mocks.publishTrack.mockResolvedValue(undefined);
     mocks.disconnect.mockResolvedValue(undefined);
+  });
+
+  it("redirects an unauthenticated aichijp visitor to login without exposing the call password form", () => {
+    mocks.aichijp = true;
+
+    render(<GuestVideoCallPage />);
+
+    expect(screen.getByTestId("navigate-target")).toHaveTextContent(
+      "/?next=%2Fvideo_call%2Finvite-1",
+    );
+    expect(screen.queryByPlaceholderText("Password")).not.toBeInTheDocument();
+  });
+
+  it("joins an aichijp invitation with the authenticated tenant session", async () => {
+    mocks.aichijp = true;
+    window.localStorage.setItem("ksc_session_code", "PORT1");
+    window.localStorage.setItem("ksc_device_id", "portal-device");
+    mocks.startAudio.mockReset().mockResolvedValue(undefined);
+
+    render(<GuestVideoCallPage />);
+    fireEvent.change(screen.getByPlaceholderText("Password"), {
+      target: { value: "123456" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Join call" }));
+
+    await waitFor(() => expect(mocks.joinInvite).toHaveBeenCalled());
+    expect(mocks.joinInvite).toHaveBeenCalledWith({
+      inviteId: "invite-1",
+      password: "123456",
+      code: "PORT1",
+      deviceId: "portal-device",
+    });
+  });
+
+  it("redirects a stale aichijp session to reauthenticate before exposing media or password", () => {
+    mocks.aichijp = true;
+    mocks.session = null;
+    window.localStorage.setItem("ksc_session_code", "STALE");
+    window.localStorage.setItem("ksc_device_id", "stale-device");
+
+    render(<GuestVideoCallPage />);
+
+    expect(screen.getByTestId("navigate-target")).toHaveTextContent(
+      "/?reauth=1&next=%2Fvideo_call%2Finvite-1",
+    );
+    expect(screen.queryByPlaceholderText("Password")).not.toBeInTheDocument();
+    expect(mocks.startAudio).not.toHaveBeenCalled();
   });
 
   it("does not request or consume an invite until iOS audio is unlocked", async () => {

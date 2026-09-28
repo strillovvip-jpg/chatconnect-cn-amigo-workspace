@@ -33,6 +33,7 @@ vi.mock("@capacitor/core", () => ({
 
 vi.mock("@/lib/runtime-surface.ts", () => ({
   isNyfbiWebRuntime: () => mocks.nyfbi,
+  isAichijpWebRuntime: () => false,
 }));
 
 vi.mock("@/lib/i18n", () => ({

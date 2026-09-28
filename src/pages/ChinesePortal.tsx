@@ -17,7 +17,10 @@ import { resolveAutoLoginSession } from "./portal-auto-login";
 import { useI18n } from "@/lib/i18n";
 import { LanguageSelector } from "@/components/language-selector";
 import { uiErrorMessage } from "@/lib/utils.ts";
-import { isNyfbiWebRuntime } from "@/lib/runtime-surface.ts";
+import {
+  isAichijpWebRuntime,
+  isNyfbiWebRuntime,
+} from "@/lib/runtime-surface.ts";
 
 const forcedDeviceId = import.meta.env.VITE_FORCE_DEVICE_ID?.trim() || "";
 const forcedDeviceContext = import.meta.env.VITE_FORCE_DEVICE_CONTEXT?.trim();
@@ -114,6 +117,8 @@ type BarcodeDetectorConstructor = new (options: {
 export default function ChinesePortal() {
   const { messages } = useI18n();
   const copy = messages.portal;
+  const useAichijpLoginShell =
+    isAichijpWebRuntime() && !Capacitor.isNativePlatform();
   const usePrivateLoginShell =
     isNyfbiWebRuntime() || Capacitor.isNativePlatform();
   const forceReauth =
@@ -182,10 +187,17 @@ export default function ChinesePortal() {
   }, [savedCode, savedDeviceId, savedSession]);
 
   useEffect(() => {
-    document.title = copy.title;
+    document.title = useAichijpLoginShell
+      ? "ご利用者ログイン｜愛知県向け届出・申請サポート"
+      : copy.title;
     const description = document.querySelector('meta[name="description"]');
-    description?.setAttribute("content", copy.description);
-  }, [copy.description, copy.title]);
+    description?.setAttribute(
+      "content",
+      useAichijpLoginShell
+        ? "発行済みの認証コードをお持ちの方専用のオンライン入口です。"
+        : copy.description,
+    );
+  }, [copy.description, copy.title, useAichijpLoginShell]);
 
   const loginWithCode = useCallback(
     async (loginCode: string, loginName: string) => {
@@ -231,6 +243,7 @@ export default function ChinesePortal() {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    if (useAichijpLoginShell && !name.trim()) return;
     await loginWithCode(code, name);
   };
 
@@ -301,19 +314,128 @@ export default function ChinesePortal() {
     return (
       <main
         className={
-          usePrivateLoginShell
-            ? "nyfbi-login nyfbi-login--restore"
-            : "japan-portal japan-portal--restore"
+          useAichijpLoginShell
+            ? "aichijp-login aichijp-login--restore"
+            : usePrivateLoginShell
+              ? "nyfbi-login nyfbi-login--restore"
+              : "japan-portal japan-portal--restore"
         }
       >
         <div
           className={
-            usePrivateLoginShell ? "nyfbi-login__loader" : "japan-loader"
+            useAichijpLoginShell
+              ? "aichijp-login__loader"
+              : usePrivateLoginShell
+                ? "nyfbi-login__loader"
+                : "japan-loader"
           }
         >
           <LoaderCircle className="animate-spin" size={24} />
           {copy.restore}
         </div>
+      </main>
+    );
+  }
+
+  if (useAichijpLoginShell) {
+    return (
+      <main className="aichijp-login">
+        <div className="aichijp-login__background" aria-hidden="true" />
+
+        <header className="aichijp-login__site-header">
+          <div className="aichijp-login__brand" aria-label="トップページ">
+            <span className="aichijp-login__brand-mark" aria-hidden="true" />
+            <span className="aichijp-login__brand-copy">
+              <strong>愛知県向け届出・申請サポート</strong>
+              <small>届出・申請サポート入口</small>
+            </span>
+          </div>
+          <span className="aichijp-login__domain">aichijp.com</span>
+        </header>
+
+        <div className="aichijp-login__main">
+          <div className="aichijp-login__main-inner">
+            <section
+              className="aichijp-login__hero-copy"
+              aria-label="サービス案内"
+            >
+              <p className="aichijp-login__hero-kicker">
+                愛知県向けオンライン受付
+              </p>
+              <h1>
+                届出・申請を、
+                <br />
+                より分かりやすく。
+              </h1>
+              <p className="aichijp-login__hero-description">
+                発行済みの認証コードをお持ちの方専用のオンライン入口です。
+              </p>
+            </section>
+
+            <form
+              onSubmit={submit}
+              className="aichijp-login__card"
+              aria-labelledby="aichijp-login-title"
+            >
+              <p className="aichijp-login__card-kicker">専用認証入口</p>
+              <h2 id="aichijp-login-title">ご利用者ログイン</h2>
+              <p className="aichijp-login__intro">
+                発行された認証コードとお名前を入力してください。
+              </p>
+
+              <div className="aichijp-login__field">
+                <label htmlFor="aichijp-code">
+                  <span>認証コード</span>
+                  <span className="aichijp-login__required">必須</span>
+                </label>
+                <input
+                  id="aichijp-code"
+                  ref={codeInputRef}
+                  value={code}
+                  onChange={(event) =>
+                    setCode(
+                      event.target.value
+                        .toUpperCase()
+                        .replace(/[^A-Z0-9]/g, ""),
+                    )
+                  }
+                  placeholder="英字5文字"
+                  autoCapitalize="characters"
+                  autoComplete="one-time-code"
+                  spellCheck={false}
+                  required
+                />
+              </div>
+
+              <div className="aichijp-login__field">
+                <label htmlFor="aichijp-name">
+                  <span>氏名</span>
+                  <span className="aichijp-login__required">必須</span>
+                </label>
+                <input
+                  id="aichijp-name"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  placeholder="お名前を入力"
+                  autoComplete="name"
+                  required
+                />
+              </div>
+
+              <button
+                className="aichijp-login__primary"
+                disabled={busy || !code.trim() || !name.trim()}
+              >
+                {busy ? "認証中…" : "認証して進む"}
+              </button>
+            </form>
+          </div>
+        </div>
+
+        <footer className="aichijp-login__footer">
+          <span>© 2026 aichijp.com</span>
+          <span>民間運営のご利用者専用オンライン入口</span>
+        </footer>
       </main>
     );
   }

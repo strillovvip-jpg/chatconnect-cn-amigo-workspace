@@ -824,9 +824,7 @@
 }
 
 .aichijp-login__primary:disabled {
-  opacity: 0.58;
   cursor: not-allowed;
-  box-shadow: none;
 }
 
 .aichijp-login__footer {

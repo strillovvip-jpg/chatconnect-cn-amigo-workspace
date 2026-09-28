@@ -759,3 +759,315 @@
     margin-top: -3.2rem;
   }
 }
+
+/* Private login surface: used by nyfbi.org and the Capacitor app only. The
+   imagery is optional, so the red/white/blue gradient remains a legible fallback. */
+.nyfbi-login {
+  min-height: 100dvh;
+  color: #f7f9ff;
+  background:
+    radial-gradient(circle at 12% 14%, #1c4f98cc 0 12%, transparent 32%),
+    repeating-linear-gradient(180deg, #9d1e32 0 5.6%, #f7f7f5 5.6% 11.2%),
+    #07152a;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+.nyfbi-login--restore {
+  display: grid;
+  place-items: center;
+  padding: max(1.5rem, var(--app-safe-area-top)) max(1.25rem, var(--app-safe-area-right))
+    max(1.5rem, var(--app-safe-area-bottom)) max(1.25rem, var(--app-safe-area-left));
+}
+
+.nyfbi-login__loader {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 1rem 1.2rem;
+  border: 1px solid #ffffff38;
+  border-radius: 0.9rem;
+  background: #07152ae6;
+  color: #fff;
+}
+
+.nyfbi-login__shell {
+  min-height: 100dvh;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.nyfbi-login__hero {
+  position: relative;
+  min-height: clamp(17rem, 43dvh, 26rem);
+  overflow: hidden;
+}
+
+.nyfbi-login__hero-art {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, #06152b16 24%, #07152a 100%),
+    radial-gradient(circle at 17% 17%, #2156a2a8 0 15%, transparent 42%),
+    url("/nyfbi-secure-hero-portrait.webp") center / cover no-repeat;
+  background-color: #07152a;
+}
+
+.nyfbi-login__form-column {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 32rem);
+  margin: -3.2rem auto 0;
+  padding: 0 max(1rem, var(--app-safe-area-right))
+    max(1rem, var(--app-safe-area-bottom)) max(1rem, var(--app-safe-area-left));
+}
+
+.nyfbi-login__card {
+  border: 1px solid #ffffff38;
+  border-radius: 1.25rem;
+  padding: 1rem;
+  background: linear-gradient(155deg, #0e2246f7, #07152af8 72%);
+  box-shadow: 0 1.25rem 3.25rem #010914aa, inset 0 1px 0 #ffffff1f;
+  backdrop-filter: blur(14px);
+}
+
+.nyfbi-login__utility {
+  min-height: 1.5rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.nyfbi-login__header,
+.nyfbi-login__form-heading {
+  text-align: center;
+}
+
+.nyfbi-login__shield {
+  width: 3rem;
+  height: 3rem;
+  margin: 0 auto 0.55rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid #dce9ff75;
+  border-radius: 1rem 1rem 1.25rem 1.25rem;
+  color: #eaf2ff;
+  background: linear-gradient(145deg, #2d65af, #122b56);
+  box-shadow: inset 0 1px 0 #ffffff4f;
+}
+
+.nyfbi-login__eyebrow,
+.nyfbi-login__form-heading p {
+  margin: 0;
+  color: #c8d9f4;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  letter-spacing: 0.04em;
+}
+
+.nyfbi-login__header h1 {
+  max-width: 18ch;
+  margin: 0.2rem auto 0;
+  color: #fff;
+  font-size: clamp(1.6rem, 7vw, 2.25rem);
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+}
+
+.nyfbi-login__form-heading {
+  margin: 1.25rem 0 0.95rem;
+}
+
+.nyfbi-login__form-heading h2 {
+  margin: 0 0 0.28rem;
+  color: #fff;
+  font-size: 1rem;
+  letter-spacing: 0.02em;
+}
+
+.nyfbi-login__input {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.7rem;
+  border: 1px solid #b9d1f166;
+  border-radius: 0.8rem;
+  padding: 0 0.9rem;
+  background: #030b19b8;
+  color: #b9d1f1;
+}
+
+.nyfbi-login__input:focus-within {
+  border-color: #e7f0ff;
+  box-shadow: 0 0 0 3px #6a9de133;
+}
+
+.nyfbi-login__input input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #fff;
+  padding: 0.92rem 0;
+  font-size: 1rem;
+}
+
+.nyfbi-login__input input::placeholder {
+  color: #b6c4d8;
+}
+
+.nyfbi-login__primary,
+.nyfbi-login__secondary,
+.nyfbi-login__help-toggle {
+  width: 100%;
+  border-radius: 0.8rem;
+  transition: transform 180ms ease, border-color 180ms ease, background-color 180ms ease;
+}
+
+.nyfbi-login__primary:hover:not(:disabled),
+.nyfbi-login__secondary:hover,
+.nyfbi-login__help-toggle:hover {
+  transform: translateY(-1px);
+}
+
+.nyfbi-login__primary {
+  margin-top: 0.9rem;
+  border: 1px solid #f3f7ff99;
+  background: linear-gradient(180deg, #376db5, #1e4e91);
+  color: #fff;
+  padding: 0.88rem;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.nyfbi-login__primary:disabled {
+  opacity: 0.5;
+  transform: none;
+}
+
+.nyfbi-login__divider {
+  margin: 0.8rem 0 0.65rem;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  color: #b9c8df;
+}
+
+.nyfbi-login__divider span {
+  height: 1px;
+  flex: 1;
+  background: #b9d1f144;
+}
+
+.nyfbi-login__divider small {
+  font-size: 0.75rem;
+}
+
+.nyfbi-login__secondary,
+.nyfbi-login__help-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  border: 1px solid #b9d1f166;
+  background: #0a1a34;
+  color: #e8f0ff;
+  padding: 0.82rem;
+  font-size: 0.92rem;
+}
+
+.nyfbi-login__help-toggle {
+  justify-content: space-between;
+  margin-top: 0.65rem;
+  padding-inline: 0.9rem;
+}
+
+.nyfbi-login__help-toggle span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.nyfbi-login__help-toggle .rotate-90 {
+  transform: rotate(90deg);
+}
+
+.nyfbi-login__help-panel {
+  margin-top: 0.65rem;
+  border: 1px solid #b9d1f144;
+  border-radius: 0.8rem;
+  padding: 0.8rem 0.9rem;
+  background: #030b19b8;
+}
+
+.nyfbi-login__help-panel strong,
+.nyfbi-login__help-panel p,
+.nyfbi-login__inline-message {
+  color: #d9e5f7;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.nyfbi-login__help-panel strong {
+  display: block;
+  margin-bottom: 0.35rem;
+}
+
+.nyfbi-login__help-panel p {
+  margin: 0;
+}
+
+.nyfbi-login__help-panel p + p {
+  margin-top: 0.45rem;
+}
+
+.nyfbi-login__inline-message {
+  margin: 0.6rem 0 0;
+  text-align: center;
+}
+
+.nyfbi-login__footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.45rem;
+  margin: 0.85rem auto 0;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid #ffffff24;
+  border-radius: 0.75rem;
+  background: #06142be8;
+  color: #d6e2f4;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  text-align: center;
+}
+
+@media (min-width: 768px) {
+  .nyfbi-login__shell {
+    width: min(100%, 90rem);
+    grid-template-columns: minmax(0, 1.15fr) minmax(25rem, 0.85fr);
+    align-items: stretch;
+  }
+
+  .nyfbi-login__hero {
+    min-height: 100dvh;
+  }
+
+  .nyfbi-login__hero-art {
+    background:
+      linear-gradient(90deg, #06152b11 25%, #07152a 100%),
+      radial-gradient(circle at 17% 17%, #2156a2a8 0 15%, transparent 42%),
+      url("/nyfbi-secure-hero-landscape.webp") center / cover no-repeat;
+    background-color: #07152a;
+  }
+
+  .nyfbi-login__form-column {
+    align-self: center;
+    margin: 0 auto;
+    padding: max(1.5rem, var(--app-safe-area-top)) 1.5rem
+      max(1.5rem, var(--app-safe-area-bottom));
+  }
+
+  .nyfbi-login__card {
+    padding: 1.5rem;
+  }
+}

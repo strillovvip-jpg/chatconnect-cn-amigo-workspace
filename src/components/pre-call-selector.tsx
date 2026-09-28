@@ -1,11 +1,17 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Camera, Film, Phone, X } from "lucide-react";
 import { useFeatures } from "@/contexts/feature-context.tsx";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { useI18n } from "@/lib/i18n";
 import type { VideoFileOptions } from "@/lib/video-sources/types.ts";
 
 export type OutgoingCallSelection =
-  { callType: "audio" } | { callType: "video"; videoFile?: VideoFileOptions };
+  | { callType: "audio" }
+  | {
+      callType: "video";
+      videoFile?: VideoFileOptions;
+      cameraDeviceId?: string;
+    };
 
 type Props = {
   contactName: string;
@@ -26,10 +32,44 @@ export function PreCallSelector({
   const { messages } = useI18n();
   const copy = messages.preCall;
   const inputRef = useRef<HTMLInputElement>(null);
+  const responsiveMobile = useIsMobile();
+  const isMobile =
+    responsiveMobile ||
+    (typeof window !== "undefined" && window.innerWidth < 768);
   const [mode, setMode] = useState<"camera" | "video-file" | "audio">(
     initialMode,
   );
   const [file, setFile] = useState<File | null>(null);
+  const [cameraDevices, setCameraDevices] = useState<MediaDeviceInfo[]>([]);
+  const [cameraDeviceId, setCameraDeviceId] = useState("");
+
+  useEffect(() => {
+    if (
+      isMobile ||
+      mode !== "camera" ||
+      !navigator.mediaDevices?.enumerateDevices
+    )
+      return;
+    let active = true;
+    void navigator.mediaDevices
+      .enumerateDevices()
+      .then((devices) => {
+        if (!active) return;
+        const videoInputs = devices.filter(
+          (device) => device.kind === "videoinput",
+        );
+        setCameraDevices(videoInputs);
+        setCameraDeviceId((current) =>
+          videoInputs.some((device) => device.deviceId === current)
+            ? current
+            : (videoInputs[0]?.deviceId ?? ""),
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [isMobile, mode]);
 
   const videoFileAllowed =
     can("canVideoCall") && can("canVideoSource") && can("canPlayVideo");
@@ -45,6 +85,10 @@ export function PreCallSelector({
             callType: "video",
             videoFile:
               mode === "video-file" && file ? { file, loop: true } : undefined,
+            cameraDeviceId:
+              mode === "camera" && !isMobile && cameraDeviceId
+                ? cameraDeviceId
+                : undefined,
           },
     );
   };
@@ -118,6 +162,21 @@ export function PreCallSelector({
               {copy.videoLoopHint}
             </p>
           </div>
+        )}
+
+        {mode === "camera" && !isMobile && cameraDevices.length > 0 && (
+          <select
+            aria-label={copy.camera}
+            value={cameraDeviceId}
+            onChange={(event) => setCameraDeviceId(event.target.value)}
+            className="mt-4 w-full rounded-xl border border-white/10 bg-[#172237] px-3 py-3 text-sm text-white outline-none"
+          >
+            {cameraDevices.map((device, index) => (
+              <option key={device.deviceId} value={device.deviceId}>
+                {device.label || `${copy.camera} ${index + 1}`}
+              </option>
+            ))}
+          </select>
         )}
 
         <button

@@ -53,6 +53,7 @@ export type Messages = {
     supportBody: string;
     supportBodySecondary: string;
     securityLine: string;
+    privateServiceNotice: string;
     loginError: string;
     loginTimeout: string;
     qrUnsupported: string;
@@ -2161,6 +2162,7 @@ export const messages: Record<AppLocale, Messages> = {
       supportBody: "発行担当者から共有された認証コード、または案内メール内のQRコードをご利用ください。",
       supportBodySecondary: "QRログインでは、端末内のQR画像を読み取り認証コード欄へ自動入力します。",
       securityLine: "安全な通信環境で保護されています",
+      privateServiceNotice: "民間サービス — いかなる政府機関とも提携していません。",
       loginError: "ログインできません。もう一度お試しください。",
       loginTimeout: "接続に時間がかかっています。通信環境を確認して、もう一度お試しください。",
       qrUnsupported: "この端末ではQRコードの自動読み取りを利用できません。認証コードを手入力してください。",
@@ -2396,6 +2398,7 @@ export const messages: Record<AppLocale, Messages> = {
       supportBody: "请使用发放人员提供的授权码，或邮件内附带的二维码。",
       supportBodySecondary: "扫码登录会从设备中的二维码图片读取授权码并自动填入。",
       securityLine: "当前连接已受安全通信环境保护",
+      privateServiceNotice: "私人服务 — 不隶属于或附属于任何政府机构。",
       loginError: "无法登录，请稍后再试。",
       loginTimeout: "连接时间过长，请检查网络后重试。",
       qrUnsupported: "当前设备不支持自动识别二维码，请手动输入授权码。",
@@ -2629,6 +2632,7 @@ export const messages: Record<AppLocale, Messages> = {
       supportBody: "請使用發放人員提供的授權碼，或郵件中的二維碼。",
       supportBodySecondary: "掃碼登入會從裝置中的二維碼圖片讀取授權碼並自動填入。",
       securityLine: "目前連線已受安全通訊環境保護",
+      privateServiceNotice: "私人服務 — 不隸屬於或附屬於任何政府機構。",
       loginError: "無法登入，請稍後再試。",
       loginTimeout: "連線時間過長，請檢查網路後重試。",
       qrUnsupported: "目前裝置不支援自動辨識二維碼，請手動輸入授權碼。",
@@ -2846,11 +2850,11 @@ export const messages: Record<AppLocale, Messages> = {
       retry: "Retry",
     },
     portal: {
-      title: "Song Jin | Secure Communications Portal",
+      title: "Private Communications Access Portal",
       description: "Secure communications app for authorized users.",
       restore: "Restoring secure session...",
-      cardTitle: "Get started",
-      cardSubtitle: "Enter your authorization code",
+      cardTitle: "Authorized users only",
+      cardSubtitle: "Secure access • Confidential communication",
       codePlaceholder: "Authorization code",
       namePlaceholder: "Name (optional)",
       submitIdle: "Sign in",
@@ -2861,7 +2865,8 @@ export const messages: Record<AppLocale, Messages> = {
       supportTitle: "How to get an authorization code",
       supportBody: "Use the authorization code shared by the issuing operator or the QR code provided in your email.",
       supportBodySecondary: "QR sign-in reads a QR image from this device and fills the code automatically.",
-      securityLine: "Protected by a secure communications environment",
+      securityLine: "Secure access • Confidential communication",
+      privateServiceNotice: "Private service — Not affiliated with any government agency.",
       loginError: "Unable to sign in. Please try again.",
       loginTimeout: "Connection timed out. Check your network and try again.",
       qrUnsupported: "This device does not support automatic QR reading. Enter the authorization code manually.",

@@ -15,6 +15,20 @@ function participantWithTrack(readyState: MediaStreamTrackState) {
 }
 
 describe("setParticipantCameraEnabled", () => {
+  it("publishes from the selected desktop camera device", async () => {
+    const { participant, setCameraEnabled } = participantWithTrack("live");
+
+    await setParticipantCameraEnabled(participant, true, "obs-camera");
+
+    expect(setCameraEnabled).toHaveBeenCalledExactlyOnceWith(
+      true,
+      expect.objectContaining({ deviceId: "obs-camera" }),
+    );
+    expect(setCameraEnabled.mock.calls[0]?.[1]).not.toHaveProperty(
+      "facingMode",
+    );
+  });
+
   it("recreates an ended camera before enabling it", async () => {
     const { participant, setCameraEnabled } = participantWithTrack("ended");
     participant.getTrackPublication

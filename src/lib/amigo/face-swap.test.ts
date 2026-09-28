@@ -162,6 +162,116 @@ describe("AmigoFaceSwapService", () => {
     expect(service.isInitialized).toBe(true);
   });
 
+  it("automatically retries one interrupted model download without clearing its cache", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.initialize
+        .mockRejectedValueOnce(
+          Object.assign(
+            new Error("Model download failed: The network connection was lost."),
+            {
+              code: "SDK_MODEL_DOWNLOAD_FAILED",
+              data: {
+                stage: "initialize",
+                sdkCase: "modelDownloadFailed",
+              },
+            },
+          ),
+        )
+        .mockResolvedValueOnce(undefined);
+      const service = new AmigoFaceSwapService();
+
+      const initialization = service.initialize();
+      await vi.waitFor(() => expect(mocks.initialize).toHaveBeenCalledTimes(1));
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      await expect(initialization).resolves.toBeUndefined();
+      expect(mocks.initialize).toHaveBeenCalledTimes(2);
+      expect(service.isInitialized).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not retry a permanent SDK authorization failure", async () => {
+    mocks.initialize.mockRejectedValueOnce(
+      Object.assign(new Error("The API key is invalid."), {
+        code: "SDK_INVALID_API_KEY",
+        data: { stage: "initialize", sdkCase: "invalidAPIKey" },
+      }),
+    );
+    const service = new AmigoFaceSwapService();
+
+    await expect(service.initialize()).rejects.toMatchObject({
+      code: "SDK_INVALID_API_KEY",
+    });
+    expect(mocks.initialize).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops after one model-download retry, preserves the second error, and remains manually retryable", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.initialize
+        .mockRejectedValueOnce(
+          Object.assign(new Error("First download interruption."), {
+            code: "SDK_MODEL_DOWNLOAD_FAILED",
+            data: { stage: "initialize", attempt: 1 },
+          }),
+        )
+        .mockRejectedValueOnce(
+          Object.assign(new Error("Second download interruption."), {
+            code: "SDK_MODEL_DOWNLOAD_FAILED",
+            data: { stage: "initialize", attempt: 2 },
+          }),
+        )
+        .mockResolvedValueOnce(undefined);
+      const service = new AmigoFaceSwapService();
+
+      const firstInitialization = service.initialize();
+      const firstResult = expect(firstInitialization).rejects.toMatchObject({
+        code: "SDK_MODEL_DOWNLOAD_FAILED",
+        message: "Second download interruption.",
+        nativeDetails: expect.objectContaining({ attempt: 2 }),
+      });
+      await vi.advanceTimersByTimeAsync(1_000);
+      await firstResult;
+      expect(mocks.initialize).toHaveBeenCalledTimes(2);
+
+      await expect(service.initialize()).resolves.toBeUndefined();
+      expect(mocks.initialize).toHaveBeenCalledTimes(3);
+      expect(service.isInitialized).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shares one model-download retry across simultaneous initialization callers", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.initialize
+        .mockRejectedValueOnce(
+          Object.assign(new Error("Model download interrupted."), {
+            code: "SDK_MODEL_DOWNLOAD_FAILED",
+            data: { stage: "initialize" },
+          }),
+        )
+        .mockResolvedValueOnce(undefined);
+      const service = new AmigoFaceSwapService();
+
+      const first = service.initialize();
+      const second = service.initialize();
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      await expect(Promise.all([first, second])).resolves.toEqual([
+        undefined,
+        undefined,
+      ]);
+      expect(mocks.initialize).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("reinitializes once when native enrollment reports lost SDK state", async () => {
     mocks.enrollFace
       .mockRejectedValueOnce(

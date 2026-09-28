@@ -108,6 +108,8 @@ export default function ChatPage() {
         callType: selection.callType,
         initialVideoFile:
           selection.callType === "video" ? selection.videoFile : undefined,
+        cameraDeviceId:
+          selection.callType === "video" ? selection.cameraDeviceId : undefined,
         waitForAnswer: true,
       });
       setCallSelectorMode(null);

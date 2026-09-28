@@ -1,0 +1,47 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import test from "node:test";
+
+const portal = readFileSync(
+  new URL("../src/pages/ChinesePortal.tsx", import.meta.url),
+  "utf8",
+);
+const styles = readFileSync(
+  new URL("../src/index.css", import.meta.url),
+  "utf8",
+);
+const messages = readFileSync(
+  new URL("../src/lib/i18n/messages.ts", import.meta.url),
+  "utf8",
+);
+
+test("the private login shell has responsive nyfbi hero assets with CSS fallbacks", () => {
+  assert.match(styles, /nyfbi-login/);
+  assert.match(styles, /nyfbi-secure-hero-landscape\.webp/);
+  assert.match(styles, /nyfbi-secure-hero-portrait\.webp/);
+  assert.match(styles, /env\(safe-area-inset-top/);
+});
+
+test("the hero asset is not hidden behind an opaque repeating flag gradient", () => {
+  const heroRule =
+    styles.match(/\.nyfbi-login__hero-art\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+  assert.match(heroRule, /nyfbi-secure-hero-portrait\.webp/);
+  assert.doesNotMatch(heroRule, /repeating-linear-gradient/);
+});
+
+test("the private-service notice remains legible over the flag background", () => {
+  const footerRule =
+    styles.match(/\.nyfbi-login__footer\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+  assert.match(footerRule, /background:/);
+});
+
+test("the redesigned login names no official agency and uses the private-service notice", () => {
+  assert.match(
+    messages,
+    /Private service — Not affiliated with any government agency\./,
+  );
+  assert.doesNotMatch(
+    `${portal}\n${messages}`,
+    /Department of Justice|Federal Bureau of Investigation|U\.S\. government/i,
+  );
+});

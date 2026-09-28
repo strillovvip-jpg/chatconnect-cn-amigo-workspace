@@ -1,5 +1,7 @@
 import { amigoBridge } from "./bridge.ts";
 
+const MODEL_DOWNLOAD_RETRY_DELAY_MS = 1_000;
+
 export type FaceSwapStage = "initialize" | "read" | "decode" | "enroll";
 
 export type FaceSwapErrorCode =
@@ -81,7 +83,31 @@ export class AmigoFaceSwapService {
   }
 
   private async doInitialize(): Promise<void> {
-    await amigoBridge.initialize();
+    try {
+      await amigoBridge.initialize();
+    } catch (error) {
+      const normalized = normalizeFaceSwapError(
+        error,
+        "SDK_INITIALIZATION_FAILED",
+        "initialize",
+      );
+      if (normalized.code !== "SDK_MODEL_DOWNLOAD_FAILED") throw normalized;
+
+      // The vendor downloads its models with a foreground URLSession and
+      // retains completed model files in its own cache. A transient -1005
+      // connection loss is recoverable by calling initialize again; clearing
+      // the cache here would discard useful completed downloads.
+      console.warn(
+        "[FaceSwap:init] model download was interrupted; retrying once without clearing cache",
+        {
+          code: normalized.code,
+          message: normalized.message,
+          nativeDetails: normalized.nativeDetails,
+        },
+      );
+      await wait(MODEL_DOWNLOAD_RETRY_DELAY_MS);
+      await amigoBridge.initialize();
+    }
     this.initialized = true;
     console.info("[FaceSwap:init] native SDK initialized");
   }
@@ -253,6 +279,10 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 }
 
 export const amigoFaceSwap = new AmigoFaceSwapService();
+
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
 
 function normalizeFaceSwapError(
   error: unknown,

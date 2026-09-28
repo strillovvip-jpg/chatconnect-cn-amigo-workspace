@@ -54,6 +54,7 @@ type CallInfo = {
   remoteCode?: string;
   groupCallId?: string;
   initialVideoFile?: VideoFileOptions;
+  cameraDeviceId?: string;
   localMediaMode?: LocalMediaMode;
   remoteMediaMode?: LocalMediaMode;
   browserIdentity?: string;
@@ -127,6 +128,16 @@ function nativePublisherIdentity(info: CallInfo) {
 
 function nativePublisherToken(info: CallInfo) {
   return info.nativeVideoToken ?? info.nativePublisherToken;
+}
+
+function setCallCameraEnabled(
+  participant: Parameters<typeof setParticipantCameraEnabled>[0],
+  enabled: boolean,
+  deviceId?: string,
+) {
+  return enabled && deviceId
+    ? setParticipantCameraEnabled(participant, true, deviceId)
+    : setParticipantCameraEnabled(participant, enabled);
 }
 
 function participantIdentityFromToken(token?: string) {
@@ -669,7 +680,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         }
         if (info.callType === "video" && !useNativeFaceSwap) {
           try {
-            await setParticipantCameraEnabled(nextRoom.localParticipant, true);
+            await setCallCameraEnabled(
+              nextRoom.localParticipant,
+              true,
+              info.cameraDeviceId,
+            );
             const camera = nextRoom.localParticipant.getTrackPublication(
               Track.Source.Camera,
             );
@@ -833,7 +848,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         wantedCamRef.current &&
         (!activeRoom.localParticipant.isCameraEnabled || cameraEnded)
       ) {
-        await setParticipantCameraEnabled(activeRoom.localParticipant, true);
+        await setCallCameraEnabled(
+          activeRoom.localParticipant,
+          true,
+          info.cameraDeviceId,
+        );
       }
     } catch (error) {
       if (info.localMediaMode === "face-swap") {
@@ -1018,7 +1037,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     const activeRoom = roomRef.current;
     if (!activeRoom) return;
     try {
-      await setParticipantCameraEnabled(activeRoom.localParticipant, next);
+      await setCallCameraEnabled(
+        activeRoom.localParticipant,
+        next,
+        callInfoRef.current?.cameraDeviceId,
+      );
       if (next) toast.dismiss("livekit-camera-permission");
     } catch {
       wantedCamRef.current = activeRoom.localParticipant.isCameraEnabled;

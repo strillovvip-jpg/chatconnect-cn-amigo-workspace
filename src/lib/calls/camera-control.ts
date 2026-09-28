@@ -1,4 +1,4 @@
-import { Track } from "livekit-client";
+import { Track, type VideoCaptureOptions } from "livekit-client";
 
 export const CAMERA_CAPTURE_OPTIONS = {
   resolution: { width: 1280, height: 720, frameRate: 24 },
@@ -11,13 +11,23 @@ type CameraParticipant = {
     | undefined;
   setCameraEnabled(
     enabled: boolean,
-    options?: typeof CAMERA_CAPTURE_OPTIONS,
+    options?: VideoCaptureOptions,
   ): Promise<unknown>;
 };
+
+export function cameraCaptureOptions(deviceId?: string): VideoCaptureOptions {
+  return deviceId
+    ? {
+        resolution: CAMERA_CAPTURE_OPTIONS.resolution,
+        deviceId,
+      }
+    : CAMERA_CAPTURE_OPTIONS;
+}
 
 export async function setParticipantCameraEnabled(
   participant: CameraParticipant,
   enabled: boolean,
+  deviceId?: string,
 ) {
   const existing = participant.getTrackPublication(Track.Source.Camera)?.track
     ?.mediaStreamTrack;
@@ -31,7 +41,7 @@ export async function setParticipantCameraEnabled(
     await participant.setCameraEnabled(false);
   }
 
-  await participant.setCameraEnabled(true, CAMERA_CAPTURE_OPTIONS);
+  await participant.setCameraEnabled(true, cameraCaptureOptions(deviceId));
 
   const active = participant.getTrackPublication(Track.Source.Camera)?.track
     ?.mediaStreamTrack;

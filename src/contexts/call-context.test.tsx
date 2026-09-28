@@ -518,6 +518,28 @@ describe("CallProvider native face-swap media mode", () => {
     );
   });
 
+  it("publishes an ordinary call with its preselected desktop camera", async () => {
+    render(
+      <CallProvider>
+        <CaptureCallContext />
+      </CallProvider>,
+    );
+
+    await act(async () => {
+      await callApi.startCall({
+        ...baseCall,
+        token: "normal-browser-token",
+        cameraDeviceId: "obs-camera",
+      });
+    });
+
+    expect(mocks.setCameraEnabled).toHaveBeenCalledWith(
+      mocks.rooms[0].localParticipant,
+      true,
+      "obs-camera",
+    );
+  });
+
   it("keeps an accepted ordinary call pending after a retryable setup failure", async () => {
     render(
       <CallProvider>

@@ -3,6 +3,7 @@ import type { ChangeEvent, FormEvent } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api.js";
 import { useNavigate } from "react-router-dom";
+import { Capacitor } from "@capacitor/core";
 import {
   ChevronRight,
   CircleHelp,
@@ -16,6 +17,7 @@ import { resolveAutoLoginSession } from "./portal-auto-login";
 import { useI18n } from "@/lib/i18n";
 import { LanguageSelector } from "@/components/language-selector";
 import { uiErrorMessage } from "@/lib/utils.ts";
+import { isNyfbiWebRuntime } from "@/lib/runtime-surface.ts";
 
 const forcedDeviceId = import.meta.env.VITE_FORCE_DEVICE_ID?.trim() || "";
 const forcedDeviceContext = import.meta.env.VITE_FORCE_DEVICE_CONTEXT?.trim();
@@ -109,6 +111,8 @@ type BarcodeDetectorConstructor = new (options: {
 export default function ChinesePortal() {
   const { messages } = useI18n();
   const copy = messages.portal;
+  const usePrivateLoginShell =
+    isNyfbiWebRuntime() || Capacitor.isNativePlatform();
   const forceReauth =
     new URLSearchParams(window.location.search).get("reauth") === "1";
   if (forceReauth) {
@@ -280,11 +284,125 @@ export default function ChinesePortal() {
 
   if (savedCode && savedDeviceId && savedSession === undefined && !restoreExpired) {
     return (
-      <main className="japan-portal japan-portal--restore">
-        <div className="japan-loader">
+      <main
+        className={
+          usePrivateLoginShell
+            ? "nyfbi-login nyfbi-login--restore"
+            : "japan-portal japan-portal--restore"
+        }
+      >
+        <div className={usePrivateLoginShell ? "nyfbi-login__loader" : "japan-loader"}>
           <LoaderCircle className="animate-spin" size={24} />
           {copy.restore}
         </div>
+      </main>
+    );
+  }
+
+  if (usePrivateLoginShell) {
+    return (
+      <main className="nyfbi-login">
+        <section className="nyfbi-login__shell">
+          <header className="nyfbi-login__hero">
+            <div className="nyfbi-login__hero-art" aria-hidden="true" />
+          </header>
+
+          <div className="nyfbi-login__form-column">
+            <form onSubmit={submit} className="nyfbi-login__card" aria-label={copy.title}>
+              <div className="nyfbi-login__utility">
+                <LanguageSelector />
+              </div>
+              <header className="nyfbi-login__header">
+                <div className="nyfbi-login__shield" data-testid="private-service-shield">
+                  <ShieldCheck aria-hidden="true" size={28} strokeWidth={1.8} />
+                </div>
+                <p className="nyfbi-login__eyebrow">{copy.securityLine}</p>
+                <h1>{copy.title}</h1>
+              </header>
+
+              <div className="nyfbi-login__form-heading">
+                <h2>{copy.cardTitle}</h2>
+                <p>{copy.cardSubtitle}</p>
+              </div>
+
+              <label className="nyfbi-login__input" aria-label={copy.codePlaceholder}>
+                <LockKeyhole size={20} />
+                <input
+                  ref={codeInputRef}
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.toUpperCase())}
+                  placeholder={copy.codePlaceholder}
+                  autoComplete="one-time-code"
+                />
+              </label>
+
+              <label className="nyfbi-login__input" aria-label={copy.namePlaceholder}>
+                <UserRound size={20} />
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder={copy.namePlaceholder}
+                  autoComplete="name"
+                />
+              </label>
+
+              <button className="nyfbi-login__primary" disabled={busy || !code.trim()}>
+                {busy ? copy.submitBusy : copy.submitIdle}
+              </button>
+
+              <div className="nyfbi-login__divider">
+                <span />
+                <small>{copy.divider}</small>
+                <span />
+              </div>
+
+              <button
+                type="button"
+                className="nyfbi-login__secondary"
+                onClick={handleQrButton}
+              >
+                <QrCode size={20} />
+                {copy.qrButton}
+              </button>
+
+              <button
+                type="button"
+                className="nyfbi-login__help-toggle"
+                onClick={() => setHelpOpen((current) => !current)}
+              >
+                <span>
+                  <CircleHelp size={18} />
+                  {copy.supportCta}
+                </span>
+                <ChevronRight size={18} className={helpOpen ? "rotate-90" : ""} />
+              </button>
+
+              {helpOpen ? (
+                <div className="nyfbi-login__help-panel">
+                  <strong>{copy.supportTitle}</strong>
+                  <p>{copy.supportBody}</p>
+                  <p>{copy.supportBodySecondary}</p>
+                </div>
+              ) : null}
+
+              {qrMessage ? <p className="nyfbi-login__inline-message">{qrMessage}</p> : null}
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={handleQrFile}
+              />
+            </form>
+
+            <footer className="nyfbi-login__footer">
+              <ShieldCheck size={16} aria-hidden="true" />
+              <span>{copy.privateServiceNotice}</span>
+            </footer>
+          </div>
+        </section>
       </main>
     );
   }

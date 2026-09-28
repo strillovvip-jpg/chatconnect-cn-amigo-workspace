@@ -664,6 +664,8 @@ export default function ConsultationPage({
         callType,
         initialVideoFile:
           selection.callType === "video" ? selection.videoFile : undefined,
+        cameraDeviceId:
+          selection.callType === "video" ? selection.cameraDeviceId : undefined,
         waitForAnswer: true,
       });
     } catch {

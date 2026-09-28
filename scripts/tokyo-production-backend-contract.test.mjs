@@ -11,15 +11,15 @@ const convexProvider = readFileSync(
   "utf8",
 );
 
-test("production web and iOS builds use the US Convex deployment", () => {
+test("production web and iOS builds keep using the Tokyo Convex deployment", () => {
   assert.match(
     productionEnv,
-    /^VITE_CONVEX_URL=https:\/\/impressive-elk-45\.convex\.cloud$/m,
+    /^VITE_CONVEX_URL=https:\/\/adorable-parakeet-350\.convex\.cloud$/m,
   );
   assert.match(
     convexProvider,
-    /DEFAULT_CONVEX_URL = "https:\/\/impressive-elk-45\.convex\.cloud"/,
+    /DEFAULT_CONVEX_URL = "https:\/\/adorable-parakeet-350\.convex\.cloud"/,
   );
-  assert.doesNotMatch(productionEnv, /adorable-parakeet-350/);
-  assert.doesNotMatch(convexProvider, /adorable-parakeet-350/);
+  assert.doesNotMatch(productionEnv, /impressive-elk-45/);
+  assert.doesNotMatch(convexProvider, /impressive-elk-45/);
 });

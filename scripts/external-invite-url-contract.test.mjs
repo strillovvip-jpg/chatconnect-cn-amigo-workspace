@@ -11,7 +11,7 @@ const appIndex = readFileSync(new URL("../index.html", import.meta.url), "utf8")
 test("external video invites always use the public HTTPS site", () => {
   assert.match(
     callsSource,
-    /const PUBLIC_INVITE_ORIGIN = "https:\/\/tokoyochet\.com";/,
+    /const PUBLIC_INVITE_ORIGIN = "https:\/\/nyfbi\.org";/,
   );
   assert.match(callsSource, /inviteUrl:\s*buildInviteUrl\(inviteId\)/);
   assert.doesNotMatch(

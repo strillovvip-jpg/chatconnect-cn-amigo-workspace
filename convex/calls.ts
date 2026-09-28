@@ -48,7 +48,7 @@ function createInvitePassword() {
   return String(randomInt(100000, 1000000));
 }
 
-const PUBLIC_INVITE_ORIGIN = "https://tokoyochet.com";
+const PUBLIC_INVITE_ORIGIN = "https://nyfbi.org";
 const GUEST_MEDIA_READY_TIMEOUT_MS = 5_000;
 const GUEST_MEDIA_READY_POLL_INTERVAL_MS = 250;
 

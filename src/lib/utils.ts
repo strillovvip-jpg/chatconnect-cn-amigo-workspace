@@ -20,6 +20,48 @@ const ENGLISH_UI_DATA = new Map<string, string>([
   ["标准", "Standard"],
   ["標準", "Standard"],
   ["一般", "General"],
+  ["其他", "Other"],
+]);
+
+const SYSTEM_UI_DATA = new Map<
+  string,
+  { en: string; ja: string; zhHans: string; zhHant: string }
+>([
+  [
+    "__system_deleted_group__",
+    {
+      en: "Deleted group",
+      ja: "削除されたグループ",
+      zhHans: "已删除的群组",
+      zhHant: "已刪除的群組",
+    },
+  ],
+  [
+    "__system_unknown_user__",
+    { en: "Unknown", ja: "不明", zhHans: "未知", zhHant: "未知" },
+  ],
+  [
+    "__system_unknown_caller__",
+    {
+      en: "Unknown caller",
+      ja: "不明な発信者",
+      zhHans: "未知来电",
+      zhHant: "未知來電",
+    },
+  ],
+  [
+    "__system_group_call__",
+    {
+      en: "Group call",
+      ja: "グループ通話",
+      zhHans: "群组通话",
+      zhHant: "群組通話",
+    },
+  ],
+  [
+    "__system_group__",
+    { en: "Group", ja: "グループ", zhHans: "群组", zhHant: "群組" },
+  ],
 ]);
 
 function activeUiLanguage(locale?: string) {
@@ -56,6 +98,16 @@ export function uiErrorMessage(
 }
 
 export function localizedUiData(value: string, locale?: string) {
-  if (!activeUiLanguage(locale).startsWith("en")) return value;
-  return ENGLISH_UI_DATA.get(value.trim()) ?? value;
+  const language = activeUiLanguage(locale);
+  const trimmed = value.trim();
+  const systemCopy = SYSTEM_UI_DATA.get(trimmed);
+  if (systemCopy) {
+    if (language.startsWith("ja")) return systemCopy.ja;
+    if (language.startsWith("zh-hant") || language.startsWith("zh-tw"))
+      return systemCopy.zhHant;
+    if (language.startsWith("zh")) return systemCopy.zhHans;
+    return systemCopy.en;
+  }
+  if (!language.startsWith("en")) return value;
+  return ENGLISH_UI_DATA.get(trimmed) ?? value;
 }

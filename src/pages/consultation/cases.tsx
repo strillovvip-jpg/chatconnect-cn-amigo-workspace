@@ -21,7 +21,7 @@ import { useQuery, useMutation, usePaginatedQuery } from "convex/react";
 import { api } from "@/convex/_generated/api.js";
 import type { Doc, Id } from "@/convex/_generated/dataModel.d.ts";
 import { toast } from "sonner";
-import { useI18n } from "@/lib/i18n";
+import { formatUiDate, useI18n } from "@/lib/i18n";
 import type { Messages } from "@/lib/i18n";
 import { cn, localizedUiData, uiErrorMessage } from "@/lib/utils.ts";
 import { motion, AnimatePresence } from "motion/react";
@@ -406,6 +406,7 @@ function CaseDetailModal({
   onClose: () => void;
 }) {
   const copy = useCasesPageCopy();
+  const { locale } = useI18n();
   const updateStatus = useMutation(api.cases.updateCaseStatus);
   const deleteCase = useMutation(api.cases.deleteCase);
   const [updating, setUpdating] = useState(false);
@@ -535,7 +536,10 @@ function CaseDetailModal({
                 <div>
                   <span className="text-white/40 text-xs">{copy.createdAtLabel}</span>
                   <span className="text-white/60 text-xs">
-                    {new Date(caseData.createdAt).toLocaleString()}
+                    {formatUiDate(caseData.createdAt, locale, {
+                      dateStyle: "short",
+                      timeStyle: "short",
+                    })}
                   </span>
                 </div>
               </div>
@@ -657,6 +661,7 @@ type Props = {
 
 export default function CasesPage({ userCode, userName, onBack }: Props) {
   const copy = useCasesPageCopy();
+  const { locale } = useI18n();
   const deviceId = localStorage.getItem("ksc_device_id") ?? "";
   const canManage = localStorage.getItem("ksc_session_role") === "admin";
   const [searchQuery, setSearchQuery] = useState("");
@@ -885,7 +890,9 @@ export default function CasesPage({ userCode, userName, onBack }: Props) {
               <div className="flex items-center gap-2 text-[10px] text-white/30">
                 <span className="font-mono">{c.caseNumber}</span>
                 <span>•</span>
-                  <span>{new Date(c.createdAt).toLocaleDateString()}</span>
+                <span>
+                  {formatUiDate(c.createdAt, locale, { dateStyle: "short" })}
+                </span>
               </div>
             </div>
           </motion.button>

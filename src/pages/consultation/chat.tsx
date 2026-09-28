@@ -28,7 +28,7 @@ import {
   type OutgoingCallSelection,
 } from "@/components/pre-call-selector.tsx";
 import { uiErrorMessage } from "@/lib/utils.ts";
-import { useI18n } from "@/lib/i18n";
+import { formatUiDate, useI18n } from "@/lib/i18n";
 import { ChatMessageContent } from "./chat-message-content";
 import { useFeatures } from "@/contexts/feature-context.tsx";
 import { canUseExternalFaceSwapInvite } from "@/lib/amigo/external-invite-access";
@@ -45,7 +45,7 @@ type LocationState = {
 };
 
 export default function ChatPage() {
-  const { messages } = useI18n();
+  const { locale, messages } = useI18n();
   const copy = messages.chatPage;
   const { theirCode } = useParams<{ theirCode: string }>();
   const location = useLocation();
@@ -428,7 +428,7 @@ export default function ChatPage() {
                     onCopyCode={handleCopyCode}
                   />
                 <div className="text-[10px] opacity-30 px-1">
-                  {new Date(msg.sentAt).toLocaleTimeString(undefined, {
+                  {formatUiDate(msg.sentAt, locale, {
                     hour: "2-digit",
                     minute: "2-digit",
                   })}

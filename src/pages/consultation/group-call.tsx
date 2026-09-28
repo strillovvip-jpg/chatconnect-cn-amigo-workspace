@@ -22,13 +22,13 @@ import { toast } from "sonner";
 import { useCall } from "@/contexts/call-context.tsx";
 import type { Doc, Id } from "@/convex/_generated/dataModel.js";
 import { useI18n } from "@/lib/i18n";
-import { uiErrorMessage } from "@/lib/utils.ts";
+import { localizedUiData, uiErrorMessage } from "@/lib/utils.ts";
 
 type Props = { userCode: string; userName: string };
 const deviceId = () => localStorage.getItem("ksc_device_id") ?? "";
 
 export default function GroupCallPage({ userCode, userName }: Props) {
-  const { messages: i18nMessages } = useI18n();
+  const { locale, messages: i18nMessages } = useI18n();
   const copy = i18nMessages.groupCallPage;
   const creds = { code: userCode, deviceId: deviceId() };
   const groups = useQuery(api.groups.listMine, creds);
@@ -107,12 +107,22 @@ export default function GroupCallPage({ userCode, userName }: Props) {
   const begin = (groupId: Id<"chat_groups">, type: "video" | "audio") =>
     run(async () => {
       const info = await createCall({ ...creds, groupId, type });
-      await startCall({ ...info, myName: userName, mode: "group" });
+      await startCall({
+        ...info,
+        chatName: localizedUiData(info.chatName, locale),
+        myName: userName,
+        mode: "group",
+      });
     }, copy.callStarted);
   const join = (activeCall: Doc<"chat_group_calls">) =>
     run(async () => {
       const info = await joinCall({ ...creds, groupCallId: activeCall._id });
-      await startCall({ ...info, myName: userName, mode: "group" });
+      await startCall({
+        ...info,
+        chatName: localizedUiData(info.chatName, locale),
+        myName: userName,
+        mode: "group",
+      });
     }, copy.joinedCall);
 
   return (

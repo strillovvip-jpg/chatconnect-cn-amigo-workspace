@@ -2,8 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("react-dom/client", () => ({
   createRoot: vi.fn(() => {
-    throw new Error("bootstrap exploded");
+    throw new Error("应用启动失败：初始化错误");
   }),
+}));
+
+vi.mock("./lib/runtime-surface.ts", () => ({
+  isNyfbiWebRuntime: () => true,
 }));
 
 vi.mock("./App.tsx", () => ({
@@ -18,7 +22,10 @@ describe("application bootstrap fatal fallback", () => {
     await import("./main.tsx");
 
     expect(document.getElementById("root")?.textContent).toContain(
-      "bootstrap exploded",
+      "An unexpected application error occurred.",
+    );
+    expect(document.getElementById("root")?.textContent).not.toContain(
+      "应用启动失败",
     );
   });
 });

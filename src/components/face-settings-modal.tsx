@@ -4,7 +4,7 @@ import { X } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api.js";
 import type { Id } from "@/convex/_generated/dataModel";
-import { useI18n } from "@/lib/i18n";
+import { formatUiDate, useI18n } from "@/lib/i18n";
 import { amigoFaceSwap } from "@/lib/amigo/face-swap";
 import { nativeAmigoRoom } from "@/lib/amigo/native-room";
 import { SavedFaceValidationError } from "@/lib/amigo/saved-face";
@@ -27,7 +27,7 @@ export function FaceSettingsModal({
   deviceId: string;
   onReadyChange: (ready: boolean) => void;
 }) {
-  const { messages } = useI18n();
+  const { locale, messages } = useI18n();
   const copy = messages.faceSwapInvite;
   const chatCopy = messages.chatPage;
   const generateFaceUploadUrl = useMutation(api.faceLibrary.generateUploadUrl);
@@ -95,7 +95,9 @@ export function FaceSettingsModal({
         }) => Promise<unknown>)({
           code: userCode,
           deviceId,
-          name: faceName.trim() || `Face ${new Date().toLocaleDateString()}`,
+          name:
+            faceName.trim() ||
+            `Face ${formatUiDate(new Date(), locale, { dateStyle: "short" })}`,
           storageId,
           uploadRequestId,
           hasConsent: true,

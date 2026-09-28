@@ -310,7 +310,8 @@ export const incomingCall = query({
     return {
       _id: call._id,
       callId: call.callId,
-      callerName: call.callerName ?? call.callerUserId ?? "未知来电",
+      callerName:
+        call.callerName ?? call.callerUserId ?? "__system_unknown_caller__",
       callerCode: call.callerUserId!,
       callType: call.type,
       expiresAt: call.expiresAt,

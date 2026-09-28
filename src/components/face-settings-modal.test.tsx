@@ -35,7 +35,9 @@ vi.mock("@/lib/amigo/native-room", () => ({
 }));
 
 vi.mock("@/lib/i18n", () => ({
+  formatUiDate: () => "9/28/26",
   useI18n: () => ({
+    locale: "en",
     messages: {
       common: { close: "Close" },
       faceSwapInvite: {

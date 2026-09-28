@@ -63,6 +63,7 @@ describe("localized backend-owned UI data", () => {
     ["标准", "Standard"],
     ["標準", "Standard"],
     ["一般", "General"],
+    ["其他", "Other"],
   ])("maps %s to English without changing stored data", (stored, expected) => {
     expect(localizedUiData(stored, "en")).toBe(expected);
   });
@@ -70,5 +71,28 @@ describe("localized backend-owned UI data", () => {
   it("keeps unknown user-authored values and non-English displays unchanged", () => {
     expect(localizedUiData("Custom profile", "en")).toBe("Custom profile");
     expect(localizedUiData("标准", "zh-Hans")).toBe("标准");
+  });
+
+  it.each([
+    ["__system_deleted_group__", "Deleted group", "已刪除的群組"],
+    ["__system_unknown_user__", "Unknown", "未知"],
+    ["__system_unknown_caller__", "Unknown caller", "未知來電"],
+    ["__system_group_call__", "Group call", "群組通話"],
+    ["__system_group__", "Group", "群組"],
+  ])(
+    "localizes the %s system fallback without exposing its sentinel",
+    (stored, english, traditionalChinese) => {
+      expect(localizedUiData(stored, "en")).toBe(english);
+      expect(localizedUiData(stored, "zh-Hant")).toBe(traditionalChinese);
+    },
+  );
+
+  it("keeps system fallbacks localized for the native Japanese and Simplified Chinese UIs", () => {
+    expect(localizedUiData("__system_deleted_group__", "ja")).toBe(
+      "削除されたグループ",
+    );
+    expect(localizedUiData("__system_deleted_group__", "zh-Hans")).toBe(
+      "已删除的群组",
+    );
   });
 });

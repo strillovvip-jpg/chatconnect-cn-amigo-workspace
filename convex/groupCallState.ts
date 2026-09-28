@@ -284,7 +284,7 @@ export const authorizeJoin = mutation({
       callId: call.callId,
       identity,
       name: auth.session.name,
-      groupName: group?.name ?? "群组通话",
+      groupName: group?.name ?? "__system_group_call__",
       type: call.type,
     };
   },
@@ -315,7 +315,7 @@ export const incoming = query({
         .collect();
       return {
         ...call,
-        groupName: group?.name ?? "群组",
+        groupName: group?.name ?? "__system_group__",
         creatorName: creator?.name ?? call.createdBy,
         participantCount: participants.filter((p) => p.status === "joined")
           .length,

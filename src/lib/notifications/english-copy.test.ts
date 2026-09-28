@@ -60,6 +60,27 @@ describe("englishNotificationCopy", () => {
     });
   });
 
+  it.each([
+    ["图片：portrait.jpg", "portrait.jpg"],
+    ["视频：clip.mp4", "clip.mp4"],
+    ["文件：客户资料.pdf", "客户资料.pdf"],
+  ])(
+    "removes the backend media prefix from %s while preserving the file name",
+    (message, expected) => {
+      expect(
+        englishNotificationCopy({
+          type: "media_message",
+          title: "小林 发来了新附件",
+          message,
+          data: { senderName: "Kobayashi" },
+        }),
+      ).toEqual({
+        title: "New attachment from Kobayashi",
+        message: expected,
+      });
+    },
+  );
+
   it("preserves administrator-authored announcement copy", () => {
     const announcement = {
       type: "admin_announcement",
@@ -99,5 +120,20 @@ describe("englishNotificationCopy", () => {
         false,
       ),
     ).toEqual({ title: "视频来电", message: "山田正在呼叫您" });
+
+    expect(
+      notificationDisplayCopy(
+        {
+          type: "media_message",
+          title: "小林 发来了新附件",
+          message: "图片：客户资料.jpg",
+          data: { senderName: "Kobayashi" },
+        },
+        false,
+      ),
+    ).toEqual({
+      title: "小林 发来了新附件",
+      message: "图片：客户资料.jpg",
+    });
   });
 });

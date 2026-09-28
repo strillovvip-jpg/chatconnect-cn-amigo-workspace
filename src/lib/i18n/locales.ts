@@ -55,6 +55,31 @@ export function localeToHtmlLang(locale: AppLocale): string {
   }
 }
 
+export function formatUiDate(
+  value: string | number | Date,
+  locale: AppLocale,
+  options?: Intl.DateTimeFormatOptions,
+): string {
+  const date = value instanceof Date ? value : new Date(value);
+  return new Intl.DateTimeFormat(localeToHtmlLang(locale), options).format(date);
+}
+
+export function localePunctuation(locale: AppLocale) {
+  return locale === "en"
+    ? {
+        colon: ": ",
+        slash: " / ",
+        openParen: " (",
+        closeParen: ")",
+      }
+    : {
+        colon: "：",
+        slash: "／",
+        openParen: "（",
+        closeParen: "）",
+      };
+}
+
 export function readStoredLocalePreference(): LocalePreference {
   if (typeof window === "undefined") return "system";
   const storage = window.localStorage;

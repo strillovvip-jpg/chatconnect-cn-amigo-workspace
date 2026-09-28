@@ -7,6 +7,10 @@
     return typeof value === "string" ? value.trim() : "";
   }
 
+  function mediaMessageBody(body) {
+    return body.replace(/^(?:图片|视频|文件)：\s*/u, "");
+  }
+
   function party(data, nameKey, idKey, fallback) {
     const name = text(data[nameKey]);
     const id = text(data[idKey]);
@@ -35,7 +39,13 @@
           : sender
             ? `New message from ${sender}`
             : "New message";
-      return { title, body: originalBody };
+      return {
+        title,
+        body:
+          type === "media_message"
+            ? mediaMessageBody(originalBody)
+            : originalBody,
+      };
     }
 
     switch (type) {

@@ -20,6 +20,10 @@ function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function mediaMessageBody(message: string): string {
+  return message.replace(/^(?:图片|视频|文件)：\s*/u, "");
+}
+
 function namedParty(
   data: Record<string, unknown>,
   nameKey: string,
@@ -63,7 +67,10 @@ export function englishNotificationCopy(
           : sender
             ? `New message from ${sender}`
             : "New message",
-      message: item.message,
+      message:
+        item.type === "media_message"
+          ? mediaMessageBody(item.message)
+          : item.message,
     };
   }
 

@@ -41,5 +41,17 @@ describe("nyfbi service-worker notification copy", () => {
       title: "New message from Yamada",
       body: "原始聊天内容",
     });
+
+    expect(
+      scope.nyfbiEnglishNotificationCopy?.({
+        type: "media_message",
+        title: "新附件",
+        data: { senderName: "Yamada" },
+        options: { body: "文件：客户资料.pdf" },
+      }),
+    ).toEqual({
+      title: "New attachment from Yamada",
+      body: "客户资料.pdf",
+    });
   });
 });

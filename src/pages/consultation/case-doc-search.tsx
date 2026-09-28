@@ -10,7 +10,7 @@ import {
   ShieldAlert,
   X,
 } from "lucide-react";
-import { useI18n } from "@/lib/i18n";
+import { localePunctuation, useI18n } from "@/lib/i18n";
 
 function Attachment({
   doc,
@@ -60,8 +60,9 @@ function Attachment({
 }
 
 export default function CaseDocSearch({ userCode }: { userCode: string }) {
-  const { messages } = useI18n();
+  const { locale, messages } = useI18n();
   const copy = messages.caseSearch;
+  const punctuation = localePunctuation(locale);
   const STATUS: Record<string, string> = {
     open: copy.status.open,
     in_progress: copy.status.inProgress,
@@ -262,7 +263,10 @@ export default function CaseDocSearch({ userCode }: { userCode: string }) {
                 )}
                 <div>
                   <div className="mb-3 text-base font-bold text-red-400">
-                    {copy.documentsTitle}（{result.documents.length}）
+                    {copy.documentsTitle}
+                    {punctuation.openParen}
+                    {result.documents.length}
+                    {punctuation.closeParen}
                   </div>
                   {result.documents.length === 0 ? (
                     <p className="text-sm text-white/35">{copy.noDocuments}</p>

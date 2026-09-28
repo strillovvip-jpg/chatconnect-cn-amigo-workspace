@@ -26,7 +26,7 @@ import {
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api.js";
 import { localeToHtmlLang, useI18n } from "@/lib/i18n";
-import { uiErrorMessage } from "@/lib/utils.ts";
+import { localizedUiData, uiErrorMessage } from "@/lib/utils.ts";
 import { useCall } from "@/contexts/call-context.tsx";
 import type { Id } from "@/convex/_generated/dataModel.js";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -418,6 +418,9 @@ export function GlobalNotificationProvider({
           (!item.expiresAt || item.expiresAt > Date.now()),
       )
     : undefined;
+  const incomingCallerName = incomingCall
+    ? localizedUiData(incomingCall.callerName, locale)
+    : "";
   const syntheticIncoming = incomingCall
     ? {
         notificationId: `incoming-${incomingCall.callId}`,
@@ -430,13 +433,13 @@ export function GlobalNotificationProvider({
             ? copy.incomingVideo
             : copy.incomingAudio,
         message: copy.callerMessage(
-          incomingCall.callerName,
+          incomingCallerName,
           incomingCall.callerCode,
         ),
         data: {
           callId: incomingCall.callId,
           callType: incomingCall.callType,
-          callerName: incomingCall.callerName,
+          callerName: incomingCallerName,
           callerUserId: incomingCall.callerCode,
           source: "call",
         },
@@ -477,7 +480,7 @@ export function GlobalNotificationProvider({
           ? copy.incomingVideo
           : copy.incomingAudio,
       body: copy.callerMessage(
-        incomingCall.callerName,
+        incomingCallerName,
         incomingCall.callerCode,
       ),
       sound: ringtoneEnabled,
@@ -492,6 +495,7 @@ export function GlobalNotificationProvider({
     notificationChannel,
     nativePushEnabled,
     incomingCall,
+    incomingCallerName,
     ringtoneEnabled,
     copy,
   ]);
@@ -674,6 +678,7 @@ export function GlobalNotificationProvider({
           const details = await joinGroupCall({ ...credentials, groupCallId });
           await startCall({
             ...details,
+            chatName: localizedUiData(details.chatName, locale),
             myName: credentials.code,
             mode: "group",
           });

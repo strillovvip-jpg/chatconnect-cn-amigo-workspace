@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import { AppErrorBoundary } from "./components/app-error-boundary.tsx";
 import { messages, resolveLocaleFromNavigator } from "./lib/i18n";
+import { visibleFatalErrorMessage } from "./lib/fatal-error.ts";
 
 function renderFatal(message: string) {
   const locale = resolveLocaleFromNavigator();
@@ -34,7 +35,6 @@ try {
     </AppErrorBoundary>,
   );
 } catch (error) {
-  const message = error instanceof Error ? error.message : String(error);
   console.error("ChatConnect bootstrap error", error);
-  renderFatal(message);
+  renderFatal(visibleFatalErrorMessage(error));
 }

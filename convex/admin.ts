@@ -131,7 +131,7 @@ export const getGroupCalls = query({
           .collect();
         return {
           ...call,
-          title: group?.name ?? "已删除的群组",
+          title: group?.name ?? "__system_deleted_group__",
           createdByName: creator?.name ?? call.createdBy,
           participantCount: participants.filter(
             (item) => item.status === "joined",
@@ -167,11 +167,13 @@ export const getActiveCalls = query({
         participants: [
           {
             code: call.callerUserId ?? call.callerCode ?? "-",
-            name: call.callerName ?? call.callerUserId ?? "未知",
+            name:
+              call.callerName ?? call.callerUserId ?? "__system_unknown_user__",
           },
           {
             code: call.calleeUserId ?? call.calleeCode ?? "-",
-            name: call.calleeName ?? call.calleeUserId ?? "未知",
+            name:
+              call.calleeName ?? call.calleeUserId ?? "__system_unknown_user__",
           },
         ],
         startedAt: call.connectedAt ?? call.acceptedAt ?? call.createdAt,
@@ -208,7 +210,7 @@ export const getActiveCalls = query({
           status: call.status,
           participants,
           startedAt: call.startedAt,
-          groupName: group?.name ?? "已删除的群组",
+          groupName: group?.name ?? "__system_deleted_group__",
         };
       }),
     );

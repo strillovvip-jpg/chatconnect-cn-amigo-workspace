@@ -32,7 +32,11 @@ import {
 import { cn, localizedUiData, uiErrorMessage } from "@/lib/utils.ts";
 import type { Id } from "@/convex/_generated/dataModel.d.ts";
 import { useLocation, useNavigate } from "react-router-dom";
-import { localeToHtmlLang, useI18n } from "@/lib/i18n";
+import {
+  localePunctuation,
+  localeToHtmlLang,
+  useI18n,
+} from "@/lib/i18n";
 import type { Messages } from "@/lib/i18n";
 import { logoutToLogin } from "@/lib/session-storage";
 
@@ -528,6 +532,7 @@ export default function AdminPage() {
   const copy = messages.admin;
   const caseStatusLabels = getCaseStatusLabels(copy);
   const localeTag = localeToHtmlLang(locale);
+  const punctuation = localePunctuation(locale);
   const location = useLocation();
   const navigate = useNavigate();
   const sessionCode = localStorage.getItem("ksc_session_code") ?? "";
@@ -849,6 +854,9 @@ export default function AdminPage() {
   const selectedTierUsed = selectedTierCodes.filter((item) =>
     usedCodes.has(item.code),
   ).length;
+  const unusedUserCodes = (allowedCodes ?? []).filter(
+    (item) => item.role === "user" && !usedCodes.has(item.code),
+  ).length;
 
   const tabs = [
     {
@@ -986,7 +994,7 @@ export default function AdminPage() {
               <StatCard
                 icon={<Key size={18} />}
                 label={copy.unusedCodes}
-                value={stats ? 50 - stats.totalUsers : undefined}
+                value={allowedCodes ? unusedUserCodes : undefined}
               />
               <StatCard
                 icon={<UserCheck size={18} />}
@@ -1111,14 +1119,15 @@ export default function AdminPage() {
                               : "border-white/10 bg-black/10 text-white/50",
                           )}
                         >
-                          {copy.limitedTier}（
+                          {copy.limitedTier}
+                          {punctuation.openParen}
                           {
                             (allowedCodes ?? []).filter(
                               (item) =>
                                 item.licenseProfileId === limitedProfileId,
                             ).length
                           }
-                          )
+                          {punctuation.closeParen}
                         </button>
                         <button
                           type="button"
@@ -1130,13 +1139,14 @@ export default function AdminPage() {
                               : "border-white/10 bg-black/10 text-white/50",
                           )}
                         >
-                          {copy.fullTier}（
+                          {copy.fullTier}
+                          {punctuation.openParen}
                           {
                             (allowedCodes ?? []).filter(
                               (item) => item.licenseProfileId === fullProfileId,
                             ).length
                           }
-                          )
+                          {punctuation.closeParen}
                         </button>
                       </div>
                       {newCodeTier === "advanced" && (
@@ -1235,7 +1245,7 @@ export default function AdminPage() {
                           >
                             <div className="text-xs opacity-40 space-y-1">
                               <div>
-                                {copy.mobileDevice}：
+                                {copy.mobileDevice}{punctuation.colon}
                                 <span className="font-mono text-[10px]">
                                   {record.mobileDeviceId ??
                                     (record.desktopDeviceId
@@ -1244,18 +1254,18 @@ export default function AdminPage() {
                                 </span>
                               </div>
                               <div>
-                                {copy.desktopDevice}：
+                                {copy.desktopDevice}{punctuation.colon}
                                 <span className="font-mono text-[10px]">
                                   {record.desktopDeviceId ??
                                     copy.statuses.unregistered}
                                 </span>
                               </div>
                               <div>
-                                {copy.registeredAt}：
+                                {copy.registeredAt}{punctuation.colon}
                                 {formatDateTime(record.usedAt)}
                               </div>
                               <div>
-                                {copy.role}：
+                                {copy.role}{punctuation.colon}
                                 {record.role === "super_admin"
                                   ? copy.superAdmin
                                   : record.role === "admin"
@@ -1263,24 +1273,24 @@ export default function AdminPage() {
                                     : copy.user}
                               </div>
                               <div>
-                                {copy.status}：
+                                {copy.status}{punctuation.colon}
                                 {record.online
                                   ? copy.statuses.online
                                   : copy.statuses.offline}
-                                ／
+                                {punctuation.slash}
                                 {record.enabled
                                   ? copy.statuses.enabled
                                   : copy.statuses.disabled}
                               </div>
                               {record.lastSeenAt && (
                                 <div>
-                                  {copy.lastSeen}：
+                                  {copy.lastSeen}{punctuation.colon}
                                   {formatDateTime(record.lastSeenAt)}
                                 </div>
                               )}
                               {record.expiresAt && (
                                 <div>
-                                  {copy.expiresAt}：
+                                  {copy.expiresAt}{punctuation.colon}
                                   {formatDate(record.expiresAt)}
                                 </div>
                               )}
@@ -1611,7 +1621,7 @@ export default function AdminPage() {
                         {c.title}
                       </div>
                       <div className="text-[10px] opacity-40 mt-0.5">
-                        {copy.assignee}：{c.assignedName}
+                        {copy.assignee}{punctuation.colon}{c.assignedName}
                       </div>
                     </div>
                     <div className="flex gap-1">
@@ -1713,7 +1723,7 @@ export default function AdminPage() {
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-semibold text-white truncate">
                       {"groupName" in call
-                        ? call.groupName
+                        ? localizedUiData(call.groupName, locale)
                         : call.type === "video"
                           ? copy.directVideoCall
                           : copy.directVoiceCall}
@@ -1721,7 +1731,7 @@ export default function AdminPage() {
                     <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-[11px] text-white/65">
                       {call.participants.map((participant) => (
                         <span key={participant.code}>
-                          {participant.name}{" "}
+                          {localizedUiData(participant.name, locale)}{" "}
                           <span className="font-mono text-white/35">
                             ({participant.code})
                           </span>
@@ -1838,12 +1848,15 @@ export default function AdminPage() {
                               {line.originalText &&
                                 line.originalText !== line.text && (
                                   <span className="mt-0.5 block text-[10px] text-white/35">
-                                    {copy.originalText}：{line.originalText}
+                                    {copy.originalText}{punctuation.colon}
+                                    {line.originalText}
                                   </span>
                                 )}
                               {line.translated === false && (
                                 <span className="ml-1 text-[10px] text-amber-400">
-                                  （{copy.translationFailedHint}）
+                                  {punctuation.openParen}
+                                  {copy.translationFailedHint}
+                                  {punctuation.closeParen}
                                 </span>
                               )}
                             </p>

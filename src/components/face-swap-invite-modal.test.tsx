@@ -1,15 +1,24 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { ConvexError } from "convex/values";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FaceSwapInviteModal } from "./face-swap-invite-modal";
 
 const mocks = vi.hoisted(() => ({
   createInvite: vi.fn(),
+  verifyHostReady: vi.fn(),
   endInvite: vi.fn(),
   nativeGetStatus: vi.fn(),
   nativeRequestMediaPermissions: vi.fn(),
   nativeSetFaceSwapEnabled: vi.fn(),
   nativeConnect: vi.fn(),
   nativeDisconnect: vi.fn(),
+  ensureNativePublisherConnected: vi.fn(),
   viewerConnect: vi.fn(),
   viewerStartAudio: vi.fn(),
   viewerDisconnect: vi.fn(),
@@ -46,8 +55,11 @@ vi.mock("@/components/livekit-stage", () => ({
 }));
 
 vi.mock("convex/react", () => ({
-  useAction: (name: string) =>
-    name === "createFaceSwapInvite" ? mocks.createInvite : mocks.endInvite,
+  useAction: (name: string) => {
+    if (name === "createFaceSwapInvite") return mocks.createInvite;
+    if (name === "verifyFaceSwapInviteHostReady") return mocks.verifyHostReady;
+    return mocks.endInvite;
+  },
 }));
 
 vi.mock("sonner", () => ({
@@ -56,6 +68,7 @@ vi.mock("sonner", () => ({
 
 vi.mock("@/lib/amigo/native-room", () => ({
   disconnectNativePublisherWithRetry: mocks.nativeDisconnect,
+  ensureNativePublisherConnected: mocks.ensureNativePublisherConnected,
   nativeAmigoRoom: {
     isAvailable: true,
     getStatus: mocks.nativeGetStatus,
@@ -130,6 +143,7 @@ vi.mock("@/convex/_generated/api.js", () => ({
   api: {
     calls: {
       createFaceSwapInvite: "createFaceSwapInvite",
+      verifyFaceSwapInviteHostReady: "verifyFaceSwapInviteHostReady",
       endFaceSwapInvite: "endFaceSwapInvite",
     },
   },
@@ -171,8 +185,13 @@ describe("FaceSwapInviteModal", () => {
     mocks.nativeConnect.mockResolvedValue({
       connected: true,
       roomUrl: "wss://live.example.test",
+      roomName: "room-1",
       hasTargetFace: true,
       faceSwapEnabled: true,
+      videoPublished: true,
+      videoMuted: false,
+      audioPublished: true,
+      audioMuted: false,
       pipeline: "native-livekit",
     });
     mocks.nativeDisconnect.mockResolvedValue({
@@ -186,6 +205,16 @@ describe("FaceSwapInviteModal", () => {
     mocks.viewerStartAudio.mockResolvedValue(undefined);
     mocks.viewerDisconnect.mockResolvedValue(undefined);
     mocks.endInvite.mockResolvedValue({ ended: true });
+    mocks.verifyHostReady.mockResolvedValue({ ready: true });
+    mocks.ensureNativePublisherConnected.mockResolvedValue({
+      connected: true,
+      roomUrl: "wss://live.example.test",
+      hasTargetFace: true,
+      faceSwapEnabled: true,
+      videoPublished: true,
+      videoMuted: false,
+      pipeline: "native-livekit",
+    });
     mocks.createInvite.mockResolvedValue({
       inviteId: "invite-1",
       inviteUrl: "https://example.test/video_call/invite-1",
@@ -200,6 +229,7 @@ describe("FaceSwapInviteModal", () => {
   });
 
   afterEach(() => {
+    cleanup();
     vi.clearAllMocks();
   });
 
@@ -240,6 +270,7 @@ describe("FaceSwapInviteModal", () => {
     expect(mocks.nativeConnect).toHaveBeenCalledWith({
       url: "wss://live.example.test",
       token: "token-1",
+      roomName: "room-1",
       enableMicrophone: true,
       enableCamera: true,
     });
@@ -250,6 +281,14 @@ describe("FaceSwapInviteModal", () => {
     );
     expect(mocks.viewerStartAudio).not.toHaveBeenCalled();
     expect(mocks.nativeConnect.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.verifyHostReady.mock.invocationCallOrder[0],
+    );
+    expect(mocks.verifyHostReady).toHaveBeenCalledWith({
+      code: "QQAUF",
+      deviceId: "device-1",
+      inviteId: "invite-1",
+    });
+    expect(mocks.verifyHostReady.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.viewerConnect.mock.invocationCallOrder[0],
     );
     expect(
@@ -299,6 +338,81 @@ describe("FaceSwapInviteModal", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("does not expose an invitation until the backend sees the processed host track", async () => {
+    mocks.verifyHostReady.mockRejectedValue(
+      Object.assign(new Error("Processed host video is not ready."), {
+        code: "HOST_PROCESSED_VIDEO_NOT_READY",
+      }),
+    );
+    renderModal(true);
+    await waitFor(() =>
+      expect(mocks.onFaceReadyChange).toHaveBeenCalledWith(true),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create call" }));
+
+    await waitFor(() => expect(mocks.endInvite).toHaveBeenCalledTimes(1));
+    expect(mocks.viewerConnect).not.toHaveBeenCalled();
+    expect(
+      screen.queryByText("https://example.test/video_call/invite-1"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("restores a muted native publisher when the app returns to the foreground", async () => {
+    renderModal(true);
+    await waitFor(() =>
+      expect(mocks.onFaceReadyChange).toHaveBeenCalledWith(true),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Create call" }));
+    await screen.findByRole("button", { name: "Enter call" });
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "visible",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    await waitFor(() =>
+      expect(mocks.ensureNativePublisherConnected).toHaveBeenCalledWith({
+        url: "wss://live.example.test",
+        token: "token-1",
+        roomName: "room-1",
+        enableMicrophone: true,
+        enableCamera: true,
+      }),
+    );
+  });
+
+  it("forces one reconnect when the backend cannot see a locally healthy publisher", async () => {
+    mocks.verifyHostReady
+      .mockResolvedValueOnce({ ready: true })
+      .mockRejectedValueOnce(
+        new ConvexError({
+          code: "HOST_PROCESSED_VIDEO_NOT_READY",
+          message: "Processed host video is not ready.",
+        }),
+      )
+      .mockResolvedValueOnce({ ready: true });
+    renderModal(true);
+    await waitFor(() =>
+      expect(mocks.onFaceReadyChange).toHaveBeenCalledWith(true),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Create call" }));
+    await screen.findByRole("button", { name: "Enter call" });
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "visible",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    await waitFor(() =>
+      expect(mocks.ensureNativePublisherConnected).toHaveBeenCalledTimes(2),
+    );
+    expect(mocks.nativeDisconnect).toHaveBeenCalledTimes(1);
+    expect(mocks.verifyHostReady).toHaveBeenCalledTimes(3);
+  });
+
   it("stops both local connections even when backend ending fails", async () => {
     renderModal(true);
     await waitFor(() =>
@@ -312,6 +426,98 @@ describe("FaceSwapInviteModal", () => {
 
     await waitFor(() => expect(mocks.viewerDisconnect).toHaveBeenCalled());
     expect(mocks.nativeDisconnect).toHaveBeenCalled();
+  });
+
+  it("invalidates a normally ended invitation exactly once", async () => {
+    renderModal(true);
+    await waitFor(() =>
+      expect(mocks.onFaceReadyChange).toHaveBeenCalledWith(true),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Create call" }));
+    await screen.findByRole("button", { name: "End call" });
+    mocks.endInvite.mockClear();
+
+    fireEvent.click(screen.getByRole("button", { name: "End call" }));
+
+    await waitFor(() => expect(mocks.onClose).toHaveBeenCalledTimes(1));
+    await Promise.resolve();
+    expect(mocks.endInvite).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let an in-flight foreground restore republish after ending fails", async () => {
+    let finishRestore!: (value: {
+      connected: boolean;
+      roomUrl: string;
+      hasTargetFace: boolean;
+      faceSwapEnabled: boolean;
+      videoPublished: boolean;
+      videoMuted: boolean;
+      pipeline: string;
+    }) => void;
+    const restoring = new Promise<Parameters<typeof finishRestore>[0]>(
+      (resolve) => {
+        finishRestore = resolve;
+      },
+    );
+    mocks.ensureNativePublisherConnected.mockReturnValueOnce(restoring);
+
+    renderModal(true);
+    await waitFor(() =>
+      expect(mocks.onFaceReadyChange).toHaveBeenCalledWith(true),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Create call" }));
+    await screen.findByRole("button", { name: "End call" });
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "visible",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+    await waitFor(() =>
+      expect(mocks.ensureNativePublisherConnected).toHaveBeenCalledTimes(1),
+    );
+
+    mocks.endInvite.mockRejectedValue(new Error("backend unavailable"));
+    fireEvent.click(screen.getByRole("button", { name: "End call" }));
+    await waitFor(() => expect(mocks.nativeDisconnect).toHaveBeenCalled());
+
+    finishRestore({
+      connected: true,
+      roomUrl: "wss://live.example.test",
+      hasTargetFace: true,
+      faceSwapEnabled: true,
+      videoPublished: true,
+      videoMuted: false,
+      pipeline: "native-livekit",
+    });
+
+    await waitFor(() => expect(mocks.endInvite).toHaveBeenCalledTimes(1));
+    expect(mocks.nativeDisconnect).toHaveBeenCalledTimes(2);
+    expect(mocks.verifyHostReady).toHaveBeenCalledTimes(1);
+
+    document.dispatchEvent(new Event("visibilitychange"));
+    await Promise.resolve();
+    expect(mocks.ensureNativePublisherConnected).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed and invalidates the invite when the modal unmounts", async () => {
+    const rendered = renderModal(true);
+    await waitFor(() =>
+      expect(mocks.onFaceReadyChange).toHaveBeenCalledWith(true),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Create call" }));
+    await screen.findByRole("button", { name: "End call" });
+    mocks.nativeDisconnect.mockClear();
+    mocks.endInvite.mockClear();
+
+    rendered.unmount();
+
+    await waitFor(() => expect(mocks.nativeDisconnect).toHaveBeenCalled());
+    expect(mocks.endInvite).toHaveBeenCalledWith({
+      code: "QQAUF",
+      deviceId: "device-1",
+      inviteId: "invite-1",
+    });
   });
 
   it("fails closed when the host viewer disconnects unexpectedly", async () => {

@@ -8,6 +8,7 @@ import { LiveKitStage } from "@/components/livekit-stage";
 import { useI18n } from "@/lib/i18n";
 import {
   disconnectNativePublisherWithRetry,
+  ensureNativePublisherConnected,
   nativeAmigoRoom,
 } from "@/lib/amigo/native-room";
 import { uiErrorMessage } from "@/lib/utils";
@@ -50,6 +51,7 @@ type FaceSwapCallCreationStage =
   | "enable-native-face-swap"
   | "create-room-invite-token"
   | "connect-native-room"
+  | "verify-processed-video-track"
   | "connect-host-viewer-room"
   | "livekit-room-connect"
   | "microphone-publish"
@@ -92,6 +94,7 @@ export function FaceSwapInviteModal({
   const { messages } = useI18n();
   const copy = messages.faceSwapInvite;
   const createInvite = useAction(api.calls.createFaceSwapInvite);
+  const verifyHostReady = useAction(api.calls.verifyFaceSwapInviteHostReady);
   const endInvite = useAction(api.calls.endFaceSwapInvite);
   const [creating, setCreating] = useState(false);
   const [ending, setEnding] = useState(false);
@@ -99,6 +102,7 @@ export function FaceSwapInviteModal({
   const [viewerRoom, setViewerRoom] = useState<Room | null>(null);
   const [showRoom, setShowRoom] = useState(false);
   const endingRef = useRef(false);
+  const restorePublisherPromiseRef = useRef<Promise<void> | null>(null);
 
   useEffect(
     () => () => {
@@ -120,6 +124,108 @@ export function FaceSwapInviteModal({
         console.error("[FaceSwap:status] native readiness check failed", error);
       });
   }, [onFaceReadyChange, open]);
+
+  useEffect(() => {
+    if (!open || !invite) return;
+    const restorePublisher = () => {
+      if (endingRef.current) return;
+      if (document.visibilityState !== "visible" || navigator.onLine === false)
+        return;
+      if (restorePublisherPromiseRef.current) return;
+      const restorePromise = (async () => {
+        await ensureNativePublisherConnected({
+          url: invite.serverUrl,
+          token: invite.operatorToken,
+          roomName: invite.roomName,
+          enableMicrophone: true,
+          enableCamera: true,
+        });
+        if (endingRef.current) {
+          await disconnectNativePublisherWithRetry();
+          return;
+        }
+        try {
+          await verifyHostReady({
+            code: userCode,
+            deviceId,
+            inviteId: invite.inviteId,
+          });
+        } catch (error) {
+          if (
+            endingRef.current ||
+            readCallCreationErrorCode(error) !==
+              "HOST_PROCESSED_VIDEO_NOT_READY"
+          )
+            throw error;
+          await disconnectNativePublisherWithRetry();
+          if (endingRef.current) return;
+          await ensureNativePublisherConnected({
+            url: invite.serverUrl,
+            token: invite.operatorToken,
+            roomName: invite.roomName,
+            enableMicrophone: true,
+            enableCamera: true,
+          });
+          if (endingRef.current) {
+            await disconnectNativePublisherWithRetry();
+            return;
+          }
+          await verifyHostReady({
+            code: userCode,
+            deviceId,
+            inviteId: invite.inviteId,
+          });
+        }
+      })();
+      restorePublisherPromiseRef.current = restorePromise;
+      void restorePromise
+        .catch((error) =>
+          console.error(
+            "[FaceSwap:restore] host publisher restore failed",
+            error,
+          ),
+        )
+        .finally(() => {
+          if (restorePublisherPromiseRef.current === restorePromise)
+            restorePublisherPromiseRef.current = null;
+        });
+    };
+    const visibility = () => {
+      if (document.visibilityState === "visible") restorePublisher();
+    };
+    const interval = window.setInterval(restorePublisher, 10_000);
+    document.addEventListener("visibilitychange", visibility);
+    window.addEventListener("pageshow", restorePublisher);
+    window.addEventListener("online", restorePublisher);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", visibility);
+      window.removeEventListener("pageshow", restorePublisher);
+      window.removeEventListener("online", restorePublisher);
+    };
+  }, [deviceId, invite, open, userCode, verifyHostReady]);
+
+  useEffect(() => {
+    if (!open || !invite) return;
+    const activeInviteId = invite.inviteId;
+    return () => {
+      if (endingRef.current) return;
+      endingRef.current = true;
+      void disconnectNativePublisherWithRetry().catch((error) =>
+        console.error(
+          "[FaceSwap:cleanup] native fail-closed disconnect failed",
+          error,
+        ),
+      );
+      void endInvite({
+        code: userCode,
+        deviceId,
+        inviteId: activeInviteId,
+      }).catch((error) =>
+        console.error("[FaceSwap:cleanup] invite invalidation failed", error),
+      );
+    };
+  }, [deviceId, endInvite, invite, open, userCode]);
 
   if (!open) return null;
 
@@ -191,6 +297,7 @@ export function FaceSwapInviteModal({
             const status = await nativeAmigoRoom.connect({
               url: created.serverUrl,
               token: created.operatorToken,
+              roomName: created.roomName,
               enableMicrophone: true,
               enableCamera: true,
             });
@@ -210,6 +317,13 @@ export function FaceSwapInviteModal({
           roomUrl: connectedStatus.roomUrl,
           pipeline: connectedStatus.pipeline,
         });
+        await runFaceSwapCallCreationStep("verify-processed-video-track", () =>
+          verifyHostReady({
+            code: userCode,
+            deviceId,
+            inviteId: created.inviteId,
+          }),
+        );
         nextViewerRoom = new Room({
           adaptiveStream: false,
           dynacast: true,
@@ -250,7 +364,6 @@ export function FaceSwapInviteModal({
               toast.error(uiErrorMessage(error, copy.endFailed));
             } finally {
               setEnding(false);
-              endingRef.current = false;
             }
           })();
         });
@@ -387,7 +500,6 @@ export function FaceSwapInviteModal({
       toast.error(uiErrorMessage(error, copy.endFailed));
     } finally {
       setEnding(false);
-      endingRef.current = false;
     }
   };
 

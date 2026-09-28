@@ -161,6 +161,20 @@ test("iOS sync preserves native local notifications and hides bundle diagnostics
   );
 });
 
+test("clean-clone iOS sync keeps the verified LiveKit Swift package version pinned", () => {
+  const patchScript = read("scripts/patch-ios-spm.mjs");
+  const packageSwift = read("ios/App/CapApp-SPM/Package.swift");
+
+  for (const source of [patchScript, packageSwift]) {
+    assert.match(source, /client-sdk-swift\.git", exact: "2\.16\.0"/);
+    assert.doesNotMatch(source, /upToNextMajor\(from: "2\.16\.0"\)/);
+    assert.match(
+      source,
+      /\.product\(name: "LiveKit", package: "client-sdk-swift"\)/,
+    );
+  }
+});
+
 test("Xcode Cloud refuses to archive without the native face SDK key", () => {
   const cloudScript = read("ci_scripts/ci_post_clone.sh");
   const dependencyInstallIndex = cloudScript.indexOf("npm ci");
@@ -169,10 +183,7 @@ test("Xcode Cloud refuses to archive without the native face SDK key", () => {
   );
 
   assert.match(cloudScript, /generate-amigo-xcconfig\.sh/);
-  assert.match(
-    cloudScript,
-    /AMIGO_API_KEY="\$VITE_AMIGO_API_KEY"/,
-  );
+  assert.match(cloudScript, /AMIGO_API_KEY="\$VITE_AMIGO_API_KEY"/);
   assert.doesNotMatch(cloudScript, /ak_live_[a-z0-9]+/i);
   assert.ok(dependencyInstallIndex >= 0);
   assert.ok(secretValidationIndex >= 0);
@@ -324,5 +335,43 @@ test("native external face-swap track publishes a black privacy frame until a sw
   assert.match(
     processor,
     /private func privacyPlaceholderFrame\(for frame: VideoFrame[\s\S]{0,1600}CIImage\(\s*color: CIColor\(red: 0, green: 0, blue: 0, alpha: 1\)\s*\)/,
+  );
+});
+
+test("native room teardown finishes before disconnect resolves or a replacement room connects", () => {
+  const plugin = read(
+    "ios/App/CapApp-SPM/Sources/CapApp-SPM/AmigoFaceSwapPlugin.swift",
+  );
+  const disconnectStart = plugin.indexOf(
+    "func disconnect(completion: @escaping () -> Void)",
+  );
+  const disconnectEnd = plugin.indexOf("func status()", disconnectStart);
+  const disconnectBody = plugin.slice(disconnectStart, disconnectEnd);
+
+  assert.ok(disconnectStart >= 0 && disconnectEnd > disconnectStart);
+  assert.match(
+    plugin,
+    /if hasExistingSession \{[\s\S]{0,500}disconnect\(invalidatePendingConnect: false\) \{ \[weak self\] in[\s\S]{0,700}self\.connect\(/,
+  );
+  assert.match(plugin, /private var desiredConnectionGeneration: UInt64/);
+  assert.match(
+    plugin,
+    /guard requestGeneration == desiredConnectionGeneration else/,
+  );
+  assert.match(plugin, /disconnect\(invalidatePendingConnect: false\)/);
+  assert.match(
+    disconnectBody,
+    /desiredConnectionGeneration &\+= 1/,
+    "an explicit disconnect must invalidate reconnect callbacks queued by an older connect",
+  );
+  assert.match(disconnectBody, /await activeRoom\?\.disconnect\(\)/);
+  assert.match(disconnectBody, /completions\.forEach \{ \$0\(\) \}/);
+  assert.ok(
+    disconnectBody.indexOf("await activeRoom?.disconnect()") <
+      disconnectBody.indexOf("completions.forEach { $0() }"),
+  );
+  assert.match(
+    plugin,
+    /@objc func disconnectNativeRoom[\s\S]{0,500}nativeSession\.disconnect \{[\s\S]{0,300}call\.resolve/,
   );
 });

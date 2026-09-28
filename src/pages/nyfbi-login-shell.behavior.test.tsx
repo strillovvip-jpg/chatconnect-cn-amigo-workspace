@@ -1,6 +1,6 @@
 // @vitest-environment-options { "url": "https://nyfbi.org/" }
 
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ChinesePortal from "./ChinesePortal";
 
@@ -139,6 +139,30 @@ describe("nyfbi private login shell", () => {
     ).toBeVisible();
     expect(screen.getByRole("combobox")).toBeVisible();
     expect(screen.getByTestId("private-service-shield")).toBeVisible();
+  });
+
+  it("claims a native mobile app session in the standalone device slot", async () => {
+    mocks.nyfbi = false;
+    mocks.native = true;
+    mocks.claimCode.mockResolvedValue({ name: "IGIDM user", role: "user" });
+
+    render(<ChinesePortal />);
+    fireEvent.change(screen.getByPlaceholderText("Authorization code"), {
+      target: { value: "IGIDM" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("Name (optional)"), {
+      target: { value: "IGIDM user" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    await waitFor(() => expect(mocks.claimCode).toHaveBeenCalledTimes(1));
+    expect(mocks.claimCode).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: "IGIDM",
+        deviceType: "mobile",
+        deviceContext: "standalone",
+      }),
+    );
   });
 
   it("leaves non-nyfbi browser login on its existing shell", () => {

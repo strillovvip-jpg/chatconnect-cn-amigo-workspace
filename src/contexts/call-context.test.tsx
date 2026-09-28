@@ -254,8 +254,11 @@ describe("CallProvider native face-swap media mode", () => {
     mocks.bridgeConnect.mockResolvedValue({
       connected: true,
       roomUrl: "wss://live.example.test",
+      roomName: "contact-room",
       faceSwapEnabled: true,
       hasTargetFace: true,
+      videoPublished: true,
+      videoMuted: false,
       pipeline: "native-livekit",
     });
     mocks.bridgeDisconnect.mockResolvedValue({
@@ -268,15 +271,21 @@ describe("CallProvider native face-swap media mode", () => {
     mocks.bridgeStatus.mockResolvedValue({
       connected: true,
       roomUrl: "wss://live.example.test",
+      roomName: "contact-room",
       faceSwapEnabled: true,
       hasTargetFace: true,
+      videoPublished: true,
+      videoMuted: false,
       pipeline: "native-livekit",
     });
     mocks.bridgeSetEnabled.mockResolvedValue({
       connected: true,
       roomUrl: "wss://live.example.test",
+      roomName: "contact-room",
       faceSwapEnabled: true,
       hasTargetFace: true,
+      videoPublished: true,
+      videoMuted: false,
       pipeline: "native-livekit",
     });
     mocks.setCameraEnabled.mockResolvedValue(undefined);
@@ -305,6 +314,7 @@ describe("CallProvider native face-swap media mode", () => {
     expect(mocks.bridgeConnect).toHaveBeenCalledWith({
       url: baseCall.serverUrl,
       token: expect.stringContaining(".signature"),
+      roomName: baseCall.roomName,
       enableMicrophone: false,
       enableCamera: true,
     });
@@ -417,11 +427,87 @@ describe("CallProvider native face-swap media mode", () => {
       expect(mocks.bridgeConnect).toHaveBeenCalledWith({
         url: baseCall.serverUrl,
         token: nativeToken,
+        roomName: baseCall.roomName,
         enableMicrophone: false,
         enableCamera: true,
       }),
     );
     expect(mocks.setCameraEnabled).not.toHaveBeenCalled();
+  });
+
+  it("disconnects a native publisher that finishes reconnecting after hangup", async () => {
+    render(
+      <CallProvider>
+        <CaptureCallContext />
+      </CallProvider>,
+    );
+    const nativeToken = jwt("CALLER-native");
+
+    await act(async () => {
+      await callApi.startCall({
+        ...baseCall,
+        token: "browser-subscriber-token",
+        localMediaMode: "face-swap",
+        nativeVideoToken: nativeToken,
+        nativeVideoIdentity: "CALLER-native",
+      });
+    });
+
+    mocks.bridgeConnect.mockClear();
+    mocks.bridgeDisconnect.mockClear();
+    mocks.bridgeStatus.mockResolvedValue({
+      connected: false,
+      roomUrl: null,
+      faceSwapEnabled: true,
+      hasTargetFace: true,
+      pipeline: "native-livekit",
+    });
+    let finishReconnect:
+      | ((status: {
+          connected: boolean;
+          roomUrl: string;
+          roomName: string;
+          faceSwapEnabled: boolean;
+          hasTargetFace: boolean;
+          videoPublished: boolean;
+          videoMuted: boolean;
+          pipeline: string;
+        }) => void)
+      | undefined;
+    mocks.bridgeConnect.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishReconnect = resolve;
+        }),
+    );
+
+    act(() => {
+      for (const handler of mocks.rooms[0].handlers.get("Reconnected") ?? [])
+        handler();
+    });
+    await waitFor(() => expect(mocks.bridgeConnect).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      await callApi.hangUp();
+    });
+    expect(mocks.bridgeDisconnect).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      finishReconnect?.({
+        connected: true,
+        roomUrl: baseCall.serverUrl,
+        roomName: baseCall.roomName,
+        faceSwapEnabled: true,
+        hasTargetFace: true,
+        videoPublished: true,
+        videoMuted: false,
+        pipeline: "native-livekit",
+      });
+    });
+
+    await waitFor(() =>
+      expect(mocks.bridgeDisconnect).toHaveBeenCalledTimes(2),
+    );
   });
 
   it("retries native disconnect and records an unmount cleanup failure", async () => {

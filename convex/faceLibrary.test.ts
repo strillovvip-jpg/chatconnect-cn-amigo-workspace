@@ -18,6 +18,11 @@ const addFace = makeFunctionReference<
   },
   { faceId: string }
 >("faceLibrary:addFace");
+const getUploadRequestStatus = makeFunctionReference<
+  "query",
+  AuthArgs & { uploadRequestId: Id<"face_upload_requests"> },
+  { consumed: boolean }
+>("faceLibrary:getUploadRequestStatus");
 
 const featureFlags = (canAIFace: boolean) => ({
   canVideoCall: true,
@@ -147,6 +152,48 @@ describe("face library production compatibility", () => {
     };
     expect(result.uploadUrl).toEqual(expect.any(String));
     expect(result.requestId).toEqual(expect.any(String));
+  });
+
+  test("an authenticated owner can confirm that an upload request was consumed", async () => {
+    const t = await setup();
+    const storageId = await storeFile(t, "image", "image/jpeg");
+    const request = (await t.mutation(api.faceLibrary.generateUploadUrl, {
+      code: "FULLA",
+      deviceId: "device-full",
+    })) as unknown as { requestId: Id<"face_upload_requests"> };
+
+    await expect(
+      t.query(getUploadRequestStatus, {
+        code: "FULLA",
+        deviceId: "device-full",
+        uploadRequestId: request.requestId,
+      }),
+    ).resolves.toEqual({ consumed: false });
+
+    await t.mutation(addFace, {
+      code: "FULLA",
+      deviceId: "device-full",
+      name: "Acknowledged face",
+      storageId,
+      uploadRequestId: request.requestId,
+      hasConsent: true,
+      subjectIsAdult: true,
+    });
+
+    await expect(
+      t.query(getUploadRequestStatus, {
+        code: "FULLA",
+        deviceId: "device-full",
+        uploadRequestId: request.requestId,
+      }),
+    ).resolves.toEqual({ consumed: true });
+    await expect(
+      t.query(getUploadRequestStatus, {
+        code: "LIMIT",
+        deviceId: "device-limit",
+        uploadRequestId: request.requestId,
+      }),
+    ).rejects.toThrow();
   });
 
   test("addFace requires consent metadata and stores auditable consent fields", async () => {

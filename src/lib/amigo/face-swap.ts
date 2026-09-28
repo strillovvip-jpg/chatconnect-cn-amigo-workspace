@@ -1,6 +1,6 @@
-import { amigoBridge } from "./bridge.ts";
+import { amigoBridge, type AmigoInitializationProgress } from "./bridge.ts";
 
-const MODEL_DOWNLOAD_RETRY_DELAY_MS = 1_000;
+const MODEL_DOWNLOAD_RETRY_DELAYS_MS = [1_000, 3_000, 8_000] as const;
 
 export type FaceSwapStage = "initialize" | "read" | "decode" | "enroll";
 
@@ -58,6 +58,12 @@ export class AmigoFaceSwapService {
     return this.enrolled;
   }
 
+  addInitializationProgressListener(
+    listener: (event: AmigoInitializationProgress) => void,
+  ): Promise<() => Promise<void>> {
+    return amigoBridge.addInitializationProgressListener(listener);
+  }
+
   /** Initialize the SDK once at app startup. No-op outside the native app. */
   initialize(): Promise<void> {
     if (this.initialized) return Promise.resolve();
@@ -83,30 +89,39 @@ export class AmigoFaceSwapService {
   }
 
   private async doInitialize(): Promise<void> {
-    try {
-      await amigoBridge.initialize();
-    } catch (error) {
-      const normalized = normalizeFaceSwapError(
-        error,
-        "SDK_INITIALIZATION_FAILED",
-        "initialize",
-      );
-      if (normalized.code !== "SDK_MODEL_DOWNLOAD_FAILED") throw normalized;
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await amigoBridge.initialize();
+        break;
+      } catch (error) {
+        const normalized = normalizeFaceSwapError(
+          error,
+          "SDK_INITIALIZATION_FAILED",
+          "initialize",
+        );
+        const retryDelay = MODEL_DOWNLOAD_RETRY_DELAYS_MS[attempt];
+        if (
+          normalized.code !== "SDK_MODEL_DOWNLOAD_FAILED" ||
+          retryDelay === undefined
+        )
+          throw normalized;
 
-      // The vendor downloads its models with a foreground URLSession and
-      // retains completed model files in its own cache. A transient -1005
-      // connection loss is recoverable by calling initialize again; clearing
-      // the cache here would discard useful completed downloads.
-      console.warn(
-        "[FaceSwap:init] model download was interrupted; retrying once without clearing cache",
-        {
-          code: normalized.code,
-          message: normalized.message,
-          nativeDetails: normalized.nativeDetails,
-        },
-      );
-      await wait(MODEL_DOWNLOAD_RETRY_DELAY_MS);
-      await amigoBridge.initialize();
+        // The vendor downloads its first-run models with a foreground
+        // URLSession. A transient connection loss is recoverable by calling
+        // initialize again; never clear the SDK cache because another model
+        // may already have completed successfully.
+        console.warn(
+          "[FaceSwap:init] model download was interrupted; retrying without clearing cache",
+          {
+            attempt: attempt + 1,
+            retryInMs: retryDelay,
+            code: normalized.code,
+            message: normalized.message,
+            nativeDetails: normalized.nativeDetails,
+          },
+        );
+        await wait(retryDelay);
+      }
     }
     this.initialized = true;
     console.info("[FaceSwap:init] native SDK initialized");

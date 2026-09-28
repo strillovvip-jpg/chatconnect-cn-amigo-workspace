@@ -13,7 +13,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/ionic-team/capacitor-swift-pm.git", exact: "8.5.0"),
         .package(name: "CapacitorLocalNotifications", path: "../../../node_modules/@capacitor/local-notifications"),
-        .package(name: "LiveKit", url: "https://github.com/livekit/client-sdk-swift.git", .upToNextMajor(from: "2.16.0"))
+        .package(url: "https://github.com/livekit/client-sdk-swift.git", exact: "2.16.0")
     ],
     targets: [
         .target(
@@ -23,7 +23,7 @@ let package = Package(
                 .product(name: "Cordova", package: "capacitor-swift-pm"),
                 .product(name: "CapacitorLocalNotifications", package: "CapacitorLocalNotifications"),
                 "AmigoFaceSwapSDK",
-                .product(name: "LiveKit", package: "LiveKit")
+                .product(name: "LiveKit", package: "client-sdk-swift")
             ]
         ),
         .binaryTarget(

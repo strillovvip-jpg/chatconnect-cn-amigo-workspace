@@ -233,6 +233,11 @@ final class AmigoDiagnosticURLSessionConfiguration {
 private final class AmigoInitializationProgressLogger: @unchecked Sendable {
     private let lock = NSLock()
     private var lastBucket = -5
+    private let onProgress: @Sendable (Int) -> Void
+
+    init(onProgress: @escaping @Sendable (Int) -> Void) {
+        self.onProgress = onProgress
+    }
 
     func record(_ progress: Float) {
         let bucket = min(100, max(0, Int(progress * 100))) / 5 * 5
@@ -247,6 +252,7 @@ private final class AmigoInitializationProgressLogger: @unchecked Sendable {
         AmigoSDKDiagnostics.record(
             "[AmigoSDK] stage=initialize source=javascript result=progress percent=\(bucket)"
         )
+        onProgress(bucket)
     }
 }
 
@@ -435,7 +441,14 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
             task = activeTask
             reusedTask = true
         } else {
-            let progressLogger = AmigoInitializationProgressLogger()
+            let progressLogger = AmigoInitializationProgressLogger { [weak self] percent in
+                DispatchQueue.main.async {
+                    self?.notifyListeners(
+                        "initializationProgress",
+                        data: ["percent": percent]
+                    )
+                }
+            }
             task = Task.detached(priority: .userInitiated) {
                 try await AmigoFaceSwap.initialize(apiKey: apiKey) { progress in
                     progressLogger.record(progress)
@@ -833,8 +846,9 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func disconnectNativeRoom(_ call: CAPPluginCall) {
         processingQueue.async {
-            self.nativeSession.disconnect()
-            call.resolve(self.nativeSession.status())
+            self.nativeSession.disconnect {
+                call.resolve(self.nativeSession.status())
+            }
         }
     }
 
@@ -1122,9 +1136,12 @@ private final class NativeLiveKitSession {
     private var publishedVideoPublication: LocalTrackPublication?
     private var publishedProcessor: AmigoRealtimeVideoProcessor?
     private var connectionGeneration: UInt64 = 0
+    private var desiredConnectionGeneration: UInt64 = 0
     private var pendingRoom: Room?
     private var pendingConnectTask: Task<Void, Never>?
     private var pendingProcessor: AmigoRealtimeVideoProcessor?
+    private var teardownInProgress = false
+    private var teardownCompletions: [() -> Void] = []
 
     func setTargetLatent(_ latent: FaceLatent?) {
         stateLock.lock()
@@ -1151,11 +1168,52 @@ private final class NativeLiveKitSession {
         completion: @escaping (NativeRoomConnectFailure?) -> Void
     ) {
         stateLock.lock()
-        let hasExistingSession = room != nil || pendingRoom != nil
+        desiredConnectionGeneration &+= 1
+        let requestGeneration = desiredConnectionGeneration
+        stateLock.unlock()
+        connect(
+            url: url,
+            token: token,
+            enableMicrophone: enableMicrophone,
+            enableCamera: enableCamera,
+            requestGeneration: requestGeneration,
+            completion: completion
+        )
+    }
+
+    private func connect(
+        url: String,
+        token: String,
+        enableMicrophone: Bool,
+        enableCamera: Bool,
+        requestGeneration: UInt64,
+        completion: @escaping (NativeRoomConnectFailure?) -> Void
+    ) {
+        stateLock.lock()
+        guard requestGeneration == desiredConnectionGeneration else {
+            stateLock.unlock()
+            completion(Self.cancelledConnectFailure())
+            return
+        }
+        let hasExistingSession = room != nil || pendingRoom != nil || teardownInProgress
         stateLock.unlock()
 
         if hasExistingSession {
-            disconnect()
+            disconnect(invalidatePendingConnect: false) { [weak self] in
+                guard let self else {
+                    completion(Self.cancelledConnectFailure())
+                    return
+                }
+                self.connect(
+                    url: url,
+                    token: token,
+                    enableMicrophone: enableMicrophone,
+                    enableCamera: enableCamera,
+                    requestGeneration: requestGeneration,
+                    completion: completion
+                )
+            }
+            return
         }
 
         let room = Room()
@@ -1299,9 +1357,25 @@ private final class NativeLiveKitSession {
         stateLock.unlock()
     }
 
-    func disconnect() {
+    func disconnect(completion: @escaping () -> Void) {
+        disconnect(invalidatePendingConnect: true, completion: completion)
+    }
+
+    private func disconnect(
+        invalidatePendingConnect: Bool,
+        completion: @escaping () -> Void
+    ) {
         CAPLog.print("[NativeLiveKitSession] disconnecting native room")
         stateLock.lock()
+        if invalidatePendingConnect {
+            desiredConnectionGeneration &+= 1
+        }
+        teardownCompletions.append(completion)
+        if teardownInProgress {
+            stateLock.unlock()
+            return
+        }
+        teardownInProgress = true
         connectionGeneration &+= 1
         let pendingTask = pendingConnectTask
         let connectingRoom = pendingRoom
@@ -1336,16 +1410,49 @@ private final class NativeLiveKitSession {
             // frame can bypass processing during disconnect or rapid reconnect.
             _ = connectingProcessor
             _ = activeProcessor
+            self.stateLock.lock()
+            self.teardownInProgress = false
+            let completions = self.teardownCompletions
+            self.teardownCompletions.removeAll()
+            self.stateLock.unlock()
+            completions.forEach { $0() }
         }
+    }
+
+    private static func cancelledConnectFailure() -> NativeRoomConnectFailure {
+        let cancellation = NSError(
+            domain: "TokyoConnect.NativeLiveKitSession",
+            code: 2,
+            userInfo: [
+                NSLocalizedDescriptionKey: "Native room connection was cancelled."
+            ]
+        )
+        return NativeRoomConnectFailure(
+            stage: "livekit-room-connect",
+            code: "NATIVE_ROOM_CONNECT_CANCELLED",
+            error: cancellation
+        )
     }
 
     func status() -> PluginCallResultData {
         stateLock.lock()
+        let activeRoom = room
+        let connected = activeRoom?.connectionState == .connected
+        let audioPublication = activeRoom?.localParticipant.localAudioTracks.first(
+            where: { $0.source == .microphone }
+        )
+        let videoPublished = publishedVideoPublication != nil
+        let videoMuted = publishedVideoPublication?.isMuted ?? true
         let result: PluginCallResultData = [
-            "connected": room != nil,
+            "connected": connected,
             "roomUrl": roomURL as Any,
+            "roomName": activeRoom?.name as Any,
             "faceSwapEnabled": faceSwapEnabled,
             "hasTargetFace": targetLatent != nil,
+            "videoPublished": videoPublished,
+            "videoMuted": videoMuted,
+            "audioPublished": audioPublication != nil,
+            "audioMuted": audioPublication?.isMuted ?? true,
             "pipeline": "native-livekit"
         ]
         stateLock.unlock()

@@ -9,16 +9,22 @@ const vendorDir = resolve("ios/App/CapApp-SPM/Vendor");
 const AMIGO_CLASS = "AmigoFaceSwapPlugin";
 const AMIGO_BINARY_NAME = "AmigoFaceSwapSDK";
 const AMIGO_BINARY_PATH = "Vendor/AmigoFaceSwapSDK.xcframework";
-const LIVEKIT_DEP = '.package(name: "LiveKit", url: "https://github.com/livekit/client-sdk-swift.git", .upToNextMajor(from: "2.16.0"))';
-const LIVEKIT_PRODUCT = '.product(name: "LiveKit", package: "LiveKit")';
-const LOCAL_NOTIFICATIONS_DEP = '.package(name: "CapacitorLocalNotifications", path: "../../../node_modules/@capacitor/local-notifications")';
-const LOCAL_NOTIFICATIONS_PRODUCT = '.product(name: "CapacitorLocalNotifications", package: "CapacitorLocalNotifications")';
+const LIVEKIT_DEP =
+  '.package(url: "https://github.com/livekit/client-sdk-swift.git", exact: "2.16.0")';
+const LIVEKIT_PRODUCT =
+  '.product(name: "LiveKit", package: "client-sdk-swift")';
+const LOCAL_NOTIFICATIONS_DEP =
+  '.package(name: "CapacitorLocalNotifications", path: "../../../node_modules/@capacitor/local-notifications")';
+const LOCAL_NOTIFICATIONS_PRODUCT =
+  '.product(name: "CapacitorLocalNotifications", package: "CapacitorLocalNotifications")';
 
 let changed = false;
 
 if (exists(capJSONPath)) {
   const capJSON = JSON.parse(readFileSync(capJSONPath, "utf8"));
-  const list = Array.isArray(capJSON.packageClassList) ? capJSON.packageClassList : [];
+  const list = Array.isArray(capJSON.packageClassList)
+    ? capJSON.packageClassList
+    : [];
   if (!list.includes(AMIGO_CLASS)) {
     list.push(AMIGO_CLASS);
     capJSON.packageClassList = list;
@@ -36,8 +42,11 @@ mkdirSync(vendorDir, { recursive: true });
 
 if (exists(packagePath)) {
   const current = readFileSync(packagePath, "utf8");
-  const swiftToolsVersion = current.match(/^\/\/ swift-tools-version:\s*([^\n]+)/m)?.[1]?.trim() ?? "5.9";
-  const capacitorVersion = current.match(/capacitor-swift-pm\.git", exact: "([^"]+)"/)?.[1] ?? "8.5.0";
+  const swiftToolsVersion =
+    current.match(/^\/\/ swift-tools-version:\s*([^\n]+)/m)?.[1]?.trim() ??
+    "5.9";
+  const capacitorVersion =
+    current.match(/capacitor-swift-pm\.git", exact: "([^"]+)"/)?.[1] ?? "8.5.0";
   const desired = `// swift-tools-version: ${swiftToolsVersion}
 import PackageDescription
 
@@ -79,7 +88,9 @@ let package = Package(
     changed = true;
     console.log("[patch] rewrote Package.swift for local Amigo xcframework");
   } else {
-    console.log("[patch] local Amigo xcframework already configured in Package.swift");
+    console.log(
+      "[patch] local Amigo xcframework already configured in Package.swift",
+    );
   }
 } else {
   console.error(`[patch] Package.swift not found at ${packagePath}`);

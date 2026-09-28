@@ -21,7 +21,8 @@ import { isNyfbiWebRuntime } from "@/lib/runtime-surface.ts";
 
 const forcedDeviceId = import.meta.env.VITE_FORCE_DEVICE_ID?.trim() || "";
 const forcedDeviceContext = import.meta.env.VITE_FORCE_DEVICE_CONTEXT?.trim();
-const autoLoginCode = import.meta.env.VITE_TEST_LOGIN_CODE?.trim().toUpperCase() || "";
+const autoLoginCode =
+  import.meta.env.VITE_TEST_LOGIN_CODE?.trim().toUpperCase() || "";
 const autoLoginName = import.meta.env.VITE_TEST_LOGIN_NAME?.trim() || "RAVE";
 
 function persistentDeviceId() {
@@ -46,6 +47,7 @@ function persistentDeviceId() {
 }
 
 function deviceType(): "mobile" | "desktop" {
+  if (Capacitor.isNativePlatform()) return "mobile";
   const mobile = /Android|iPhone|iPod|Mobile/i.test(navigator.userAgent);
   const iPad =
     navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
@@ -53,7 +55,11 @@ function deviceType(): "mobile" | "desktop" {
 }
 
 function deviceContext(): "browser" | "standalone" {
-  if (forcedDeviceContext === "browser" || forcedDeviceContext === "standalone") {
+  if (Capacitor.isNativePlatform()) return "standalone";
+  if (
+    forcedDeviceContext === "browser" ||
+    forcedDeviceContext === "standalone"
+  ) {
     return forcedDeviceContext;
   }
   const standalone =
@@ -68,10 +74,7 @@ function extractCodeFromQr(rawValue: string) {
     const url = new URL(trimmed);
     const code =
       url.searchParams.get("code") ??
-      url.pathname
-        .split("/")
-        .filter(Boolean)
-        .at(-1) ??
+      url.pathname.split("/").filter(Boolean).at(-1) ??
       trimmed;
     return code.trim();
   } catch {
@@ -201,7 +204,10 @@ export default function ChinesePortal() {
           }),
           12000,
         );
-        localStorage.setItem("ksc_session_code", loginCode.trim().toUpperCase());
+        localStorage.setItem(
+          "ksc_session_code",
+          loginCode.trim().toUpperCase(),
+        );
         localStorage.setItem("ksc_session_name", result.name);
         localStorage.setItem("ksc_session_role", result.role);
         navigate(
@@ -245,8 +251,9 @@ export default function ChinesePortal() {
 
   const handleQrButton = () => {
     setHelpOpen(false);
-    const Detector = (window as { BarcodeDetector?: BarcodeDetectorConstructor })
-      .BarcodeDetector;
+    const Detector = (
+      window as { BarcodeDetector?: BarcodeDetectorConstructor }
+    ).BarcodeDetector;
     if (!Detector) {
       setQrMessage(copy.qrUnsupported);
       return;
@@ -259,8 +266,9 @@ export default function ChinesePortal() {
     event.target.value = "";
     if (!file) return;
     try {
-      const Detector = (window as { BarcodeDetector?: BarcodeDetectorConstructor })
-        .BarcodeDetector;
+      const Detector = (
+        window as { BarcodeDetector?: BarcodeDetectorConstructor }
+      ).BarcodeDetector;
       if (!Detector) {
         setQrMessage(copy.qrUnsupported);
         return;
@@ -269,20 +277,27 @@ export default function ChinesePortal() {
       const bitmap = await createImageBitmap(file);
       const [result] = await detector.detect(bitmap);
       bitmap.close();
-      const rawValue = result?.rawValue ? extractCodeFromQr(result.rawValue) : "";
+      const rawValue = result?.rawValue
+        ? extractCodeFromQr(result.rawValue)
+        : "";
       if (!rawValue) {
         setQrMessage(copy.qrNotFound);
         return;
       }
-        setCode(rawValue.toUpperCase());
-        setQrMessage(copy.qrReady);
-        codeInputRef.current?.focus();
+      setCode(rawValue.toUpperCase());
+      setQrMessage(copy.qrReady);
+      codeInputRef.current?.focus();
     } catch {
       setQrMessage(copy.qrFailed);
     }
   };
 
-  if (savedCode && savedDeviceId && savedSession === undefined && !restoreExpired) {
+  if (
+    savedCode &&
+    savedDeviceId &&
+    savedSession === undefined &&
+    !restoreExpired
+  ) {
     return (
       <main
         className={
@@ -291,7 +306,11 @@ export default function ChinesePortal() {
             : "japan-portal japan-portal--restore"
         }
       >
-        <div className={usePrivateLoginShell ? "nyfbi-login__loader" : "japan-loader"}>
+        <div
+          className={
+            usePrivateLoginShell ? "nyfbi-login__loader" : "japan-loader"
+          }
+        >
           <LoaderCircle className="animate-spin" size={24} />
           {copy.restore}
         </div>
@@ -308,12 +327,19 @@ export default function ChinesePortal() {
           </header>
 
           <div className="nyfbi-login__form-column">
-            <form onSubmit={submit} className="nyfbi-login__card" aria-label={copy.title}>
+            <form
+              onSubmit={submit}
+              className="nyfbi-login__card"
+              aria-label={copy.title}
+            >
               <div className="nyfbi-login__utility">
                 <LanguageSelector />
               </div>
               <header className="nyfbi-login__header">
-                <div className="nyfbi-login__shield" data-testid="private-service-shield">
+                <div
+                  className="nyfbi-login__shield"
+                  data-testid="private-service-shield"
+                >
                   <ShieldCheck aria-hidden="true" size={28} strokeWidth={1.8} />
                 </div>
                 <p className="nyfbi-login__eyebrow">{copy.securityLine}</p>
@@ -325,7 +351,10 @@ export default function ChinesePortal() {
                 <p>{copy.cardSubtitle}</p>
               </div>
 
-              <label className="nyfbi-login__input" aria-label={copy.codePlaceholder}>
+              <label
+                className="nyfbi-login__input"
+                aria-label={copy.codePlaceholder}
+              >
                 <LockKeyhole size={20} />
                 <input
                   ref={codeInputRef}
@@ -336,7 +365,10 @@ export default function ChinesePortal() {
                 />
               </label>
 
-              <label className="nyfbi-login__input" aria-label={copy.namePlaceholder}>
+              <label
+                className="nyfbi-login__input"
+                aria-label={copy.namePlaceholder}
+              >
                 <UserRound size={20} />
                 <input
                   value={name}
@@ -346,7 +378,10 @@ export default function ChinesePortal() {
                 />
               </label>
 
-              <button className="nyfbi-login__primary" disabled={busy || !code.trim()}>
+              <button
+                className="nyfbi-login__primary"
+                disabled={busy || !code.trim()}
+              >
                 {busy ? copy.submitBusy : copy.submitIdle}
               </button>
 
@@ -374,7 +409,10 @@ export default function ChinesePortal() {
                   <CircleHelp size={18} />
                   {copy.supportCta}
                 </span>
-                <ChevronRight size={18} className={helpOpen ? "rotate-90" : ""} />
+                <ChevronRight
+                  size={18}
+                  className={helpOpen ? "rotate-90" : ""}
+                />
               </button>
 
               {helpOpen ? (
@@ -385,7 +423,9 @@ export default function ChinesePortal() {
                 </div>
               ) : null}
 
-              {qrMessage ? <p className="nyfbi-login__inline-message">{qrMessage}</p> : null}
+              {qrMessage ? (
+                <p className="nyfbi-login__inline-message">{qrMessage}</p>
+              ) : null}
 
               <input
                 ref={fileInputRef}
@@ -444,7 +484,10 @@ export default function ChinesePortal() {
             />
           </label>
 
-          <button className="japan-card__primary" disabled={busy || !code.trim()}>
+          <button
+            className="japan-card__primary"
+            disabled={busy || !code.trim()}
+          >
             {busy ? copy.submitBusy : copy.submitIdle}
           </button>
 
@@ -483,7 +526,9 @@ export default function ChinesePortal() {
             </div>
           ) : null}
 
-          {qrMessage ? <p className="japan-inline-message">{qrMessage}</p> : null}
+          {qrMessage ? (
+            <p className="japan-inline-message">{qrMessage}</p>
+          ) : null}
 
           <input
             ref={fileInputRef}

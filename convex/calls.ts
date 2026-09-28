@@ -51,6 +51,7 @@ function createInvitePassword() {
 const PUBLIC_INVITE_ORIGIN = "https://nyfbi.org";
 const GUEST_MEDIA_READY_TIMEOUT_MS = 5_000;
 const GUEST_MEDIA_READY_POLL_INTERVAL_MS = 250;
+const HOST_MEDIA_READY_TIMEOUT_MS = 10_000;
 
 function buildInviteUrl(inviteId: string) {
   return `${PUBLIC_INVITE_ORIGIN}/video_call/${encodeURIComponent(inviteId)}`;
@@ -113,6 +114,48 @@ const endInviteSession = makeFunctionReference<
   { code: string; deviceId: string; inviteId: string },
   boolean
 >("externalVideoInvites:endInviteSession");
+
+const getOwnedInviteSessionForHost = makeFunctionReference<
+  "query",
+  { code: string; deviceId: string; inviteId: string },
+  { inviteId: string; roomName: string; operatorIdentity: string }
+>("externalVideoInvites:getOwnedInviteSessionForHost");
+
+async function waitForActiveParticipantSources(
+  roomService: RoomServiceClient,
+  roomName: string,
+  identity: string,
+  sources: TrackSource[],
+  timeoutMs: number,
+) {
+  const deadline = Date.now() + timeoutMs;
+  do {
+    try {
+      const participant = await roomService.getParticipant(roomName, identity);
+      const activeSources = new Set(
+        participant.tracks
+          .filter((track) => !track.muted)
+          .map((track) => track.source),
+      );
+      if (
+        participant.identity === identity &&
+        sources.every((source) => activeSources.has(source))
+      )
+        return participant;
+    } catch {
+      // LiveKit can briefly return not-found while a participant propagates.
+    }
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) break;
+    await new Promise((resolve) =>
+      setTimeout(
+        resolve,
+        Math.min(GUEST_MEDIA_READY_POLL_INTERVAL_MS, remainingMs),
+      ),
+    );
+  } while (Date.now() <= deadline);
+  return null;
+}
 
 export const getOrCreateRoom = action({
   args: {
@@ -509,6 +552,33 @@ export const joinFaceSwapInvite = action({
   },
 });
 
+export const verifyFaceSwapInviteHostReady = action({
+  args: {
+    code: v.string(),
+    deviceId: v.string(),
+    inviteId: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ ready: true }> => {
+    const { apiUrl, apiKey, apiSecret } = liveKitConfig();
+    const invite = await ctx.runQuery(getOwnedInviteSessionForHost, args);
+    const roomService = new RoomServiceClient(apiUrl, apiKey, apiSecret);
+    const host = await waitForActiveParticipantSources(
+      roomService,
+      invite.roomName,
+      invite.operatorIdentity,
+      [TrackSource.CAMERA, TrackSource.MICROPHONE],
+      HOST_MEDIA_READY_TIMEOUT_MS,
+    );
+    if (!host)
+      throw new ConvexError({
+        code: "HOST_PROCESSED_VIDEO_NOT_READY",
+        message:
+          "The processed host video is not ready. Keep the host app open and try again.",
+      });
+    return { ready: true };
+  },
+});
+
 export const confirmFaceSwapInviteJoin = action({
   args: {
     inviteId: v.string(),
@@ -604,25 +674,18 @@ export const confirmFaceSwapInviteJoin = action({
         message: "来宾摄像头或麦克风尚未就绪，请重试。",
       });
 
-    let hostPublisher:
-      Awaited<ReturnType<RoomServiceClient["getParticipant"]>> | undefined;
-    try {
-      hostPublisher = await roomService.getParticipant(
-        invite.roomName,
-        invite.operatorIdentity,
-      );
-    } catch {
-      // The invite must not become active without its processed-video publisher.
-    }
-    const hostCameraReady =
-      hostPublisher?.identity === invite.operatorIdentity &&
-      hostPublisher.tracks.some(
-        (track) => track.source === TrackSource.CAMERA && !track.muted,
-      );
-    if (!hostCameraReady)
+    const hostPublisher = await waitForActiveParticipantSources(
+      roomService,
+      invite.roomName,
+      invite.operatorIdentity,
+      [TrackSource.CAMERA, TrackSource.MICROPHONE],
+      HOST_MEDIA_READY_TIMEOUT_MS,
+    );
+    if (!hostPublisher)
       throw new ConvexError({
-        code: "CONFLICT",
-        message: "操作端处理后视讯尚未就绪，请由操作端重新建立通话。",
+        code: "HOST_PROCESSED_VIDEO_NOT_READY",
+        message:
+          "The processed host video is not ready. Keep the host app open and try again.",
       });
 
     await ctx.runMutation(markGuestJoined, {

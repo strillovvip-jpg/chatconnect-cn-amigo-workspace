@@ -348,85 +348,92 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     );
   }, []);
 
-  const hangUp = useCallback(async (options?: HangUpOptions) => {
-    if (disconnectingRef.current) return;
-    disconnectingRef.current = true;
-    stopTimer();
-    if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
-    reconnectTimeoutRef.current = null;
-    const activeRoom = roomRef.current;
-    const activeInfo = callInfoRef.current;
-    const shouldDisconnectNative =
-      nativePublisherConnectedRef.current ||
-      activeInfo?.localMediaMode === "face-swap";
-    let nativeDisconnectError: unknown;
-    roomRef.current = null;
-    const sourceManager = videoSourceManagerRef.current;
-    videoSourceManagerRef.current = null;
-    await sourceManager?.dispose();
-    if (shouldDisconnectNative) {
-      try {
-        await disconnectNativePublisherWithRetry();
-      } catch (error) {
-        nativeDisconnectError = error;
-        console.error("[FACE_SWAP_CALL] native publisher disconnect failed", error);
-      } finally {
-        nativePublisherConnectedRef.current = false;
+  const hangUp = useCallback(
+    async (options?: HangUpOptions) => {
+      if (disconnectingRef.current) return;
+      disconnectingRef.current = true;
+      stopTimer();
+      if (reconnectTimeoutRef.current)
+        clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+      const activeRoom = roomRef.current;
+      const activeInfo = callInfoRef.current;
+      const shouldDisconnectNative =
+        nativePublisherConnectedRef.current ||
+        activeInfo?.localMediaMode === "face-swap";
+      let nativeDisconnectError: unknown;
+      roomRef.current = null;
+      const sourceManager = videoSourceManagerRef.current;
+      videoSourceManagerRef.current = null;
+      await sourceManager?.dispose();
+      if (shouldDisconnectNative) {
+        try {
+          await disconnectNativePublisherWithRetry();
+        } catch (error) {
+          nativeDisconnectError = error;
+          console.error(
+            "[FACE_SWAP_CALL] native publisher disconnect failed",
+            error,
+          );
+        } finally {
+          nativePublisherConnectedRef.current = false;
+        }
       }
-    }
-    await stopLocalMedia(activeRoom);
-    activeRoom?.removeAllListeners();
-    await activeRoom?.disconnect();
-    setRoom(null);
-    const preservedPendingCall = options?.preservePendingCall;
-    if (preservedPendingCall) {
-      setCallState("ringing");
-      setCallInfo(preservedPendingCall);
-      callInfoRef.current = preservedPendingCall;
-    } else {
-      setCallState("idle");
-      setCallInfo(null);
-      callInfoRef.current = null;
-    }
-    setDuration(0);
-    setParticipantCount(1);
-    setMicOn(true);
-    setCamOn(true);
-    setScreenShareOn(false);
-    setVideoSource({
-      active: "camera",
-      switching: false,
-      videoFileState: "idle",
-      lastSwitchMs: null,
-      error: null,
-    });
-    if (
-      !preservedPendingCall &&
-      activeInfo?.mode === "p2p" &&
-      activeInfo.callId
-    ) {
-      void endP2PCall({
-        code: localStorage.getItem("ksc_session_code") ?? "",
-        deviceId: localStorage.getItem("ksc_device_id") ?? "",
-        callId: activeInfo.callId,
-      }).catch(() => undefined);
-    } else if (
-      !preservedPendingCall &&
-      activeInfo?.mode === "group" &&
-      activeInfo.callId
-    ) {
-      void leaveGroupCall({
-        code: localStorage.getItem("ksc_session_code") ?? "",
-        deviceId: localStorage.getItem("ksc_device_id") ?? "",
-        callId: activeInfo.callId,
-      }).catch(() => undefined);
-    }
-    if (nativeDisconnectError)
-      toast.error(copy.nativeCameraDisconnectFailed, {
-        id: "native-camera-disconnect",
+      await stopLocalMedia(activeRoom);
+      activeRoom?.removeAllListeners();
+      await activeRoom?.disconnect();
+      setRoom(null);
+      const preservedPendingCall = options?.preservePendingCall;
+      if (preservedPendingCall) {
+        setCallState("ringing");
+        setCallInfo(preservedPendingCall);
+        callInfoRef.current = preservedPendingCall;
+      } else {
+        setCallState("idle");
+        setCallInfo(null);
+        callInfoRef.current = null;
+      }
+      setDuration(0);
+      setParticipantCount(1);
+      setMicOn(true);
+      setCamOn(true);
+      setScreenShareOn(false);
+      setVideoSource({
+        active: "camera",
+        switching: false,
+        videoFileState: "idle",
+        lastSwitchMs: null,
+        error: null,
       });
-    disconnectingRef.current = false;
-  }, [copy, stopTimer, stopLocalMedia, endP2PCall, leaveGroupCall]);
+      if (
+        !preservedPendingCall &&
+        activeInfo?.mode === "p2p" &&
+        activeInfo.callId
+      ) {
+        void endP2PCall({
+          code: localStorage.getItem("ksc_session_code") ?? "",
+          deviceId: localStorage.getItem("ksc_device_id") ?? "",
+          callId: activeInfo.callId,
+        }).catch(() => undefined);
+      } else if (
+        !preservedPendingCall &&
+        activeInfo?.mode === "group" &&
+        activeInfo.callId
+      ) {
+        void leaveGroupCall({
+          code: localStorage.getItem("ksc_session_code") ?? "",
+          deviceId: localStorage.getItem("ksc_device_id") ?? "",
+          callId: activeInfo.callId,
+        }).catch(() => undefined);
+      }
+      if (nativeDisconnectError)
+        toast.error(copy.nativeCameraDisconnectFailed, {
+          id: "native-camera-disconnect",
+        });
+      disconnectingRef.current = false;
+    },
+    [copy, stopTimer, stopLocalMedia, endP2PCall, leaveGroupCall],
+  );
 
   const startCall = useCallback(
     async (args: StartCallArgs) => {
@@ -625,6 +632,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             native: {
               url: info.serverUrl,
               token,
+              roomName: info.roomName,
               enableMicrophone: false,
               enableCamera: true,
             },
@@ -806,6 +814,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             const status = await ensureNativePublisherConnected({
               url: info.serverUrl,
               token,
+              roomName: info.roomName,
               enableMicrophone: false,
               enableCamera: wantedCamRef.current,
             });
@@ -813,8 +822,22 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
               disconnectingRef.current ||
               roomRef.current !== activeRoom ||
               callInfoRef.current !== info
-            )
+            ) {
+              // The native reconnect can finish after hangUp has already
+              // cleared this browser room. In that ordering the earlier
+              // disconnect ran before the new native camera publication
+              // existed, so tear the stale publisher down now. Do not touch a
+              // different face-swap call that may already have replaced it.
+              const replacementInfo = callInfoRef.current;
+              if (
+                !replacementInfo ||
+                replacementInfo === info ||
+                replacementInfo.localMediaMode !== "face-swap"
+              ) {
+                await disconnectNativePublisherWithRetry();
+              }
               return;
+            }
             nativePublisherConnectedRef.current = status.connected;
             setCamOn(status.connected && status.faceSwapEnabled);
           })();
@@ -858,7 +881,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       if (info.localMediaMode === "face-swap") {
         nativePublisherConnectedRef.current = false;
         await nativeAmigoRoom.setFaceSwapEnabled(false).catch(() => undefined);
-        console.error("[FACE_SWAP_CALL] native publisher restore failed", error);
+        console.error(
+          "[FACE_SWAP_CALL] native publisher restore failed",
+          error,
+        );
       }
       toast.error(copy.mediaStopped, {
         id: "livekit-media-restore",

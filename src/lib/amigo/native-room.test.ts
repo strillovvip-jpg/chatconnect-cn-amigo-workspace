@@ -31,8 +31,13 @@ describe("connectNativePublisherBeforeBrowser", () => {
     bridge.connect.mockResolvedValue({
       connected: true,
       roomUrl: "wss://live.example.test",
+      roomName: "room-1",
       faceSwapEnabled: true,
       hasTargetFace: true,
+      videoPublished: true,
+      videoMuted: false,
+      audioPublished: true,
+      audioMuted: false,
       pipeline: "native-livekit",
     });
     bridge.disconnect.mockResolvedValue({
@@ -52,8 +57,13 @@ describe("connectNativePublisherBeforeBrowser", () => {
     bridge.getStatus.mockResolvedValue({
       connected: true,
       roomUrl: "wss://live.example.test",
+      roomName: "room-1",
       faceSwapEnabled: true,
       hasTargetFace: true,
+      videoPublished: true,
+      videoMuted: false,
+      audioPublished: true,
+      audioMuted: false,
       pipeline: "native-livekit",
     });
   });
@@ -89,6 +99,8 @@ describe("connectNativePublisherBeforeBrowser", () => {
       roomUrl: "wss://live.example.test",
       faceSwapEnabled: false,
       hasTargetFace: true,
+      videoPublished: true,
+      videoMuted: false,
       pipeline: "native-livekit",
     });
     bridge.setEnabled.mockResolvedValue({
@@ -96,6 +108,8 @@ describe("connectNativePublisherBeforeBrowser", () => {
       roomUrl: "wss://live.example.test",
       faceSwapEnabled: true,
       hasTargetFace: true,
+      videoPublished: true,
+      videoMuted: false,
       pipeline: "native-livekit",
     });
 
@@ -109,6 +123,97 @@ describe("connectNativePublisherBeforeBrowser", () => {
     expect(status.faceSwapEnabled).toBe(true);
     expect(bridge.connect).not.toHaveBeenCalled();
     expect(bridge.setEnabled).toHaveBeenCalledWith(true);
+  });
+
+  it("reconnects an expected room whose processed camera publication is muted", async () => {
+    bridge.getStatus.mockResolvedValue({
+      connected: true,
+      roomUrl: "wss://live.example.test",
+      faceSwapEnabled: true,
+      hasTargetFace: true,
+      videoPublished: true,
+      videoMuted: true,
+      pipeline: "native-livekit",
+    });
+    bridge.connect.mockResolvedValue({
+      connected: true,
+      roomUrl: "wss://live.example.test",
+      faceSwapEnabled: true,
+      hasTargetFace: true,
+      videoPublished: true,
+      videoMuted: false,
+      audioPublished: true,
+      audioMuted: false,
+      pipeline: "native-livekit",
+    });
+
+    const status = await ensureNativePublisherConnected({
+      url: "wss://live.example.test",
+      token: "native-token",
+      enableMicrophone: true,
+      enableCamera: true,
+    });
+
+    expect(bridge.disconnect).toHaveBeenCalledTimes(1);
+    expect(bridge.connect).toHaveBeenCalledWith({
+      url: "wss://live.example.test",
+      token: "native-token",
+      enableMicrophone: true,
+      enableCamera: true,
+    });
+    expect(status.videoMuted).toBe(false);
+  });
+
+  it("reconnects when the microphone publication required by the invite is muted", async () => {
+    bridge.getStatus.mockResolvedValue({
+      connected: true,
+      roomUrl: "wss://live.example.test",
+      roomName: "room-1",
+      faceSwapEnabled: true,
+      hasTargetFace: true,
+      videoPublished: true,
+      videoMuted: false,
+      audioPublished: true,
+      audioMuted: true,
+      pipeline: "native-livekit",
+    });
+
+    await ensureNativePublisherConnected({
+      url: "wss://live.example.test",
+      token: "native-token",
+      roomName: "room-1",
+      enableMicrophone: true,
+      enableCamera: true,
+    });
+
+    expect(bridge.disconnect).toHaveBeenCalledTimes(1);
+    expect(bridge.connect).toHaveBeenCalledTimes(1);
+  });
+
+  it("reconnects a publisher attached to a different room on the same server", async () => {
+    bridge.getStatus.mockResolvedValue({
+      connected: true,
+      roomUrl: "wss://live.example.test",
+      roomName: "stale-room",
+      faceSwapEnabled: true,
+      hasTargetFace: true,
+      videoPublished: true,
+      videoMuted: false,
+      audioPublished: true,
+      audioMuted: false,
+      pipeline: "native-livekit",
+    });
+
+    await ensureNativePublisherConnected({
+      url: "wss://live.example.test",
+      token: "native-token",
+      roomName: "room-1",
+      enableMicrophone: true,
+      enableCamera: true,
+    });
+
+    expect(bridge.disconnect).toHaveBeenCalledTimes(1);
+    expect(bridge.connect).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the processed camera disabled when the user turned video off", async () => {

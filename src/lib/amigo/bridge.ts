@@ -1,4 +1,8 @@
-import { Capacitor, registerPlugin } from "@capacitor/core";
+import {
+  Capacitor,
+  registerPlugin,
+  type PluginListenerHandle,
+} from "@capacitor/core";
 
 export type AmigoProcessedFrame = {
   swapped: boolean;
@@ -14,8 +18,13 @@ export type AmigoPipelineCapabilities = {
 export type NativeRoomStatus = {
   connected: boolean;
   roomUrl: string | null;
+  roomName?: string | null;
   faceSwapEnabled: boolean;
   hasTargetFace: boolean;
+  videoPublished?: boolean;
+  videoMuted?: boolean;
+  audioPublished?: boolean;
+  audioMuted?: boolean;
   pipeline: string;
 };
 
@@ -37,7 +46,15 @@ export type NativeFaceEnrollmentResult = {
   imageHeight?: number;
 };
 
+export type AmigoInitializationProgress = {
+  percent: number;
+};
+
 export type AmigoFaceSwapPlugin = {
+  addListener(
+    eventName: "initializationProgress",
+    listener: (event: AmigoInitializationProgress) => void,
+  ): Promise<PluginListenerHandle>;
   initialize(): Promise<void>;
   enrollFace(options: {
     imageData: string;
@@ -48,6 +65,7 @@ export type AmigoFaceSwapPlugin = {
   connectNativeRoom(options: {
     url: string;
     token: string;
+    roomName?: string;
     enableMicrophone?: boolean;
     enableCamera?: boolean;
   }): Promise<NativeRoomStatus>;
@@ -64,6 +82,9 @@ export type AmigoFaceSwapPlugin = {
 export interface AmigoBridge {
   readonly available: boolean;
   readonly platform: string;
+  addInitializationProgressListener(
+    listener: (event: AmigoInitializationProgress) => void,
+  ): Promise<() => Promise<void>>;
   initialize(): Promise<void>;
   enrollFace(imageData: string): Promise<NativeFaceEnrollmentResult>;
   processFrame(imageData: string): Promise<AmigoProcessedFrame>;
@@ -71,6 +92,7 @@ export interface AmigoBridge {
   connectNativeRoom(options: {
     url: string;
     token: string;
+    roomName?: string;
     enableMicrophone?: boolean;
     enableCamera?: boolean;
   }): Promise<NativeRoomStatus>;
@@ -98,6 +120,14 @@ class CapacitorAmigoBridge implements AmigoBridge {
     const platform = Capacitor.getPlatform();
     this.platform = platform;
     this.available = Capacitor.isNativePlatform() && platform === "ios";
+  }
+
+  async addInitializationProgressListener(
+    listener: (event: AmigoInitializationProgress) => void,
+  ): Promise<() => Promise<void>> {
+    if (!this.available) return async () => undefined;
+    const handle = await plugin.addListener("initializationProgress", listener);
+    return async () => handle.remove();
   }
 
   async initialize(): Promise<void> {
@@ -141,6 +171,7 @@ class CapacitorAmigoBridge implements AmigoBridge {
   async connectNativeRoom(options: {
     url: string;
     token: string;
+    roomName?: string;
     enableMicrophone?: boolean;
     enableCamera?: boolean;
   }): Promise<NativeRoomStatus> {

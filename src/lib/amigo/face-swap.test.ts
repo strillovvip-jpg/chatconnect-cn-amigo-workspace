@@ -168,7 +168,9 @@ describe("AmigoFaceSwapService", () => {
       mocks.initialize
         .mockRejectedValueOnce(
           Object.assign(
-            new Error("Model download failed: The network connection was lost."),
+            new Error(
+              "Model download failed: The network connection was lost.",
+            ),
             {
               code: "SDK_MODEL_DOWNLOAD_FAILED",
               data: {
@@ -193,6 +195,31 @@ describe("AmigoFaceSwapService", () => {
     }
   });
 
+  it("recovers when a first-install model download is interrupted three times", async () => {
+    vi.useFakeTimers();
+    try {
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        mocks.initialize.mockRejectedValueOnce(
+          Object.assign(new Error(`Download interruption ${attempt}.`), {
+            code: "SDK_MODEL_DOWNLOAD_FAILED",
+            data: { stage: "initialize", attempt },
+          }),
+        );
+      }
+      mocks.initialize.mockResolvedValueOnce(undefined);
+      const service = new AmigoFaceSwapService();
+
+      const initialization = service.initialize();
+      await vi.runAllTimersAsync();
+
+      await expect(initialization).resolves.toBeUndefined();
+      expect(mocks.initialize).toHaveBeenCalledTimes(4);
+      expect(service.isInitialized).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not retry a permanent SDK authorization failure", async () => {
     mocks.initialize.mockRejectedValueOnce(
       Object.assign(new Error("The API key is invalid."), {
@@ -208,37 +235,32 @@ describe("AmigoFaceSwapService", () => {
     expect(mocks.initialize).toHaveBeenCalledTimes(1);
   });
 
-  it("stops after one model-download retry, preserves the second error, and remains manually retryable", async () => {
+  it("stops after three model-download retries, preserves the final error, and remains manually retryable", async () => {
     vi.useFakeTimers();
     try {
-      mocks.initialize
-        .mockRejectedValueOnce(
-          Object.assign(new Error("First download interruption."), {
+      for (let attempt = 1; attempt <= 4; attempt += 1) {
+        mocks.initialize.mockRejectedValueOnce(
+          Object.assign(new Error(`Download interruption ${attempt}.`), {
             code: "SDK_MODEL_DOWNLOAD_FAILED",
-            data: { stage: "initialize", attempt: 1 },
+            data: { stage: "initialize", attempt },
           }),
-        )
-        .mockRejectedValueOnce(
-          Object.assign(new Error("Second download interruption."), {
-            code: "SDK_MODEL_DOWNLOAD_FAILED",
-            data: { stage: "initialize", attempt: 2 },
-          }),
-        )
-        .mockResolvedValueOnce(undefined);
+        );
+      }
+      mocks.initialize.mockResolvedValueOnce(undefined);
       const service = new AmigoFaceSwapService();
 
       const firstInitialization = service.initialize();
       const firstResult = expect(firstInitialization).rejects.toMatchObject({
         code: "SDK_MODEL_DOWNLOAD_FAILED",
-        message: "Second download interruption.",
-        nativeDetails: expect.objectContaining({ attempt: 2 }),
+        message: "Download interruption 4.",
+        nativeDetails: expect.objectContaining({ attempt: 4 }),
       });
-      await vi.advanceTimersByTimeAsync(1_000);
+      await vi.runAllTimersAsync();
       await firstResult;
-      expect(mocks.initialize).toHaveBeenCalledTimes(2);
+      expect(mocks.initialize).toHaveBeenCalledTimes(4);
 
       await expect(service.initialize()).resolves.toBeUndefined();
-      expect(mocks.initialize).toHaveBeenCalledTimes(3);
+      expect(mocks.initialize).toHaveBeenCalledTimes(5);
       expect(service.isInitialized).toBe(true);
     } finally {
       vi.useRealTimers();

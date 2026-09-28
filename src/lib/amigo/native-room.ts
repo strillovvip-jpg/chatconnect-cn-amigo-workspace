@@ -8,6 +8,7 @@ import {
 export type NativeRoomConnectOptions = {
   url: string;
   token: string;
+  roomName?: string;
   enableMicrophone?: boolean;
   enableCamera?: boolean;
 };
@@ -85,13 +86,25 @@ export async function ensureNativePublisherConnected(
   }
 
   const connectedToExpectedRoom =
-    status.connected && status.roomUrl === options.url;
-  if (status.connected && !connectedToExpectedRoom) {
+    status.connected &&
+    status.roomUrl === options.url &&
+    (!options.roomName || status.roomName === options.roomName);
+  const processedVideoUnavailable =
+    options.enableCamera !== false &&
+    (status.videoPublished !== true || status.videoMuted !== false);
+  const microphoneUnavailable =
+    options.enableMicrophone !== false &&
+    (status.audioPublished !== true || status.audioMuted !== false);
+  if (
+    status.connected &&
+    (!connectedToExpectedRoom ||
+      processedVideoUnavailable ||
+      microphoneUnavailable)
+  ) {
     status = await disconnectNativePublisherWithRetry();
   }
   if (!status.connected) status = await nativeAmigoRoom.connect(options);
-  if (!status.connected)
-    throw new Error("NATIVE_PUBLISHER_RECONNECT_FAILED");
+  if (!status.connected) throw new Error("NATIVE_PUBLISHER_RECONNECT_FAILED");
 
   const shouldEnableProcessedCamera = options.enableCamera !== false;
   if (status.faceSwapEnabled !== shouldEnableProcessedCamera)
@@ -100,7 +113,12 @@ export async function ensureNativePublisherConnected(
     );
   if (
     !status.connected ||
-    status.faceSwapEnabled !== shouldEnableProcessedCamera
+    status.faceSwapEnabled !== shouldEnableProcessedCamera ||
+    (shouldEnableProcessedCamera &&
+      (status.videoPublished !== true || status.videoMuted !== false)) ||
+    (options.enableMicrophone !== false &&
+      (status.audioPublished !== true || status.audioMuted !== false)) ||
+    (options.roomName !== undefined && status.roomName !== options.roomName)
   )
     throw new Error("NATIVE_PUBLISHER_RECONNECT_FAILED");
   return status;

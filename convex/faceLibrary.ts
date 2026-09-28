@@ -72,6 +72,28 @@ export const generateUploadUrl = mutation({
   },
 });
 
+export const getUploadRequestStatus = query({
+  args: {
+    ...authArgs,
+    uploadRequestId: v.id("face_upload_requests"),
+  },
+  handler: async (ctx, args) => {
+    const auth = await requireFeature(
+      ctx,
+      args.code,
+      args.deviceId,
+      "canAIFace",
+    );
+    const request = await ctx.db.get(args.uploadRequestId);
+    if (!request || request.ownerCode !== auth.code)
+      throw new ConvexError({
+        code: "NOT_FOUND",
+        message: "找不到此照片上传请求。",
+      });
+    return { consumed: typeof request.consumedAt === "number" };
+  },
+});
+
 export const addFace = mutation({
   args: {
     ...authArgs,

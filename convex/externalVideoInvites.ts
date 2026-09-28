@@ -151,6 +151,42 @@ export const getInviteSessionForJoin = internalQuery({
   },
 });
 
+export const getOwnedInviteSessionForHost = internalQuery({
+  args: {
+    code: v.string(),
+    deviceId: v.string(),
+    inviteId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const auth = await requireSession(ctx, args.code, args.deviceId);
+    const record = await ctx.db
+      .query("external_video_invites")
+      .withIndex("by_invite_id", (q) => q.eq("inviteId", args.inviteId.trim()))
+      .unique();
+    if (!record)
+      throw new ConvexError({
+        code: "NOT_FOUND",
+        message: "Video invitation not found.",
+      });
+    if (record.operatorCode !== auth.code && auth.role !== "super_admin")
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "You cannot verify this video invitation.",
+      });
+    const status = resolveStatus(record);
+    if (status === "ended" || status === "expired")
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "This video invitation has expired.",
+      });
+    return {
+      inviteId: record.inviteId,
+      roomName: record.roomName,
+      operatorIdentity: record.operatorIdentity,
+    };
+  },
+});
+
 export const reserveGuestAdmission = internalMutation({
   args: {
     inviteId: v.string(),

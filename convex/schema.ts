@@ -15,6 +15,13 @@ export default defineSchema({
     mobileAppDeviceId: v.optional(v.string()),
     desktopDeviceId: v.optional(v.string()),
     name: v.string(),
+    role: v.optional(
+      v.union(
+        v.literal("super_admin"),
+        v.literal("admin"),
+        v.literal("user"),
+      ),
+    ),
     department: v.optional(v.string()),
     usedAt: v.string(),
     firstLoginAt: v.optional(v.number()),

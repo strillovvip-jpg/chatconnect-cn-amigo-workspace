@@ -46,4 +46,11 @@ describe('messages multilingual coverage', () => {
     }
   });
 
+  it('uses English names for every language option in the English interface', () => {
+    expect(messages.en.app.languageJa).toBe('Japanese');
+    expect(messages.en.app.languageZhHans).toBe('Simplified Chinese');
+    expect(messages.en.app.languageZhHant).toBe('Traditional Chinese');
+    expect(messages.en.app.languageEn).toBe('English');
+  });
+
 });

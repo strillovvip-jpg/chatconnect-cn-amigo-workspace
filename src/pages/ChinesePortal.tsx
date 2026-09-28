@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api.js";
-import { ConvexError } from "convex/values";
 import { useNavigate } from "react-router-dom";
 import {
   ChevronRight,
@@ -16,6 +15,7 @@ import {
 import { resolveAutoLoginSession } from "./portal-auto-login";
 import { useI18n } from "@/lib/i18n";
 import { LanguageSelector } from "@/components/language-selector";
+import { uiErrorMessage } from "@/lib/utils.ts";
 
 const forcedDeviceId = import.meta.env.VITE_FORCE_DEVICE_ID?.trim() || "";
 const forcedDeviceContext = import.meta.env.VITE_FORCE_DEVICE_CONTEXT?.trim();
@@ -208,11 +208,9 @@ export default function ChinesePortal() {
         );
       } catch (error) {
         window.alert(
-          error instanceof ConvexError
-            ? (error.data as { message: string }).message
-            : error instanceof Error && error.message === "LOGIN_TIMEOUT"
-              ? copy.loginTimeout
-              : copy.loginError,
+          error instanceof Error && error.message === "LOGIN_TIMEOUT"
+            ? copy.loginTimeout
+            : uiErrorMessage(error, copy.loginError),
         );
       } finally {
         setBusy(false);

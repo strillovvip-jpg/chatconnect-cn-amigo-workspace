@@ -132,7 +132,13 @@ export const create = mutation({
           type: "group_invite",
           title: "群组邀请",
           message: `${auth.session.name} 邀请您加入“${name}”`,
-          data: { groupId, inviterUserId: auth.code, source: "group" },
+          data: {
+            groupId,
+            inviterUserId: auth.code,
+            inviterName: auth.session.name,
+            groupName: name,
+            source: "group",
+          },
           status: "unread",
           priority: "high",
           createdAt: now,
@@ -143,6 +149,14 @@ export const create = mutation({
           title: "群组邀请",
           message: `${auth.session.name} 邀请您加入“${name}”`,
           url: "/consultation",
+          type: "group_invite",
+          data: {
+            groupId,
+            inviterUserId: auth.code,
+            inviterName: auth.session.name,
+            groupName: name,
+            source: "group",
+          },
         });
     }
     return groupId;
@@ -279,6 +293,8 @@ export const addMember = mutation({
       data: {
         groupId: args.groupId,
         inviterUserId: auth.code,
+        inviterName: auth.session.name,
+        groupName: group?.name ?? "",
         source: "group",
       },
       status: "unread",
@@ -290,6 +306,14 @@ export const addMember = mutation({
       title: "群组邀请",
       message: `${auth.session.name} 邀请您加入“${group?.name ?? "群组"}”`,
       url: "/consultation",
+      type: "group_invite",
+      data: {
+        groupId: args.groupId,
+        inviterUserId: auth.code,
+        inviterName: auth.session.name,
+        groupName: group?.name ?? "",
+        source: "group",
+      },
     });
   },
 });

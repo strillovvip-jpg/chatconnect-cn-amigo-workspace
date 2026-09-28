@@ -3,6 +3,7 @@ import webpush from "web-push";
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import { createWebPushPayload } from "./pushPayload";
 
 export const send = internalAction({
   args: {
@@ -10,6 +11,8 @@ export const send = internalAction({
     title: v.string(),
     message: v.string(),
     url: v.optional(v.string()),
+    type: v.optional(v.string()),
+    data: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
     const subject = process.env.VAPID_SUBJECT;
@@ -28,18 +31,7 @@ export const send = internalAction({
             endpoint: subscription.endpoint,
             keys: { p256dh: subscription.p256dh, auth: subscription.auth },
           },
-          JSON.stringify({
-            title: args.title,
-            options: {
-              body: args.message,
-              icon: "/icon/shojin-192.png?v=1",
-              badge: "/icon/shojin-192.png?v=1",
-              vibrate: [400, 180, 400],
-              renotify: true,
-              tag: `chatconnect-${args.userId}`,
-              data: { url: args.url ?? "/" },
-            },
-          }),
+          JSON.stringify(createWebPushPayload(args)),
         ),
       ),
     );

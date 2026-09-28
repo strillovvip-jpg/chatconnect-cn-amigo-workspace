@@ -239,6 +239,16 @@ export const prepareP2P = mutation({
       title: args.callType === "video" ? "视频来电" : "语音来电",
       message: `${auth.session.name}（${auth.code}）正在呼叫您`,
       url: "/consultation",
+      type: args.callType === "video" ? "video_call" : "audio_call",
+      data: {
+        callId,
+        callerUserId: auth.code,
+        callerName: auth.session.name,
+        callType: args.callType,
+        callerMediaMode,
+        remoteMediaMode: callerMediaMode,
+        source: "call",
+      },
     });
     await ctx.scheduler.runAfter(
       45_000,
@@ -855,7 +865,13 @@ export const initiateTransfer = mutation({
       type: "call_transfer",
       title: "通话转接请求",
       message: `${auth.session.name} 向您发送了通话转接请求`,
-      data: { transferId, callId: call.callId, source: "call_transfer" },
+      data: {
+        transferId,
+        callId: call.callId,
+        requesterName: auth.session.name,
+        requesterUserId: auth.code,
+        source: "call_transfer",
+      },
       status: "unread",
       priority: "high",
       createdAt: now,
@@ -866,6 +882,14 @@ export const initiateTransfer = mutation({
       title: "通话转接请求",
       message: `${auth.session.name} 向您发送了通话转接请求`,
       url: "/consultation",
+      type: "call_transfer",
+      data: {
+        transferId,
+        callId: call.callId,
+        requesterName: auth.session.name,
+        requesterUserId: auth.code,
+        source: "call_transfer",
+      },
     });
     await ctx.scheduler.runAfter(45_000, internal.callState.expireTransfer, {
       transferId,

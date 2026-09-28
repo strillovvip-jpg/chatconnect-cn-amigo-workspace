@@ -120,6 +120,13 @@ export const addContact = mutation({
       title: "联系人请求",
       message: `${auth.session.name}（${auth.code}）向您发送了联系人请求`,
       url: "/consultation",
+      type: "friend_invite",
+      data: {
+        friendRequestId: requestId,
+        requesterUserId: auth.code,
+        requesterName: auth.session.name,
+        source: "friend",
+      },
     });
     return { name: target.name, pending: true };
   },

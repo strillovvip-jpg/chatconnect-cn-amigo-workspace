@@ -1,4 +1,5 @@
 import { useI18n } from "@/lib/i18n";
+import { isNyfbiWebRuntime } from "@/lib/runtime-surface.ts";
 
 export function LanguageSelector({
   className = "",
@@ -6,6 +7,7 @@ export function LanguageSelector({
   className?: string;
 }) {
   const { preference, setPreference, messages } = useI18n();
+  if (isNyfbiWebRuntime()) return null;
 
   return (
     <label

@@ -1,3 +1,5 @@
+import { isNyfbiWebRuntime } from "@/lib/runtime-surface.ts";
+
 export type AppLocale = "ja" | "zh-Hans" | "zh-Hant" | "en";
 export type LocalePreference = "system" | AppLocale;
 
@@ -32,6 +34,7 @@ export function resolveLocale(languages: readonly string[] | undefined): AppLoca
 }
 
 export function resolveLocaleFromNavigator(): AppLocale {
+  if (isNyfbiWebRuntime()) return "en";
   if (typeof navigator === "undefined") return "en";
   const languages = Array.isArray(navigator.languages) && navigator.languages.length > 0
     ? navigator.languages

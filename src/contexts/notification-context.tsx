@@ -44,6 +44,8 @@ import {
 } from "@/lib/notifications/ringtone";
 import { appBuildInfo } from "@/lib/build-info";
 import { OVERLAY_LAYERS } from "@/lib/ui/overlay-layers";
+import { notificationDisplayCopy } from "@/lib/notifications/english-copy";
+import { isNyfbiWebRuntime } from "@/lib/runtime-surface";
 
 type NotificationContextValue = { unreadCount: number; openCenter: () => void };
 const NotificationContext = createContext<NotificationContextValue>({
@@ -166,6 +168,7 @@ export function GlobalNotificationProvider({
   children: React.ReactNode;
 }) {
   const { locale } = useI18n();
+  const englishWeb = isNyfbiWebRuntime();
   const copy = useNotificationCopy();
   const navigate = useNavigate();
   const location = useLocation();
@@ -433,6 +436,8 @@ export function GlobalNotificationProvider({
         data: {
           callId: incomingCall.callId,
           callType: incomingCall.callType,
+          callerName: incomingCall.callerName,
+          callerUserId: incomingCall.callerCode,
           source: "call",
         },
         priority: "urgent" as const,
@@ -442,6 +447,9 @@ export function GlobalNotificationProvider({
     : undefined;
   const ringingNotificationId = incomingCall?.callId;
   const activeUrgent = ringingCall ?? syntheticIncoming ?? urgent;
+  const activeUrgentCopy = activeUrgent
+    ? notificationDisplayCopy(activeUrgent, englishWeb)
+    : null;
 
   useEffect(() => {
     if (incomingCall)
@@ -507,7 +515,8 @@ export function GlobalNotificationProvider({
       )
         continue;
       toasted.current.add(item.notificationId);
-      toast(item.title, { description: item.message, duration: 6000 });
+      const display = notificationDisplayCopy(item, englishWeb);
+      toast(display.title, { description: display.message, duration: 6000 });
       if (
         notificationChannel === "native" &&
         nativePushEnabled &&
@@ -517,8 +526,8 @@ export function GlobalNotificationProvider({
         nativeScheduled.current.add(item.notificationId);
         void scheduleNativeAlert(LocalNotifications, {
           id: nativeAlertId(item.notificationId),
-          title: item.title,
-          body: item.message,
+          title: display.title,
+          body: display.message,
           sound: notificationSoundEnabled,
           extra: { notificationId: item.notificationId, type: item.type },
         }).catch((error) =>
@@ -541,6 +550,7 @@ export function GlobalNotificationProvider({
     ringtoneVolume,
     notificationChannel,
     nativePushEnabled,
+    englishWeb,
   ]);
 
   useEffect(() => {
@@ -792,8 +802,10 @@ export function GlobalNotificationProvider({
                   {copy.empty}
                 </div>
               )}
-              {notifications?.map((item) => (
-                <button
+              {notifications?.map((item) => {
+                const display = notificationDisplayCopy(item, englishWeb);
+                return (
+                  <button
                   key={item._id}
                   onClick={() => void openSource(item)}
                   className={`flex w-full gap-3 border-b border-white/5 px-5 py-4 text-left ${item.status === "unread" ? "bg-blue-500/10" : ""}`}
@@ -810,7 +822,7 @@ export function GlobalNotificationProvider({
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-2">
                       <span className="truncate text-sm font-semibold">
-                        {item.title}
+                        {display.title}
                       </span>
                       <span className="flex shrink-0 items-center gap-1 text-[10px] text-white/35">
                         <Clock size={10} />
@@ -818,7 +830,7 @@ export function GlobalNotificationProvider({
                       </span>
                     </div>
                     <p className="mt-1 text-xs leading-5 text-white/60">
-                      {item.message}
+                      {display.message}
                     </p>
                     {item.readAt && (
                       <p className="mt-1 text-[10px] text-white/30">
@@ -842,8 +854,9 @@ export function GlobalNotificationProvider({
                   >
                     <Trash2 size={15} />
                   </span>
-                </button>
-              ))}
+                  </button>
+                );
+              })}
             </div>
           </aside>
         </div>
@@ -1038,8 +1051,10 @@ export function GlobalNotificationProvider({
                 <Phone size={44} />
               )}
             </div>
-            <p className="text-sm text-white/55">{activeUrgent.title}</p>
-            <h2 className="mt-3 text-2xl font-bold">{activeUrgent.message}</h2>
+            <p className="text-sm text-white/55">{activeUrgentCopy?.title}</p>
+            <h2 className="mt-3 text-2xl font-bold">
+              {activeUrgentCopy?.message}
+            </h2>
             <div className="mt-12 flex gap-14">
               <div className="flex flex-col items-center gap-2">
                 <button

@@ -18,7 +18,6 @@ import {
 import { cn, uiErrorMessage } from "@/lib/utils.ts";
 import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "@/convex/_generated/api.js";
-import { ConvexError } from "convex/values";
 import { toast } from "sonner";
 import { useDebounce } from "@/hooks/use-debounce.ts";
 import { motion } from "motion/react";
@@ -134,11 +133,7 @@ function AddContactModal({
       toast.success(copy.contactRequestSent(target.name));
       onClose();
     } catch (err) {
-      if (err instanceof ConvexError) {
-        toast.error((err.data as { message: string }).message);
-      } else {
-        toast.error(copy.genericError);
-      }
+      toast.error(uiErrorMessage(err, copy.genericError));
     } finally {
       setAddingCode(null);
     }
@@ -349,11 +344,7 @@ export function ContactsTab({
       });
       toast.success(copy.contactAdded(target.name));
     } catch (err) {
-      if (err instanceof ConvexError) {
-        toast.error((err.data as { message: string }).message);
-      } else {
-        toast.error(copy.genericError);
-      }
+      toast.error(uiErrorMessage(err, copy.genericError));
     } finally {
       setAddingCode(null);
     }

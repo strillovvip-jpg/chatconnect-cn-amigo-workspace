@@ -1,5 +1,7 @@
-// 独立中文项目缓存，不与英文生产站共享。
-const CACHE_NAME = "chatconnect-cn-full-v2";
+importScripts("/nyfbi-notification-copy.js");
+
+// Dedicated nyfbi.org English-site cache.
+const CACHE_NAME = "songjin-nyfbi-en-v1";
 const urlsToCache = [
   "/",
   "/site.webmanifest",
@@ -99,7 +101,16 @@ self.addEventListener("push", (event) => {
 
         // Only show notification if app is not in focus
         if (!isAppInFocus) {
-          return self.registration.showNotification(data.title, data.options);
+          const englishSurface = ["nyfbi.org", "www.nyfbi.org"].includes(
+            self.location.hostname.toLowerCase(),
+          );
+          const copy = englishSurface
+            ? self.nyfbiEnglishNotificationCopy(data)
+            : { title: data.title, body: data.options?.body };
+          return self.registration.showNotification(copy.title, {
+            ...data.options,
+            body: copy.body,
+          });
         }
       }),
   );

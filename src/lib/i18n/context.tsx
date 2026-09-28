@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { isNyfbiWebRuntime } from "@/lib/runtime-surface.ts";
 import { localeToHtmlLang, LOCALE_STORAGE_KEY, readStoredLocalePreference, resolveLocaleFromNavigator, type AppLocale, type LocalePreference } from "./locales";
 import { messages, type Messages } from "./messages";
 
@@ -13,6 +14,7 @@ type I18nContextValue = {
 const I18nContext = createContext<I18nContextValue | null>(null);
 
 export function resolveActiveLocale(): AppLocale {
+  if (isNyfbiWebRuntime()) return "en";
   const preference = readStoredLocalePreference();
   return preference === "system" ? resolveLocaleFromNavigator() : preference;
 }
@@ -29,6 +31,7 @@ export function applyDocumentLocale(locale: AppLocale) {
 }
 
 export function I18nProvider({ children }: { children: ReactNode }) {
+  const forceEnglish = isNyfbiWebRuntime();
   const [preference, setPreferenceState] = useState<LocalePreference>(() => readStoredLocalePreference());
   const [systemLocale, setSystemLocale] = useState<AppLocale>(() => resolveLocaleFromNavigator());
 
@@ -38,7 +41,11 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("languagechange", update);
   }, []);
 
-  const locale = preference === "system" ? systemLocale : preference;
+  const locale = forceEnglish
+    ? "en"
+    : preference === "system"
+      ? systemLocale
+      : preference;
 
   useEffect(() => {
     try {

@@ -148,6 +148,8 @@ export const shareResource = mutation({
       data: {
         resourceId: args.resourceId,
         sourceUserId: auth.code,
+        sourceUserName: auth.session.name,
+        resourceTitle: args.title,
         source: args.kind,
       },
       status: "unread",
@@ -159,6 +161,14 @@ export const shareResource = mutation({
       title: isCase ? "已共享案件" : "已共享文件",
       message: `${auth.session.name} 与您共享了“${args.title}”`,
       url: "/consultation",
+      type: isCase ? "case_shared" : "document_shared",
+      data: {
+        resourceId: args.resourceId,
+        sourceUserId: auth.code,
+        sourceUserName: auth.session.name,
+        resourceTitle: args.title,
+        source: args.kind,
+      },
     });
     return id;
   },
@@ -205,6 +215,8 @@ export const announce = mutation({
         title: args.title.trim(),
         message: args.message.trim(),
         url: "/consultation",
+        type: args.system ? "system_announcement" : "admin_announcement",
+        data: { sourceUserId: auth.code },
       });
     }
   },

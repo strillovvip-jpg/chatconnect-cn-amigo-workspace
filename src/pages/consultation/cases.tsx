@@ -20,11 +20,10 @@ import {
 import { useQuery, useMutation, usePaginatedQuery } from "convex/react";
 import { api } from "@/convex/_generated/api.js";
 import type { Doc, Id } from "@/convex/_generated/dataModel.d.ts";
-import { ConvexError } from "convex/values";
 import { toast } from "sonner";
 import { useI18n } from "@/lib/i18n";
 import type { Messages } from "@/lib/i18n";
-import { cn } from "@/lib/utils.ts";
+import { cn, localizedUiData, uiErrorMessage } from "@/lib/utils.ts";
 import { motion, AnimatePresence } from "motion/react";
 
 type CaseStatus = Doc<"cases">["status"];
@@ -82,7 +81,7 @@ function getPriorityLabel(copy: CasesPageCopy, priority: CasePriority) {
 
 function getCategoryLabel(copy: CasesPageCopy, category: string) {
   const categories = copy.categories as Record<string, string>;
-  return categories[category] ?? category;
+  return categories[category] ?? localizedUiData(category);
 }
 
 function StatusBadge({ status }: { status: CaseStatus }) {
@@ -178,9 +177,7 @@ function NewCaseModal({
       toast.success(copy.caseCreated);
       onClose();
     } catch (err) {
-      if (err instanceof ConvexError)
-        toast.error((err.data as { message: string }).message);
-      else toast.error(copy.genericError);
+      toast.error(uiErrorMessage(err, copy.genericError));
     } finally {
       setSaving(false);
     }
@@ -440,8 +437,7 @@ function CaseDetailModal({
       toast.success(copy.caseDeleted);
       onClose();
     } catch (err) {
-      if (err instanceof ConvexError)
-        toast.error((err.data as { message: string }).message);
+      toast.error(uiErrorMessage(err, copy.genericError));
     }
   };
 

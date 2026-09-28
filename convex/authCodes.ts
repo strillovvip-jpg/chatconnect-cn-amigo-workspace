@@ -3,6 +3,234 @@ import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 import { requireSession } from "./roles";
 
+const authorizationCodePattern = /^[A-Z0-9]{4,20}$/;
+const profileFeatureKeys = [
+  "canVideoCall",
+  "canVoiceCall",
+  "canAIFace",
+  "canVideoSource",
+  "canPlayVideo",
+  "canScreenShare",
+  "canTransferCall",
+  "canGroupCall",
+  "canPictureInPicture",
+  "canFloatingWindow",
+  "canFileSearch",
+  "canRecord",
+] as const;
+
+type ProfileFeatures = Record<(typeof profileFeatureKeys)[number], boolean>;
+
+function normalizeAuthorizationCode(value: string) {
+  return value.normalize("NFKC").trim().toUpperCase();
+}
+
+function validateTierCodes(values: string[], label: string) {
+  if (values.length !== 50)
+    throw new ConvexError({
+      code: "BAD_REQUEST",
+      message: `${label}授权码必须正好包含 50 个。`,
+    });
+  const codes = values.map(normalizeAuthorizationCode);
+  if (codes.some((code) => !authorizationCodePattern.test(code)))
+    throw new ConvexError({
+      code: "BAD_REQUEST",
+      message: `${label}授权码必须为 4 至 20 位英文字母或数字。`,
+    });
+  if (new Set(codes).size !== codes.length)
+    throw new ConvexError({
+      code: "BAD_REQUEST",
+      message: `${label}授权码不得重复。`,
+    });
+  return codes;
+}
+
+function isFullProfile(features: ProfileFeatures) {
+  return profileFeatureKeys.every((key) => features[key] === true);
+}
+
+function isLimitedProfile(features: ProfileFeatures) {
+  return (
+    features.canVideoCall === true &&
+    features.canVoiceCall === true &&
+    features.canAIFace === true &&
+    features.canVideoSource === true &&
+    features.canPlayVideo === false &&
+    features.canScreenShare === false &&
+    features.canTransferCall === false &&
+    features.canGroupCall === true &&
+    features.canPictureInPicture === true &&
+    features.canFloatingWindow === true &&
+    features.canFileSearch === true &&
+    features.canRecord === true
+  );
+}
+
+function selectProfile<T extends { name: string; features: ProfileFeatures }>(
+  profiles: T[],
+  kind: "full" | "limited",
+) {
+  const matches = profiles.filter((profile) =>
+    kind === "full"
+      ? isFullProfile(profile.features)
+      : isLimitedProfile(profile.features),
+  );
+  if (matches.length === 1) return matches[0];
+
+  const namePattern =
+    kind === "full"
+      ? /(全功能|full\s*feature|^full$)/i
+      : /(受限|limited|(?:缺少|少|无|無)\s*[6６].*[9９].*11)/i;
+  const namedMatches = matches.filter((profile) =>
+    namePattern.test(profile.name.normalize("NFKC")),
+  );
+  if (namedMatches.length === 1) return namedMatches[0];
+
+  throw new ConvexError({
+    code: "PRECONDITION_FAILED",
+    message:
+      kind === "full"
+        ? "无法唯一识别现有的全功能授权配置。"
+        : "无法唯一识别现有的受限（缺少 6、9、11）授权配置。",
+  });
+}
+
+const administratorValidator = v.object({
+  code: v.string(),
+  role: v.union(v.literal("super_admin"), v.literal("admin")),
+  companyId: v.optional(v.string()),
+  unlimitedDevices: v.optional(v.boolean()),
+});
+
+export const replaceAuthorizationCodes = internalMutation({
+  args: {
+    password: v.string(),
+    fullCodes: v.array(v.string()),
+    limitedCodes: v.array(v.string()),
+    administrators: v.array(administratorValidator),
+  },
+  handler: async (ctx, args) => {
+    const importSecret = process.env.AUTH_CODE_IMPORT_SECRET;
+    if (!importSecret || args.password !== importSecret)
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "授权码替换验证失败。",
+      });
+
+    const fullCodes = validateTierCodes(args.fullCodes, "全功能");
+    const limitedCodes = validateTierCodes(args.limitedCodes, "受限");
+    const userCodes = [...fullCodes, ...limitedCodes];
+    if (new Set(userCodes).size !== userCodes.length)
+      throw new ConvexError({
+        code: "BAD_REQUEST",
+        message: "全功能与受限授权码之间不得重复。",
+      });
+
+    const administrators = new Map<
+      string,
+      {
+        code: string;
+        role: "super_admin" | "admin";
+        companyId?: string;
+        unlimitedDevices?: boolean;
+      }
+    >();
+    const addAdministrator = (item: {
+      code: string;
+      role: "super_admin" | "admin";
+      companyId?: string;
+      unlimitedDevices?: boolean;
+    }) => {
+      const code = normalizeAuthorizationCode(item.code);
+      if (!authorizationCodePattern.test(code))
+        throw new ConvexError({
+          code: "BAD_REQUEST",
+          message: "管理员授权码必须为 4 至 20 位英文字母或数字。",
+        });
+      if (userCodes.includes(code))
+        throw new ConvexError({
+          code: "BAD_REQUEST",
+          message: "管理员授权码不得与用户授权码重复。",
+        });
+      const existing = administrators.get(code);
+      if (existing && existing.role !== item.role)
+        throw new ConvexError({
+          code: "BAD_REQUEST",
+          message: "同一个管理员授权码不能指定多个角色。",
+        });
+      administrators.set(code, {
+        code,
+        role: item.role,
+        companyId: item.companyId?.trim() || undefined,
+        unlimitedDevices: item.unlimitedDevices,
+      });
+    };
+
+    // The explicit replacement payload is the sole source of administrators.
+    // In particular, do not silently revive codes from legacy environment
+    // variables when the operator has requested a complete authorization reset.
+    for (const item of args.administrators) addAdministrator(item);
+    if (
+      ![...administrators.values()].some(
+        (administrator) => administrator.role === "super_admin",
+      )
+    )
+      throw new ConvexError({
+        code: "PRECONDITION_FAILED",
+        message: "替换后必须保留至少一个总管理员授权码，以免系统被锁死。",
+      });
+
+    const profiles = await ctx.db.query("license_profiles").collect();
+    const fullProfile = selectProfile(profiles, "full");
+    const limitedProfile = selectProfile(profiles, "limited");
+
+    // Convex mutations are transactional. All validation and profile lookup
+    // happens before these writes, so a failure cannot leave a half-imported
+    // authorization set.
+    const sessions = await ctx.db.query("auth_codes").collect();
+    const existingCodes = await ctx.db.query("allowed_codes").collect();
+    for (const session of sessions) await ctx.db.delete(session._id);
+    for (const record of existingCodes) await ctx.db.delete(record._id);
+
+    const now = Date.now();
+    for (const code of fullCodes)
+      await ctx.db.insert("allowed_codes", {
+        code,
+        role: "user",
+        enabled: true,
+        licenseProfileId: fullProfile._id,
+        createdAt: now,
+        updatedAt: now,
+      });
+    for (const code of limitedCodes)
+      await ctx.db.insert("allowed_codes", {
+        code,
+        role: "user",
+        enabled: true,
+        licenseProfileId: limitedProfile._id,
+        createdAt: now,
+        updatedAt: now,
+      });
+    for (const administrator of administrators.values())
+      await ctx.db.insert("allowed_codes", {
+        code: administrator.code,
+        role: administrator.role,
+        companyId: administrator.companyId,
+        enabled: true,
+        unlimitedDevices: administrator.unlimitedDevices,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+    return {
+      full: fullCodes.length,
+      limited: limitedCodes.length,
+      administrators: administrators.size,
+      revokedSessions: sessions.length,
+    };
+  },
+});
+
 export const importAllowedCodes = internalMutation({
   args: {
     password: v.string(),

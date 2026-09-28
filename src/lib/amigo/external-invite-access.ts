@@ -1,6 +1,9 @@
 import type { FeatureFlags } from "@/contexts/feature-context.tsx";
+import { isNyfbiWebRuntime } from "@/lib/runtime-surface.ts";
 
 export function canUseExternalFaceSwapInvite(flags: FeatureFlags) {
+  if (isNyfbiWebRuntime()) return false;
+
   return (
     flags.canVideoCall &&
     flags.canVoiceCall &&

@@ -162,6 +162,9 @@ export const createCall = mutation({
             groupId: args.groupId,
             callId,
             callType: args.type,
+            callerName: auth.session.name,
+            callerUserId: auth.code,
+            groupName: group.name,
             source: "group_call",
           },
           status: "unread",
@@ -174,6 +177,17 @@ export const createCall = mutation({
           title: args.type === "video" ? "群组视频来电" : "群组语音来电",
           message: `${auth.session.name} 在“${group.name}”中发起了通话`,
           url: "/consultation",
+          type: "group_video_invite",
+          data: {
+            groupCallId,
+            groupId: args.groupId,
+            callId,
+            callType: args.type,
+            callerName: auth.session.name,
+            callerUserId: auth.code,
+            groupName: group.name,
+            source: "group_call",
+          },
         });
     }
     await ctx.db.patch(groupCallId, { status: "active" });

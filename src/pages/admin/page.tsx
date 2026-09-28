@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api.js";
-import { ConvexError } from "convex/values";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -30,7 +29,7 @@ import {
   Loader2,
   Pencil,
 } from "lucide-react";
-import { cn, uiErrorMessage } from "@/lib/utils.ts";
+import { cn, localizedUiData, uiErrorMessage } from "@/lib/utils.ts";
 import type { Id } from "@/convex/_generated/dataModel.d.ts";
 import { useLocation, useNavigate } from "react-router-dom";
 import { localeToHtmlLang, useI18n } from "@/lib/i18n";
@@ -121,7 +120,7 @@ function LicenseEditor({
   enabled: boolean;
   expiresAt?: number;
 }) {
-  const { messages } = useI18n();
+  const { locale, messages } = useI18n();
   const copy = messages.admin;
   const profiles = useQuery(api.features.listProfiles, { password });
   const createProfile = useMutation(api.features.createProfile);
@@ -165,11 +164,7 @@ function LicenseEditor({
       });
       toast.success(copy.permissionSettingsUpdated);
     } catch (error) {
-      toast.error(
-        error instanceof ConvexError
-          ? (error.data as { message: string }).message
-          : copy.permissionSettingsUpdateFailed,
-      );
+      toast.error(uiErrorMessage(error, copy.permissionSettingsUpdateFailed));
     } finally {
       setSaving(false);
     }
@@ -207,11 +202,7 @@ function LicenseEditor({
       }
       toast.success(copy.licenseProfileSaved);
     } catch (error) {
-      toast.error(
-        error instanceof ConvexError
-          ? (error.data as { message: string }).message
-          : copy.licenseProfileSaveFailed,
-      );
+      toast.error(uiErrorMessage(error, copy.licenseProfileSaveFailed));
     } finally {
       setSaving(false);
     }
@@ -240,12 +231,12 @@ function LicenseEditor({
         <option value="">{copy.newLicenseProfile}</option>
         {profiles?.map((profile) => (
           <option key={profile._id} value={profile._id}>
-            {profile.name}
+            {localizedUiData(profile.name, locale)}
           </option>
         ))}
       </select>
       <input
-        value={profileName}
+        value={localizedUiData(profileName, locale)}
         onChange={(event) => setProfileName(event.target.value)}
         placeholder={copy.licenseProfileName}
         className="w-full rounded-lg bg-black/25 px-3 py-2 text-xs outline-none"
@@ -437,11 +428,7 @@ function BulkCaseModal({
       toast.success(copy.bulkCreated(result.count));
       onClose();
     } catch (error) {
-      toast.error(
-        error instanceof ConvexError
-          ? (error.data as { message: string }).message
-          : copy.bulkCreateFailed,
-      );
+      toast.error(uiErrorMessage(error, copy.bulkCreateFailed));
     } finally {
       setSaving(false);
     }
@@ -673,11 +660,7 @@ export default function AdminPage() {
       }
       setNewCode("");
     } catch (error) {
-      toast.error(
-        error instanceof ConvexError
-          ? (error.data as { message: string }).message
-          : copy.createAdminFailed,
-      );
+      toast.error(uiErrorMessage(error, copy.createAdminFailed));
     }
   };
 
@@ -686,8 +669,7 @@ export default function AdminPage() {
       await resetCode({ password, code });
       toast.success(copy.codeResetSuccess(code));
     } catch (err) {
-      if (err instanceof ConvexError)
-        toast.error((err.data as { message: string }).message);
+      toast.error(uiErrorMessage(err, copy.updateFailed));
     }
   };
 
@@ -699,8 +681,7 @@ export default function AdminPage() {
       else await deleteUser({ password, code });
       toast.success(copy.codeDeletedSuccess(code));
     } catch (err) {
-      if (err instanceof ConvexError)
-        toast.error((err.data as { message: string }).message);
+      toast.error(uiErrorMessage(err, copy.deleteFailed));
     }
   };
 
@@ -752,11 +733,7 @@ export default function AdminPage() {
       });
       toast.success(copy.caseUpdated);
     } catch (err) {
-      toast.error(
-        err instanceof ConvexError
-          ? (err.data as { message: string }).message
-          : copy.updateFailed,
-      );
+      toast.error(uiErrorMessage(err, copy.updateFailed));
     }
   };
 
@@ -798,12 +775,7 @@ export default function AdminPage() {
       setDocCaseName("");
       setDocFile(null);
     } catch (error) {
-      const message =
-        error instanceof ConvexError
-          ? ((error.data as { message?: string } | undefined)?.message ??
-            copy.uploadFailed)
-          : uiErrorMessage(error, copy.uploadFailed);
-      toast.error(message);
+      toast.error(uiErrorMessage(error, copy.uploadFailed));
     } finally {
       setDocUploading(false);
     }
@@ -1786,9 +1758,7 @@ export default function AdminPage() {
                           )
                           .catch((error) =>
                             toast.error(
-                              error instanceof ConvexError
-                                ? (error.data as { message: string }).message
-                                : copy.actionFailed,
+                              uiErrorMessage(error, copy.actionFailed),
                             ),
                           )
                       }
@@ -1819,9 +1789,7 @@ export default function AdminPage() {
                             )
                             .catch((error) =>
                               toast.error(
-                                error instanceof ConvexError
-                                  ? (error.data as { message: string }).message
-                                  : copy.actionFailed,
+                                uiErrorMessage(error, copy.actionFailed),
                               ),
                             )
                         }

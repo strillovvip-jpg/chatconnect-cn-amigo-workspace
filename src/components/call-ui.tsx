@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { ConvexError } from "convex/values";
 import { api } from "@/convex/_generated/api.js";
 import { toast } from "sonner";
 import { PIP_HEIGHT, PIP_WIDTH, useCall } from "@/contexts/call-context.tsx";
@@ -854,10 +853,7 @@ function TransferButton({ compact }: { compact: boolean }) {
                       setOpen(false);
                     } catch (error) {
                       toast.error(
-                        error instanceof ConvexError
-                          ? ((error.data as { message?: string }).message ??
-                              copy.cancelTransferFailed)
-                          : copy.cancelTransferFailed,
+                        uiErrorMessage(error, copy.cancelTransferFailed),
                       );
                     } finally {
                       setBusy(false);
@@ -954,12 +950,7 @@ function TransferButton({ compact }: { compact: boolean }) {
                       });
                       toast.success(copy.transferSent);
                     } catch (error) {
-                      toast.error(
-                        error instanceof ConvexError
-                          ? ((error.data as { message?: string }).message ??
-                              copy.transferFailed)
-                          : copy.transferFailed,
-                      );
+                      toast.error(uiErrorMessage(error, copy.transferFailed));
                     } finally {
                       setBusy(false);
                     }

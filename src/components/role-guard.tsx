@@ -1,7 +1,9 @@
+import { useEffect } from "react";
 import { useQuery } from "convex/react";
 import { Navigate } from "react-router-dom";
 import { api } from "@/convex/_generated/api.js";
 import { useI18n } from "@/lib/i18n";
+import { clearPersistedSession } from "@/lib/session-storage";
 
 export function Forbidden() {
   const { messages } = useI18n();
@@ -16,6 +18,16 @@ export function Forbidden() {
 }
 
 type Role = "super_admin" | "admin" | "user";
+
+function InvalidSessionRedirect() {
+  useEffect(() => {
+    clearPersistedSession();
+    window.dispatchEvent(new Event("chatconnect-session-changed"));
+  }, []);
+
+  return <Navigate to="/?reauth=1" replace />;
+}
+
 export function RequireRole({
   role,
   children,
@@ -40,6 +52,7 @@ export function RequireRole({
   const allowed = Array.isArray(role)
     ? role.includes(session?.role ?? "user")
     : session?.role === role;
-  if (!session || !allowed) return <Forbidden />;
+  if (!session) return <InvalidSessionRedirect />;
+  if (!allowed) return <Forbidden />;
   return <>{children}</>;
 }

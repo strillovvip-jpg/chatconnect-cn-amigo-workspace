@@ -1,8 +1,8 @@
 {
   "name": "Song Jin",
   "short_name": "Song Jin",
-  "description": "認証済み利用者向けの専用通信アプリ",
-  "lang": "ja",
+  "description": "Secure communications for authorized users.",
+  "lang": "en",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#1a1a2e",

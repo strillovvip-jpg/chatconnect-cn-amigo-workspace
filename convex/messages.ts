@@ -35,6 +35,8 @@ async function notifyMessage(
     title,
     message: preview.slice(0, 180),
     url: `/consultation/chat/${encodeURIComponent(senderCode)}`,
+    type: media ? "media_message" : "text_message",
+    data: { source: "message", senderCode, senderName },
   });
 }
 

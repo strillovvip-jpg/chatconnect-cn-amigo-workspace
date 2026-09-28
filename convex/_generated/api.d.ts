@@ -29,6 +29,7 @@ import type * as messages from "../messages.js";
 import type * as notifications from "../notifications.js";
 import type * as presence from "../presence.js";
 import type * as push from "../push.js";
+import type * as pushPayload from "../pushPayload.js";
 import type * as pushSubscriptions from "../pushSubscriptions.js";
 import type * as roleManagement from "../roleManagement.js";
 import type * as roles from "../roles.js";
@@ -63,6 +64,7 @@ declare const fullApi: ApiFromModules<{
   notifications: typeof notifications;
   presence: typeof presence;
   push: typeof push;
+  pushPayload: typeof pushPayload;
   pushSubscriptions: typeof pushSubscriptions;
   roleManagement: typeof roleManagement;
   roles: typeof roles;

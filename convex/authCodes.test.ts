@@ -58,6 +58,13 @@ async function setup() {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }),
+    legacyFull: await ctx.db.insert("license_profiles", {
+      name: "标准授权",
+      features: fullFeatures,
+      createdBy: "ROOT1",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }),
   }));
 
   await t.run(async (ctx) => {

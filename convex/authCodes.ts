@@ -79,7 +79,7 @@ function selectProfile<T extends { name: string; features: ProfileFeatures }>(
 
   const namePattern =
     kind === "full"
-      ? /(全功能|full\s*feature|^full$)/i
+      ? /(全部功能|全功能|full\s*feature|^full$)/i
       : /(受限|limited|(?:缺少|少|无|無)\s*[6６].*[9９].*11)/i;
   const namedMatches = matches.filter((profile) =>
     namePattern.test(profile.name.normalize("NFKC")),

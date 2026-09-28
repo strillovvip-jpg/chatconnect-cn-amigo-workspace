@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
   onClose: vi.fn(),
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
+  toastDismiss: vi.fn(),
 }));
 
 vi.mock("livekit-client", () => ({
@@ -63,7 +64,11 @@ vi.mock("convex/react", () => ({
 }));
 
 vi.mock("sonner", () => ({
-  toast: { success: mocks.toastSuccess, error: mocks.toastError },
+  toast: {
+    success: mocks.toastSuccess,
+    error: mocks.toastError,
+    dismiss: mocks.toastDismiss,
+  },
 }));
 
 vi.mock("@/lib/amigo/native-room", () => ({
@@ -332,6 +337,20 @@ describe("FaceSwapInviteModal", () => {
     await screen.findByRole("button", { name: "Enter call" });
     fireEvent.click(screen.getByRole("button", { name: "Enter call" }));
 
+    expect(await screen.findByTestId("host-call-stage")).toBeInTheDocument();
+  });
+
+  it("clears transient call-status notices before showing the host room", async () => {
+    renderModal(true);
+    await waitFor(() =>
+      expect(mocks.onFaceReadyChange).toHaveBeenCalledWith(true),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create call" }));
+    await screen.findByRole("button", { name: "Enter call" });
+    fireEvent.click(screen.getByRole("button", { name: "Enter call" }));
+
+    expect(mocks.toastDismiss).toHaveBeenCalledWith("face-swap-call-status");
     expect(await screen.findByTestId("host-call-stage")).toBeInTheDocument();
   });
 

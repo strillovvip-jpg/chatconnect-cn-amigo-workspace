@@ -17,6 +17,8 @@ import { SavedFaceValidationError } from "@/lib/amigo/saved-face";
 import { OperationTimeoutError, withTimeout } from "@/lib/async/with-timeout";
 
 const NETWORK_STEP_TIMEOUT_MS = 90_000;
+const FACE_SWAP_STATUS_TOAST_ID = "face-swap-call-status";
+const FACE_SWAP_STATUS_TOAST_DURATION_MS = 1_500;
 
 type CreatedInvite = {
   inviteId: string;
@@ -395,7 +397,10 @@ export function FaceSwapInviteModal({
         throw error;
       }
       setInvite(created);
-      toast.success(copy.created);
+      toast.success(copy.created, {
+        id: FACE_SWAP_STATUS_TOAST_ID,
+        duration: FACE_SWAP_STATUS_TOAST_DURATION_MS,
+      });
     } catch (error) {
       if (error instanceof FaceSwapCallCreationError) {
         console.error("[FaceSwap:create] failed", {
@@ -460,6 +465,7 @@ export function FaceSwapInviteModal({
     // the room depend on this promise: WKWebView can leave startAudio pending
     // even though the already-connected room is ready to render.
     const audioStart = viewerRoom.startAudio();
+    toast.dismiss(FACE_SWAP_STATUS_TOAST_ID);
     setShowRoom(true);
     void audioStart.catch((error) => {
       console.error("[FaceSwap:viewer] remote audio start failed", error);
@@ -495,7 +501,10 @@ export function FaceSwapInviteModal({
         inviteId: invite.inviteId,
       });
       setInvite(null);
-      toast.success(copy.ended);
+      toast.success(copy.ended, {
+        id: FACE_SWAP_STATUS_TOAST_ID,
+        duration: FACE_SWAP_STATUS_TOAST_DURATION_MS,
+      });
       onClose();
     } catch (error) {
       toast.error(uiErrorMessage(error, copy.endFailed));

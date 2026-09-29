@@ -17,6 +17,26 @@ type AllowedCodeRecord = {
   expiresAt?: number;
 };
 
+type DeviceBoundSession = {
+  deviceId: string;
+  deviceIds?: string[];
+  mobileDeviceId?: string;
+  mobileAppDeviceId?: string;
+  desktopDeviceId?: string;
+};
+
+export function boundDeviceIds(session: DeviceBoundSession) {
+  const candidates = session.deviceIds ?? [
+    session.deviceId,
+    session.mobileDeviceId,
+    session.mobileAppDeviceId,
+    session.desktopDeviceId,
+  ];
+  return [
+    ...new Set(candidates.filter((value): value is string => Boolean(value))),
+  ];
+}
+
 export function tenantIdForAllowed(allowed?: { companyId?: string } | null) {
   return allowed?.companyId?.trim().toLowerCase() || DEFAULT_TENANT_ID;
 }
@@ -71,10 +91,14 @@ export async function requireSession(
   const validDevice =
     session &&
     (allowed?.unlimitedDevices === true ||
-      session.deviceId === deviceId ||
-      session.mobileDeviceId === deviceId ||
-      session.mobileAppDeviceId === deviceId ||
-      session.desktopDeviceId === deviceId);
+      (allowed?.maxDevices !== undefined
+        ? boundDeviceIds(session)
+            .slice(0, allowed.maxDevices)
+            .includes(deviceId)
+        : session.deviceId === deviceId ||
+          session.mobileDeviceId === deviceId ||
+          session.mobileAppDeviceId === deviceId ||
+          session.desktopDeviceId === deviceId));
   if (!session || !validDevice) {
     throw new ConvexError({
       code: "UNAUTHENTICATED",

@@ -211,6 +211,136 @@ describe("presence and browser notification subscriptions", () => {
     ).rejects.toThrow();
   });
 
+  test("a two-device authorization accepts any two devices and rejects a third", async () => {
+    const t = convexTest({ schema, modules });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("allowed_codes", {
+        code: "TWO01",
+        role: "user",
+        enabled: true,
+        maxDevices: 2,
+      });
+    });
+
+    for (const deviceId of ["phone-browser-1", "phone-browser-2"])
+      await expect(
+        t.mutation(api.authCodes.claimCode, {
+          code: "TWO01",
+          deviceId,
+          deviceType: "mobile",
+          deviceContext: "browser",
+          name: "Two Device User",
+        }),
+      ).resolves.toMatchObject({ success: true });
+
+    await expect(
+      t.mutation(api.authCodes.claimCode, {
+        code: "TWO01",
+        deviceId: "phone-browser-1",
+        deviceType: "mobile",
+        deviceContext: "browser",
+        name: "Two Device User",
+      }),
+    ).resolves.toMatchObject({ success: true });
+
+    for (const deviceId of ["phone-browser-1", "phone-browser-2"])
+      await expect(
+        t.query(api.authCodes.getSessionRole, {
+          code: "TWO01",
+          deviceId,
+        }),
+      ).resolves.toMatchObject({ role: "user" });
+
+    await expect(
+      t.mutation(api.authCodes.claimCode, {
+        code: "TWO01",
+        deviceId: "desktop-3",
+        deviceType: "desktop",
+        name: "Two Device User",
+      }),
+    ).rejects.toThrow("设备数量上限");
+    await expect(
+      t.query(api.authCodes.getSessionRole, {
+        code: "TWO01",
+        deviceId: "desktop-3",
+      }),
+    ).resolves.toBeNull();
+  });
+
+  test("a one-device authorization rejects a second device", async () => {
+    const t = convexTest({ schema, modules });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("allowed_codes", {
+        code: "ONE01",
+        role: "user",
+        enabled: true,
+        maxDevices: 1,
+      });
+    });
+
+    await t.mutation(api.authCodes.claimCode, {
+      code: "ONE01",
+      deviceId: "phone-1",
+      deviceType: "mobile",
+      deviceContext: "standalone",
+      name: "One Device User",
+    });
+    await expect(
+      t.mutation(api.authCodes.claimCode, {
+        code: "ONE01",
+        deviceId: "desktop-2",
+        deviceType: "desktop",
+        name: "One Device User",
+      }),
+    ).rejects.toThrow("设备数量上限");
+  });
+
+  test("a legacy one-device session can add one arbitrary second device", async () => {
+    const t = convexTest({ schema, modules });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("allowed_codes", {
+        code: "OLD02",
+        role: "user",
+        enabled: true,
+        maxDevices: 2,
+      });
+      await ctx.db.insert("auth_codes", {
+        code: "OLD02",
+        deviceId: "legacy-phone",
+        name: "Legacy User",
+        usedAt: new Date().toISOString(),
+      });
+    });
+
+    await expect(
+      t.mutation(api.authCodes.claimCode, {
+        code: "OLD02",
+        deviceId: "second-phone",
+        deviceType: "mobile",
+        deviceContext: "standalone",
+        name: "Legacy User",
+      }),
+    ).resolves.toMatchObject({ success: true });
+
+    for (const deviceId of ["legacy-phone", "second-phone"])
+      await expect(
+        t.query(api.authCodes.getSessionRole, {
+          code: "OLD02",
+          deviceId,
+        }),
+      ).resolves.toMatchObject({ role: "user" });
+
+    await expect(
+      t.mutation(api.authCodes.claimCode, {
+        code: "OLD02",
+        deviceId: "third-phone",
+        deviceType: "mobile",
+        deviceContext: "browser",
+        name: "Legacy User",
+      }),
+    ).rejects.toThrow("设备数量上限");
+  });
+
   test("an unlimited authorization code accepts additional devices", async () => {
     const t = convexTest({ schema, modules });
     await t.run(async (ctx) => {

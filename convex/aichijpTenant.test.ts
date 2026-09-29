@@ -85,6 +85,12 @@ const replaceTenantAuthorizationCodes = makeFunctionReference<
   }
 >("authCodes:replaceAuthorizationCodes");
 
+const configureAichijpDeviceLimits = makeFunctionReference<
+  "mutation",
+  { password: string },
+  { full: number; limited: number; migratedSessions: number }
+>("authCodes:configureAichijpDeviceLimits");
+
 const assignAuthorizationCodeTenant = makeFunctionReference<
   "mutation",
   { password: string; code: string; companyId: "aichijp" | "nyfbi" },
@@ -245,6 +251,14 @@ describe("aichijp tenant authorization import", () => {
         role: "super_admin",
         unlimitedDevices: true,
       });
+      expect(aichijp.find((record) => record.code === "AF000")).toMatchObject({
+        role: "user",
+        maxDevices: 2,
+      });
+      expect(aichijp.find((record) => record.code === "AL000")).toMatchObject({
+        role: "user",
+        maxDevices: 1,
+      });
       expect(aichijp.some((record) => record.code === "AIOLD")).toBe(false);
       expect(allowed.find((record) => record.code === "RAVE")).toMatchObject({
         role: "super_admin",
@@ -293,6 +307,211 @@ describe("aichijp tenant authorization import", () => {
       expect(records.find((record) => record.code === "AI001")).toMatchObject({
         companyId: "aichijp",
       });
+    });
+  });
+
+  test("configures full codes for two devices and limited codes for one without revoking sessions", async () => {
+    const t = convexTest({ schema, modules });
+    const profiles = await insertProfiles(t);
+    const fullCodes = makeCodes("AF", 20);
+    const limitedCodes = makeCodes("AL", 50);
+    await t.run(async (ctx) => {
+      for (const code of fullCodes)
+        await ctx.db.insert("allowed_codes", {
+          code,
+          role: "user",
+          companyId: "aichijp",
+          enabled: true,
+          unlimitedDevices: code === fullCodes[0] ? true : undefined,
+          licenseProfileId: profiles.full,
+        });
+      for (const code of limitedCodes)
+        await ctx.db.insert("allowed_codes", {
+          code,
+          role: "user",
+          companyId: "aichijp",
+          enabled: true,
+          licenseProfileId: profiles.limited,
+        });
+      await ctx.db.insert("allowed_codes", {
+        code: "RAVE1",
+        role: "super_admin",
+        companyId: "aichijp",
+        enabled: true,
+        unlimitedDevices: true,
+      });
+      await ctx.db.insert("auth_codes", {
+        code: fullCodes[0],
+        deviceId: "full-device",
+        mobileAppDeviceId: "full-device",
+        name: "Full User",
+        usedAt: new Date().toISOString(),
+      });
+      await ctx.db.insert("auth_codes", {
+        code: limitedCodes[0],
+        deviceId: "limited-device",
+        name: "Limited User",
+        usedAt: new Date().toISOString(),
+      });
+    });
+
+    await expect(
+      t.mutation(configureAichijpDeviceLimits, {
+        password: "tenant-import-secret",
+      }),
+    ).resolves.toEqual({ full: 20, limited: 50, migratedSessions: 2 });
+
+    await t.run(async (ctx) => {
+      const allowed = await ctx.db.query("allowed_codes").collect();
+      expect(
+        allowed.find((record) => record.code === fullCodes[0]),
+      ).toMatchObject({ maxDevices: 2, unlimitedDevices: false });
+      expect(
+        allowed.find((record) => record.code === limitedCodes[0]),
+      ).toMatchObject({ maxDevices: 1 });
+      expect(allowed.find((record) => record.code === "RAVE1")).toMatchObject({
+        unlimitedDevices: true,
+      });
+
+      const sessions = await ctx.db.query("auth_codes").collect();
+      expect(sessions).toHaveLength(2);
+      expect(
+        sessions.find((session) => session.code === fullCodes[0])?.deviceIds,
+      ).toEqual(["full-device"]);
+      expect(
+        sessions.find((session) => session.code === limitedCodes[0])?.deviceIds,
+      ).toEqual(["limited-device"]);
+    });
+  });
+
+  test("does not partially configure limits when an existing session exceeds its tier", async () => {
+    const t = convexTest({ schema, modules });
+    const profiles = await insertProfiles(t);
+    const fullCodes = makeCodes("AF", 20);
+    const limitedCodes = makeCodes("AL", 50);
+    await t.run(async (ctx) => {
+      for (const code of fullCodes)
+        await ctx.db.insert("allowed_codes", {
+          code,
+          role: "user",
+          companyId: "aichijp",
+          enabled: true,
+          licenseProfileId: profiles.full,
+        });
+      for (const code of limitedCodes)
+        await ctx.db.insert("allowed_codes", {
+          code,
+          role: "user",
+          companyId: "aichijp",
+          enabled: true,
+          licenseProfileId: profiles.limited,
+        });
+      await ctx.db.insert("auth_codes", {
+        code: limitedCodes[0],
+        deviceId: "limited-phone",
+        desktopDeviceId: "limited-desktop",
+        name: "Over Limit",
+        usedAt: new Date().toISOString(),
+      });
+    });
+
+    await expect(
+      t.mutation(configureAichijpDeviceLimits, {
+        password: "tenant-import-secret",
+      }),
+    ).rejects.toThrow("超过新的设备数量上限");
+
+    await t.run(async (ctx) => {
+      const allowed = await ctx.db.query("allowed_codes").collect();
+      expect(allowed.every((record) => record.maxDevices === undefined)).toBe(
+        true,
+      );
+    });
+  });
+
+  test("rejects duplicate tier codes before configuring any limits", async () => {
+    const t = convexTest({ schema, modules });
+    const profiles = await insertProfiles(t);
+    const fullCodes = makeCodes("AF", 20);
+    const limitedCodes = makeCodes("AL", 50);
+    await t.run(async (ctx) => {
+      for (const code of [...fullCodes.slice(0, 19), fullCodes[0]])
+        await ctx.db.insert("allowed_codes", {
+          code,
+          role: "user",
+          companyId: "aichijp",
+          enabled: true,
+          licenseProfileId: profiles.full,
+        });
+      for (const code of limitedCodes)
+        await ctx.db.insert("allowed_codes", {
+          code,
+          role: "user",
+          companyId: "aichijp",
+          enabled: true,
+          licenseProfileId: profiles.limited,
+        });
+    });
+
+    await expect(
+      t.mutation(configureAichijpDeviceLimits, {
+        password: "tenant-import-secret",
+      }),
+    ).rejects.toThrow("重复");
+
+    await t.run(async (ctx) => {
+      const allowed = await ctx.db.query("allowed_codes").collect();
+      expect(allowed.every((record) => record.maxDevices === undefined)).toBe(
+        true,
+      );
+    });
+  });
+
+  test("rejects duplicate session rows before configuring any limits", async () => {
+    const t = convexTest({ schema, modules });
+    const profiles = await insertProfiles(t);
+    const fullCodes = makeCodes("AF", 20);
+    const limitedCodes = makeCodes("AL", 50);
+    await t.run(async (ctx) => {
+      for (const code of fullCodes)
+        await ctx.db.insert("allowed_codes", {
+          code,
+          role: "user",
+          companyId: "aichijp",
+          enabled: true,
+          licenseProfileId: profiles.full,
+        });
+      for (const code of limitedCodes)
+        await ctx.db.insert("allowed_codes", {
+          code,
+          role: "user",
+          companyId: "aichijp",
+          enabled: true,
+          licenseProfileId: profiles.limited,
+        });
+      for (const [deviceId, name] of [
+        ["limited-phone", "Phone"],
+        ["limited-desktop", "Desktop"],
+      ] as const)
+        await ctx.db.insert("auth_codes", {
+          code: limitedCodes[0],
+          deviceId,
+          name,
+          usedAt: new Date().toISOString(),
+        });
+    });
+
+    await expect(
+      t.mutation(configureAichijpDeviceLimits, {
+        password: "tenant-import-secret",
+      }),
+    ).rejects.toThrow("重复的登录记录");
+
+    await t.run(async (ctx) => {
+      const allowed = await ctx.db.query("allowed_codes").collect();
+      expect(allowed.every((record) => record.maxDevices === undefined)).toBe(
+        true,
+      );
     });
   });
 });

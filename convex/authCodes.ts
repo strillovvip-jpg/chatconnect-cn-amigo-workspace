@@ -1,7 +1,7 @@
 import { mutation, query, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
-import { assertSurfaceAccess, requireSession } from "./roles";
+import { assertSurfaceAccess, boundDeviceIds, requireSession } from "./roles";
 import type { MutationCtx } from "./_generated/server";
 
 const authorizationCodePattern = /^[A-Z0-9]{4,20}$/;
@@ -316,6 +316,7 @@ export const replaceAuthorizationCodes = internalMutation({
         role: "user",
         companyId,
         enabled: true,
+        maxDevices: companyId === "aichijp" ? 2 : undefined,
         licenseProfileId: fullProfileId,
         createdAt: now,
         updatedAt: now,
@@ -326,6 +327,7 @@ export const replaceAuthorizationCodes = internalMutation({
         role: "user",
         companyId,
         enabled: true,
+        maxDevices: companyId === "aichijp" ? 1 : undefined,
         licenseProfileId: limitedProfileId,
         createdAt: now,
         updatedAt: now,
@@ -346,6 +348,118 @@ export const replaceAuthorizationCodes = internalMutation({
       limited: limitedCodes.length,
       administrators: administrators.size,
       revokedSessions: sessions.length,
+    };
+  },
+});
+
+export const configureAichijpDeviceLimits = internalMutation({
+  args: { password: v.string() },
+  handler: async (ctx, args) => {
+    const importSecret = process.env.AUTH_CODE_IMPORT_SECRET;
+    if (!importSecret || args.password !== importSecret)
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "授权码设备限制设置验证失败。",
+      });
+
+    const profiles = await ctx.db.query("license_profiles").collect();
+    const profilesById = new Map(
+      profiles.map((profile) => [String(profile._id), profile]),
+    );
+    const tenantCodes = (await ctx.db.query("allowed_codes").collect()).filter(
+      (record) =>
+        record.companyId?.trim().toLowerCase() === "aichijp" &&
+        record.role === "user",
+    );
+    const fullCodes = tenantCodes.filter((record) => {
+      const profile = record.licenseProfileId
+        ? profilesById.get(String(record.licenseProfileId))
+        : undefined;
+      return profile ? isFullProfile(profile.features) : false;
+    });
+    const limitedCodes = tenantCodes.filter((record) => {
+      const profile = record.licenseProfileId
+        ? profilesById.get(String(record.licenseProfileId))
+        : undefined;
+      return profile ? isLimitedProfile(profile.features) : false;
+    });
+    if (
+      fullCodes.length !== 20 ||
+      limitedCodes.length !== 50 ||
+      fullCodes.length + limitedCodes.length !== tenantCodes.length
+    )
+      throw new ConvexError({
+        code: "PRECONDITION_FAILED",
+        message: "Aichijp 授权码分级数量不正确，未修改设备限制。",
+      });
+
+    const normalizedFullCodes = fullCodes.map((record) =>
+      normalizeAuthorizationCode(record.code),
+    );
+    const normalizedLimitedCodes = limitedCodes.map((record) =>
+      normalizeAuthorizationCode(record.code),
+    );
+    const fullCodeSet = new Set(normalizedFullCodes);
+    const limitedCodeSet = new Set(normalizedLimitedCodes);
+    if (
+      fullCodeSet.size !== fullCodes.length ||
+      limitedCodeSet.size !== limitedCodes.length ||
+      normalizedFullCodes.some((code) => limitedCodeSet.has(code))
+    )
+      throw new ConvexError({
+        code: "PRECONDITION_FAILED",
+        message: "Aichijp 授权码存在重复，未修改设备限制。",
+      });
+
+    const limitsByCode = new Map<string, number>([
+      ...fullCodes.map((record) => [record.code, 2] as const),
+      ...limitedCodes.map((record) => [record.code, 1] as const),
+    ]);
+    const sessions = (await ctx.db.query("auth_codes").collect()).filter(
+      (session) => limitsByCode.has(session.code),
+    );
+    const sessionCounts = new Map<string, number>();
+    for (const session of sessions)
+      sessionCounts.set(
+        session.code,
+        (sessionCounts.get(session.code) ?? 0) + 1,
+      );
+    if ([...sessionCounts.values()].some((count) => count > 1))
+      throw new ConvexError({
+        code: "PRECONDITION_FAILED",
+        message: "Aichijp 授权码存在重复的登录记录，未修改设备限制。",
+      });
+    const sessionUpdates = sessions.map((session) => {
+      const deviceIds = boundDeviceIds(session);
+      const maxDevices = limitsByCode.get(session.code)!;
+      if (deviceIds.length > maxDevices)
+        throw new ConvexError({
+          code: "PRECONDITION_FAILED",
+          message: "现有登录设备超过新的设备数量上限，未进行任何修改。",
+        });
+      return { session, deviceIds };
+    });
+
+    const now = Date.now();
+    for (const record of fullCodes)
+      await ctx.db.patch(record._id, {
+        maxDevices: 2,
+        unlimitedDevices: false,
+        updatedAt: now,
+      });
+    for (const record of limitedCodes)
+      await ctx.db.patch(record._id, {
+        maxDevices: 1,
+        unlimitedDevices: false,
+        updatedAt: now,
+      });
+    for (const { session, deviceIds } of sessionUpdates)
+      await ctx.db.patch(session._id, { deviceIds });
+
+    return {
+      full: fullCodes.length,
+      limited: limitedCodes.length,
+      migratedSessions: sessionUpdates.length,
     };
   },
 });
@@ -529,6 +643,24 @@ export const claimCode = mutation({
         await ctx.db.patch(existing._id, { name, lastLoginAt: Date.now() });
         return { success: true, role: allowed.role, name };
       }
+      if (allowed.maxDevices !== undefined) {
+        const maxDevices = Math.max(1, Math.floor(allowed.maxDevices));
+        const currentDeviceIds = boundDeviceIds(existing).slice(0, maxDevices);
+        const alreadyBound = currentDeviceIds.includes(args.deviceId);
+        if (!alreadyBound && currentDeviceIds.length >= maxDevices)
+          throw new ConvexError({
+            code: "CONFLICT",
+            message: "此授权码已达到可登录设备数量上限。",
+          });
+        await ctx.db.patch(existing._id, {
+          name,
+          deviceIds: alreadyBound
+            ? currentDeviceIds
+            : [...currentDeviceIds, args.deviceId],
+          lastLoginAt: Date.now(),
+        });
+        return { success: true, role: allowed.role, name };
+      }
       const standaloneMobile =
         args.deviceType === "mobile" && args.deviceContext === "standalone";
       const alreadyBound =
@@ -590,6 +722,7 @@ export const claimCode = mutation({
     await ctx.db.insert("auth_codes", {
       code,
       deviceId: args.deviceId,
+      deviceIds: allowed.maxDevices === undefined ? undefined : [args.deviceId],
       mobileDeviceId:
         args.deviceType === "mobile" && args.deviceContext !== "standalone"
           ? args.deviceId

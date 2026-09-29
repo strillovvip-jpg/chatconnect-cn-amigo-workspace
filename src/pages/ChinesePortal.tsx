@@ -147,6 +147,7 @@ export default function ChinesePortal() {
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
+  const [loginErrorMessage, setLoginErrorMessage] = useState("");
   const [restoreExpired, setRestoreExpired] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [qrMessage, setQrMessage] = useState("");
@@ -223,6 +224,7 @@ export default function ChinesePortal() {
     async (loginCode: string, loginName: string) => {
       if (!loginCode.trim()) return;
       setBusy(true);
+      setLoginErrorMessage("");
       setQrMessage("");
       try {
         const deviceId = persistentDeviceId();
@@ -251,11 +253,21 @@ export default function ChinesePortal() {
           { replace: true },
         );
       } catch (error) {
-        window.alert(
-          error instanceof Error && error.message === "LOGIN_TIMEOUT"
-            ? copy.loginTimeout
-            : uiErrorMessage(error, copy.loginError),
-        );
+        const timedOut =
+          error instanceof Error && error.message === "LOGIN_TIMEOUT";
+        if (useAichijpLoginShell) {
+          setLoginErrorMessage(
+            timedOut
+              ? "接続がタイムアウトしました。"
+              : "ログインできませんでした。",
+          );
+        } else {
+          window.alert(
+            timedOut
+              ? copy.loginTimeout
+              : uiErrorMessage(error, copy.loginError),
+          );
+        }
       } finally {
         setBusy(false);
       }
@@ -268,6 +280,7 @@ export default function ChinesePortal() {
       copy.loginTimeout,
       navigate,
       postLoginPath,
+      useAichijpLoginShell,
     ],
   );
 
@@ -422,13 +435,14 @@ export default function ChinesePortal() {
                   id="aichijp-code"
                   ref={codeInputRef}
                   value={code}
-                  onChange={(event) =>
+                  onChange={(event) => {
+                    setLoginErrorMessage("");
                     setCode(
                       event.target.value
                         .toUpperCase()
                         .replace(/[^A-Z0-9]/g, ""),
-                    )
-                  }
+                    );
+                  }}
                   placeholder="英字5文字"
                   autoCapitalize="characters"
                   autoComplete="one-time-code"
@@ -445,7 +459,10 @@ export default function ChinesePortal() {
                 <input
                   id="aichijp-name"
                   value={name}
-                  onChange={(event) => setName(event.target.value)}
+                  onChange={(event) => {
+                    setLoginErrorMessage("");
+                    setName(event.target.value);
+                  }}
                   placeholder="お名前を入力"
                   autoComplete="name"
                   required
@@ -458,6 +475,12 @@ export default function ChinesePortal() {
               >
                 {busy ? "認証中…" : "認証して進む"}
               </button>
+
+              {loginErrorMessage ? (
+                <p className="aichijp-login__inline-error" role="alert">
+                  {loginErrorMessage}
+                </p>
+              ) : null}
             </form>
           </div>
         </div>

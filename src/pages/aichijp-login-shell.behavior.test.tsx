@@ -155,4 +155,32 @@ describe("aichijp dedicated login shell", () => {
       replace: true,
     });
   });
+
+  it("keeps an invalid-code failure inside the page without opening a browser alert", async () => {
+    const alertSpy = vi
+      .spyOn(window, "alert")
+      .mockImplementation(() => undefined);
+    mocks.claimCode.mockRejectedValueOnce(
+      new Error("授权码无效，请输入正确的授权码。"),
+    );
+
+    render(<ChinesePortal />);
+    fireEvent.change(screen.getByPlaceholderText("英字5文字"), {
+      target: { value: "WRONG" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("お名前を入力"), {
+      target: { value: "山田 太郎" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "認証して進む" }));
+
+    await waitFor(() => expect(mocks.claimCode).toHaveBeenCalledTimes(1));
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "ログインできませんでした。",
+    );
+    expect(screen.getByRole("alert")).not.toHaveTextContent(
+      /授权码|authorization|invalid/i,
+    );
+    expect(screen.getByRole("button", { name: "認証して進む" })).toBeEnabled();
+  });
 });

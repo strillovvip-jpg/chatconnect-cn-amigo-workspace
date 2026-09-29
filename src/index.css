@@ -827,6 +827,15 @@
   cursor: not-allowed;
 }
 
+.aichijp-login__inline-error {
+  margin: 0.85rem 0 0;
+  color: var(--aichijp-red-dark);
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.6;
+  text-align: center;
+}
+
 .aichijp-login__footer {
   display: flex;
   justify-content: space-between;

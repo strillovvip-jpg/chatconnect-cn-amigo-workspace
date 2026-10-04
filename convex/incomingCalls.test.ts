@@ -20,7 +20,11 @@ const fullFeatures = {
   canRecord: true,
 };
 
-async function setup() {
+async function setup(options?: {
+  callerFeatures?: Partial<typeof fullFeatures>;
+  calleeFeatures?: Partial<typeof fullFeatures>;
+  callerHasCalleeContact?: boolean;
+}) {
   const t = convexTest({ schema, modules });
   const profileId = await t.run(async (ctx) =>
     ctx.db.insert("license_profiles", {
@@ -32,9 +36,28 @@ async function setup() {
     }),
   );
   await t.run(async (ctx) => {
+    const callerProfileId = options?.callerFeatures
+      ? await ctx.db.insert("license_profiles", {
+          name: "Caller feature override",
+          features: { ...fullFeatures, ...options.callerFeatures },
+          createdBy: "AAAAA",
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        })
+      : profileId;
+    const calleeProfileId = options?.calleeFeatures
+      ? await ctx.db.insert("license_profiles", {
+          name: "Callee feature override",
+          features: { ...fullFeatures, ...options.calleeFeatures },
+          createdBy: "BBBBB",
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        })
+      : profileId;
     await ctx.db.insert("auth_codes", {
       code: "AAAAA",
       deviceId: "device-a",
+      mobileDeviceId: "device-a-mobile",
       name: "Caller A",
       usedAt: new Date().toISOString(),
     });
@@ -55,9 +78,17 @@ async function setup() {
         code,
         role: "user",
         enabled: true,
-        licenseProfileId: profileId,
+        licenseProfileId: code === "AAAAA" ? callerProfileId : calleeProfileId,
         createdAt: Date.now(),
         updatedAt: Date.now(),
+      });
+    }
+    if (options?.callerHasCalleeContact) {
+      await ctx.db.insert("contacts", {
+        ownerCode: "AAAAA",
+        targetCode: "BBBBB",
+        targetName: "Callee B",
+        addedAt: new Date().toISOString(),
       });
     }
     const now = Date.now();
@@ -84,6 +115,313 @@ async function setup() {
 }
 
 describe("global incoming calls", () => {
+  test("face-swap mode is stored and exposed as caller-local media only", async () => {
+    const t = await setup({ callerHasCalleeContact: true });
+    const created = await t.mutation(api.callState.prepareP2P, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      theirCode: "BBBBB",
+      callType: "video",
+      callerMediaMode: "face-swap",
+    });
+
+    expect(created).toMatchObject({
+      callerMediaMode: "face-swap",
+      localMediaMode: "face-swap",
+      remoteMediaMode: "camera",
+    });
+    const notification = await t.run(async (ctx) =>
+      ctx.db
+        .query("notifications")
+        .withIndex("by_user_status", (q) =>
+          q.eq("userId", "BBBBB").eq("status", "unread"),
+        )
+        .unique(),
+    );
+    expect(notification?.data).toMatchObject({
+      callerMediaMode: "face-swap",
+      remoteMediaMode: "face-swap",
+    });
+    expect(
+      await t.query(api.callState.incomingCall, {
+        code: "BBBBB",
+        deviceId: "device-b",
+      }),
+    ).toMatchObject({
+      localMediaMode: "camera",
+      remoteMediaMode: "face-swap",
+    });
+
+    const accepted = await t.mutation(
+      api.callState.acceptAndAuthorizeIncomingJoin,
+      { code: "BBBBB", deviceId: "device-b", callId: created.callId },
+    );
+    expect(accepted).toMatchObject({
+      localMediaMode: "camera",
+      remoteMediaMode: "face-swap",
+    });
+    expect(
+      await t.mutation(api.callState.authorizeOutgoingJoin, {
+        code: "AAAAA",
+        deviceId: "device-a",
+        callId: created.callId,
+      }),
+    ).toMatchObject({
+      localMediaMode: "face-swap",
+      remoteMediaMode: "camera",
+    });
+  });
+
+  test("face-swap calls require the callee to be a caller contact", async () => {
+    const t = await setup();
+    await expect(
+      t.mutation(api.callState.prepareP2P, {
+        code: "AAAAA",
+        deviceId: "device-a",
+        theirCode: "BBBBB",
+        callType: "video",
+        callerMediaMode: "face-swap",
+      }),
+    ).rejects.toThrow("联系人");
+  });
+
+  test("the callee only needs ordinary video permission", async () => {
+    const t = await setup({
+      callerHasCalleeContact: true,
+      calleeFeatures: {
+        canAIFace: false,
+        canVideoSource: false,
+        canPlayVideo: false,
+        canScreenShare: false,
+        canTransferCall: false,
+        canGroupCall: false,
+        canPictureInPicture: false,
+        canFloatingWindow: false,
+        canFileSearch: false,
+        canRecord: false,
+      },
+    });
+
+    const created = await t.mutation(api.callState.prepareP2P, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      theirCode: "BBBBB",
+      callType: "video",
+      callerMediaMode: "face-swap",
+    });
+    expect(created.localMediaMode).toBe("face-swap");
+
+    const accepted = await t.mutation(
+      api.callState.acceptAndAuthorizeIncomingJoin,
+      { code: "BBBBB", deviceId: "device-b", callId: created.callId },
+    );
+    expect(accepted).toMatchObject({
+      localMediaMode: "camera",
+      remoteMediaMode: "face-swap",
+    });
+  });
+
+  test.each([
+    ["canAIFace", { canAIFace: false }],
+    ["canVideoSource", { canVideoSource: false }],
+  ] as const)(
+    "face-swap calls require caller feature %s",
+    async (_feature, callerFeatures) => {
+      const t = await setup({
+        callerHasCalleeContact: true,
+        callerFeatures,
+      });
+      await expect(
+        t.mutation(api.callState.prepareP2P, {
+          code: "AAAAA",
+          deviceId: "device-a",
+          theirCode: "BBBBB",
+          callType: "video",
+          callerMediaMode: "face-swap",
+        }),
+      ).rejects.toThrow("此授权码无法使用该功能");
+    },
+  );
+
+  test("face-swap calls reject a partial profile even when AI video flags are enabled", async () => {
+    const t = await setup({
+      callerHasCalleeContact: true,
+      callerFeatures: { canTransferCall: false },
+    });
+    await expect(
+      t.mutation(api.callState.prepareP2P, {
+        code: "AAAAA",
+        deviceId: "device-a",
+        theirCode: "BBBBB",
+        callType: "video",
+        callerMediaMode: "face-swap",
+      }),
+    ).rejects.toThrow("只有全功能授权码");
+  });
+
+  test("face-swap calls reject a custom profile without recording capability", async () => {
+    const t = await setup({
+      callerHasCalleeContact: true,
+      callerFeatures: { canRecord: false },
+    });
+    await expect(
+      t.mutation(api.callState.prepareP2P, {
+        code: "AAAAA",
+        deviceId: "device-a",
+        theirCode: "BBBBB",
+        callType: "video",
+        callerMediaMode: "face-swap",
+      }),
+    ).rejects.toThrow("只有全功能授权码");
+  });
+
+  test("audio calls reject face-swap mode", async () => {
+    const t = await setup({ callerHasCalleeContact: true });
+    await expect(
+      t.mutation(api.callState.prepareP2P, {
+        code: "AAAAA",
+        deviceId: "device-a",
+        theirCode: "BBBBB",
+        callType: "audio",
+        callerMediaMode: "face-swap",
+      }),
+    ).rejects.toThrow("换脸模式仅支持视讯通话");
+  });
+
+  test("an existing ringing call cannot be reused with another media mode", async () => {
+    const t = await setup({ callerHasCalleeContact: true });
+    await t.mutation(api.callState.prepareP2P, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      theirCode: "BBBBB",
+      callType: "video",
+      callerMediaMode: "face-swap",
+    });
+    await expect(
+      t.mutation(api.callState.prepareP2P, {
+        code: "AAAAA",
+        deviceId: "device-a",
+        theirCode: "BBBBB",
+        callType: "video",
+        callerMediaMode: "camera",
+      }),
+    ).rejects.toThrow("已有不同媒体模式的通话");
+  });
+
+  test("an active call between the same contacts reuses its existing room", async () => {
+    const t = await setup();
+    const first = await t.mutation(api.callState.prepareP2P, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      theirCode: "BBBBB",
+      callType: "video",
+    });
+
+    const retried = await t.mutation(api.callState.prepareP2P, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      theirCode: "BBBBB",
+      callType: "video",
+    });
+
+    expect(retried.callId).toBe(first.callId);
+    expect(retried.roomName).toBe(first.roomName);
+  });
+
+  test("a new call between the same contacts gets a different room", async () => {
+    const t = await setup();
+    const first = await t.mutation(api.callState.prepareP2P, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      theirCode: "BBBBB",
+      callType: "video",
+    });
+    await t.mutation(api.callState.endP2PCall, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      callId: first.callId,
+    });
+
+    const second = await t.mutation(api.callState.prepareP2P, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      theirCode: "BBBBB",
+      callType: "video",
+    });
+
+    expect(second.callId).not.toBe(first.callId);
+    expect(second.roomName).not.toBe(first.roomName);
+    expect(second.roomName).toContain(second.callId);
+  });
+
+  test("face-swap permission is checked again before the caller joins", async () => {
+    const t = await setup({ callerHasCalleeContact: true });
+    const created = await t.mutation(api.callState.prepareP2P, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      theirCode: "BBBBB",
+      callType: "video",
+      callerMediaMode: "face-swap",
+    });
+    await t.mutation(api.callState.acceptAndAuthorizeIncomingJoin, {
+      code: "BBBBB",
+      deviceId: "device-b",
+      callId: created.callId,
+    });
+    await t.run(async (ctx) => {
+      const allowed = await ctx.db
+        .query("allowed_codes")
+        .withIndex("by_code", (q) => q.eq("code", "AAAAA"))
+        .unique();
+      const profile = await ctx.db.get(allowed!.licenseProfileId!);
+      await ctx.db.patch(profile!._id, {
+        features: { ...profile!.features, canAIFace: false },
+      });
+    });
+
+    await expect(
+      t.mutation(api.callState.authorizeOutgoingJoin, {
+        code: "AAAAA",
+        deviceId: "device-a",
+        callId: created.callId,
+      }),
+    ).rejects.toThrow("此授权码无法使用该功能");
+  });
+
+  test("the full-feature bundle is checked again before the caller joins", async () => {
+    const t = await setup({ callerHasCalleeContact: true });
+    const created = await t.mutation(api.callState.prepareP2P, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      theirCode: "BBBBB",
+      callType: "video",
+      callerMediaMode: "face-swap",
+    });
+    await t.mutation(api.callState.acceptAndAuthorizeIncomingJoin, {
+      code: "BBBBB",
+      deviceId: "device-b",
+      callId: created.callId,
+    });
+    await t.run(async (ctx) => {
+      const allowed = await ctx.db
+        .query("allowed_codes")
+        .withIndex("by_code", (q) => q.eq("code", "AAAAA"))
+        .unique();
+      const profile = await ctx.db.get(allowed!.licenseProfileId!);
+      await ctx.db.patch(profile!._id, {
+        features: { ...profile!.features, canTransferCall: false },
+      });
+    });
+
+    await expect(
+      t.mutation(api.callState.authorizeOutgoingJoin, {
+        code: "AAAAA",
+        deviceId: "device-a",
+        callId: created.callId,
+      }),
+    ).rejects.toThrow("只有全功能授权码");
+  });
+
   test("callee receives ringing and unrelated users cannot see it", async () => {
     const t = await setup();
     const created = await t.mutation(api.callState.prepareP2P, {
@@ -282,6 +620,48 @@ describe("global incoming calls", () => {
     ).rejects.toThrow("对方正在通话中");
   });
 
+  test("face-swap calls cannot be transferred", async () => {
+    const t = await setup({ callerHasCalleeContact: true });
+    const created = await t.mutation(api.callState.prepareP2P, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      theirCode: "BBBBB",
+      callType: "video",
+      callerMediaMode: "face-swap",
+    });
+    await t.mutation(api.callState.acceptAndAuthorizeIncomingJoin, {
+      code: "BBBBB",
+      deviceId: "device-b",
+      callId: created.callId,
+    });
+    await t.mutation(api.callState.markParticipantConnected, {
+      code: "BBBBB",
+      deviceId: "device-b",
+      callId: created.callId,
+    });
+    await t.mutation(api.callState.markParticipantConnected, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      callId: created.callId,
+    });
+
+    await expect(
+      t.mutation(api.callState.initiateTransfer, {
+        code: "AAAAA",
+        deviceId: "device-a",
+        callId: created.callId,
+        targetCode: "CCCCC",
+      }),
+    ).rejects.toThrow("换脸视讯暂不支持转接");
+
+    expect(
+      await t.query(api.callState.pendingTransfer, {
+        code: "CCCCC",
+        deviceId: "device-c",
+      }),
+    ).toBeNull();
+  });
+
   test("a failed transfer join rolls back without replacing the original participants", async () => {
     const t = await setup();
     const created = await t.mutation(api.callState.prepareP2P, {
@@ -420,6 +800,97 @@ describe("global incoming calls", () => {
       peerCode: "BBBBB",
       peerName: "Callee B",
     });
+  });
+
+  test("a call can transfer to another registered device using the same authorization code", async () => {
+    const t = await setup();
+    const created = await t.mutation(api.callState.prepareP2P, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      theirCode: "BBBBB",
+      callType: "video",
+    });
+    await t.mutation(api.callState.acceptAndAuthorizeIncomingJoin, {
+      code: "BBBBB",
+      deviceId: "device-b",
+      callId: created.callId,
+    });
+    await t.mutation(api.callState.markParticipantConnected, {
+      code: "BBBBB",
+      deviceId: "device-b",
+      callId: created.callId,
+    });
+    await t.mutation(api.callState.markParticipantConnected, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      callId: created.callId,
+    });
+
+    const transferId = await t.mutation(api.callState.initiateTransfer, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      callId: created.callId,
+      targetCode: "AAAAA",
+    });
+
+    expect(
+      await t.query(api.callState.pendingTransfer, {
+        code: "AAAAA",
+        deviceId: "device-a",
+      }),
+    ).toBeNull();
+    expect(
+      await t.query(api.callState.pendingTransfer, {
+        code: "AAAAA",
+        deviceId: "device-a-mobile",
+      }),
+    ).toMatchObject({ _id: transferId, targetUserId: "AAAAA" });
+    await expect(
+      t.mutation(api.callState.respondTransfer, {
+        code: "AAAAA",
+        deviceId: "device-a",
+        transferId,
+        accept: true,
+      }),
+    ).rejects.toThrow("没有权限执行此操作");
+    await t.mutation(api.callState.respondTransfer, {
+      code: "AAAAA",
+      deviceId: "device-a-mobile",
+      transferId,
+      accept: true,
+    });
+    await t.mutation(api.callState.authorizeTransferJoin, {
+      code: "AAAAA",
+      deviceId: "device-a-mobile",
+      transferId,
+    });
+    await t.mutation(api.callState.confirmTransferJoined, {
+      code: "AAAAA",
+      deviceId: "device-a-mobile",
+      transferId,
+    });
+
+    expect(
+      await t.query(api.callState.myOutgoingTransfer, {
+        code: "AAAAA",
+        deviceId: "device-a",
+        callId: created.callId,
+      }),
+    ).toMatchObject({ status: "completed" });
+    expect(
+      await t.query(api.callState.myOutgoingTransfer, {
+        code: "AAAAA",
+        deviceId: "device-a-mobile",
+        callId: created.callId,
+      }),
+    ).toBeNull();
+    expect(
+      await t.query(api.callState.callStatus, {
+        code: "BBBBB",
+        deviceId: "device-b",
+        callId: created.callId,
+      }),
+    ).toMatchObject({ status: "connected", peerCode: "AAAAA" });
   });
 
   test("a recently backgrounded mobile target can still receive a transfer", async () => {

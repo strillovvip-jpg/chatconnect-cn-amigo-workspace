@@ -97,6 +97,63 @@ const NOTIFICATION_SOUND_KEY = "chatconnect-notification-sound-enabled";
 const NATIVE_NOTIFICATION_ENABLED_KEY =
   "chatconnect-native-notifications-enabled";
 
+export async function connectAcceptedOutgoingCall<T>({
+  join,
+  start,
+  waitBeforeRetry,
+  shouldRetryStart = () => true,
+  isCancelled = () => false,
+  onTerminalFailure,
+}: {
+  join: () => Promise<T>;
+  start: (details: T) => Promise<void>;
+  waitBeforeRetry: (attempt: number) => Promise<void>;
+  shouldRetryStart?: (details: T) => boolean;
+  isCancelled?: () => boolean;
+  onTerminalFailure?: (error: unknown) => Promise<void>;
+}): Promise<boolean> {
+  const fail = async (error: unknown): Promise<never> => {
+    try {
+      await onTerminalFailure?.(error);
+    } catch (cleanupError) {
+      console.error(
+        "[P2P_CALL] failed to clear terminal outgoing call state",
+        cleanupError,
+      );
+    }
+    throw error;
+  };
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (isCancelled()) return false;
+    let details: T;
+    try {
+      details = await join();
+    } catch (error) {
+      lastError = error;
+      if (isCancelled()) return false;
+      if (attempt < 2) {
+        await waitBeforeRetry(attempt);
+        if (isCancelled()) return false;
+      }
+      continue;
+    }
+    if (isCancelled()) return false;
+    try {
+      await start(details);
+      return true;
+    } catch (error) {
+      lastError = error;
+      if (!shouldRetryStart(details)) return fail(error);
+      if (isCancelled()) return false;
+      if (attempt >= 2) return fail(error);
+      await waitBeforeRetry(attempt);
+      if (isCancelled()) return false;
+    }
+  }
+  return fail(lastError);
+}
+
 function nativeAlertId(key: string): number {
   let hash = 17;
   for (const character of key) hash = (hash * 31 + character.charCodeAt(0)) | 0;
@@ -188,6 +245,11 @@ export function GlobalNotificationProvider({
   const nativeScheduled = useRef(new Set<string>());
   const outgoingHandled = useRef<string | null>(null);
   const outgoingJoining = useRef<string | null>(null);
+  const providerMounted = useRef(true);
+  const currentCallState = useRef(callState);
+  const currentOutgoing = useRef(outgoing);
+  currentCallState.current = callState;
+  currentOutgoing.current = outgoing;
   const notificationChannel = getNotificationChannel({
     nativeApp: Capacitor.isNativePlatform(),
     hasServiceWorker: "serviceWorker" in navigator,
@@ -196,6 +258,14 @@ export function GlobalNotificationProvider({
   });
   const notificationEnabled =
     notificationChannel === "native" ? nativePushEnabled : Boolean(pushEnabled);
+
+  useEffect(() => {
+    providerMounted.current = true;
+    return () => {
+      providerMounted.current = false;
+      outgoingJoining.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     const unlockAudio = () => {
@@ -218,9 +288,8 @@ export function GlobalNotificationProvider({
     let active = true;
     const syncPermission = async () => {
       try {
-        const permission = await readNativeNotificationPermission(
-          LocalNotifications,
-        );
+        const permission =
+          await readNativeNotificationPermission(LocalNotifications);
         if (!active || permission === "granted") return;
         localStorage.setItem(NATIVE_NOTIFICATION_ENABLED_KEY, "false");
         setNativePushEnabled(false);
@@ -267,9 +336,8 @@ export function GlobalNotificationProvider({
       }
       let permission: "granted" | "denied";
       try {
-        permission = await ensureNativeNotificationPermission(
-          LocalNotifications,
-        );
+        permission =
+          await ensureNativeNotificationPermission(LocalNotifications);
       } catch (error) {
         console.error(
           "[notifications] native notification configuration failed",
@@ -502,37 +570,56 @@ export function GlobalNotificationProvider({
       outgoingJoining.current = outgoing.callId;
       toast.success(copy.connected(outgoing.calleeName ?? "Other party"));
       void (async () => {
-        let lastError: unknown;
-        for (let attempt = 0; attempt < 3; attempt += 1) {
-          try {
-            const details = await joinAcceptedOutgoingCall({
-              ...credentials,
-              callId: outgoing.callId,
-            });
-            await startCall({
-              ...details,
-              myName: credentials.code,
-              chatName: details.chatName,
-              callType: details.callType,
-              mode: "p2p",
-            });
-            outgoingHandled.current = key;
-            outgoingJoining.current = null;
-            return;
-          } catch (error) {
-            lastError = error;
-            if (attempt < 2)
-              await new Promise((resolve) =>
+        try {
+          const connected = await connectAcceptedOutgoingCall({
+            join: () =>
+              joinAcceptedOutgoingCall({
+                ...credentials,
+                callId: outgoing.callId,
+              }),
+            start: (details) =>
+              startCall({
+                ...details,
+                myName: credentials.code,
+                chatName: details.chatName,
+                callType: details.callType,
+                mode: "p2p",
+                retrySetupOnFailure:
+                  details.localMediaMode !== "face-swap",
+              }),
+            waitBeforeRetry: (attempt) =>
+              new Promise((resolve) =>
                 window.setTimeout(resolve, 700 * (attempt + 1)),
+              ),
+            shouldRetryStart: (details) =>
+              details.localMediaMode !== "face-swap",
+            isCancelled: () => {
+              const latest = currentOutgoing.current;
+              return (
+                !providerMounted.current ||
+                currentCallState.current !== "ringing" ||
+                latest?.callId !== outgoing.callId ||
+                !["accepted", "connecting", "connected"].includes(
+                  latest.status,
+                )
               );
-          }
+            },
+            onTerminalFailure: async () => {
+              await hangUp();
+            },
+          });
+          if (!connected) return;
+          outgoingHandled.current = key;
+        } catch (error) {
+          console.error("[P2P_CALL] caller failed to join accepted room", {
+            callId: outgoing.callId,
+            error,
+          });
+          toast.error(uiErrorMessage(error, copy.connectFailed));
+        } finally {
+          if (outgoingJoining.current === outgoing.callId)
+            outgoingJoining.current = null;
         }
-        console.error("[P2P_CALL] caller failed to join accepted room", {
-          callId: outgoing.callId,
-          error: lastError,
-        });
-        outgoingJoining.current = null;
-        toast.error(copy.connectFailed);
       })();
     }
   }, [
@@ -735,7 +822,9 @@ export function GlobalNotificationProvider({
                     </p>
                     {item.readAt && (
                       <p className="mt-1 text-[10px] text-white/30">
-                        {copy.readAt(timeLabel(item.readAt, localeToHtmlLang(locale)))}
+                        {copy.readAt(
+                          timeLabel(item.readAt, localeToHtmlLang(locale)),
+                        )}
                       </p>
                     )}
                   </div>
@@ -787,7 +876,9 @@ export function GlobalNotificationProvider({
             >
               <span>{copy.pushToggle}</span>
               <span
-                className={notificationEnabled ? "text-green-400" : "text-white/45"}
+                className={
+                  notificationEnabled ? "text-green-400" : "text-white/45"
+                }
               >
                 {notificationEnabled ? copy.enabled : copy.disabled}
               </span>

@@ -31,10 +31,10 @@
 
 ### 媒体发布
 
-- 发起方在收到对方接听后取得既有房间 token，使用 `nativeAmigoRoom.connect` 加入同一 LiveKit 房间。
-- 原生连接只发布麦克风与 Amigo `processFrame` 处理后的自定义视频轨；不启动 Web/LiveKit 默认 camera track，不允许以原始镜头作为失败回退。
+- 发起方在收到对方接听后取得同一房间的两个不同 identity/token：原生发布者 token 只允许发布摄像头、禁止订阅；Web companion token 只允许发布麦克风并订阅，token 层禁止 camera。
+- 原生发布者先使用 `nativeAmigoRoom.connect` 加入并发布 Amigo `processFrame` 处理后的自定义视频轨；不启动 Web/LiveKit 默认 camera track，不允许以原始镜头作为失败回退。成功后 Web companion 才加入，以发布麦克风并显示及播放被叫方媒体。
 - 被叫方继续使用现有 Web LiveKit 加入与普通摄像头/麦克风发布，正常订阅发起方处理后轨道。
-- `CallContext` 对 `face_swap` 发起方跳过 Web Room/Camera 初始化；通话 UI、计时、来电状态与挂断仍使用同一上下文。挂断时同时断开原生房间并结束同一 `live_calls` 记录。
+- `CallContext` 对 `face_swap` 发起方的 Web companion 跳过所有本地麦克风、camera 与 VideoSourceManager 初始化；通话 UI、计时、来电状态与挂断仍使用同一上下文。额外 identity 通过 metadata/identity 过滤，不计入对方人数，也不会被选为自我远端画面。挂断时同时断开原生房间并结束同一 `live_calls` 记录。
 - 原生发布失败时终止通话、清理房间状态，并显示准确失败阶段；不会改为发布原始画面。
 
 ## 外部来宾邀请

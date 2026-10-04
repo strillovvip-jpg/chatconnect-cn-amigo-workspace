@@ -3,7 +3,7 @@ import { internalQuery, mutation, query } from "./_generated/server";
 import { effectiveFeatures } from "./features";
 import { requireSession } from "./roles";
 
-function canCreateExternalInvite(features: Awaited<
+export function canCreateExternalInvite(features: Awaited<
   ReturnType<typeof effectiveFeatures>
 >["features"]) {
   return (
@@ -17,7 +17,8 @@ function canCreateExternalInvite(features: Awaited<
     features.canGroupCall &&
     features.canPictureInPicture &&
     features.canFloatingWindow &&
-    features.canFileSearch
+    features.canFileSearch &&
+    features.canRecord
   );
 }
 

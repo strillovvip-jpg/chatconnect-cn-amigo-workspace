@@ -30,6 +30,13 @@ import {
 import { uiErrorMessage } from "@/lib/utils.ts";
 import { useI18n } from "@/lib/i18n";
 import { ChatMessageContent } from "./chat-message-content";
+import { useFeatures } from "@/contexts/feature-context.tsx";
+import { canUseExternalFaceSwapInvite } from "@/lib/amigo/external-invite-access";
+import {
+  contactFaceSwapPreflightErrorMessage,
+  startContactFaceSwapCall,
+} from "@/lib/amigo/contact-face-swap-preflight";
+import { ContactFaceSwapCallButton } from "@/components/contact-face-swap-call-button";
 
 type LocationState = {
   chatName?: string;
@@ -48,6 +55,8 @@ export default function ChatPage() {
   const myCode = state.myCode ?? localStorage.getItem("ksc_session_code") ?? "";
   const myName = state.myName ?? copy.selfUser;
   const deviceId = localStorage.getItem("ksc_device_id") ?? "";
+  const { flags } = useFeatures();
+  const canStartFaceSwapCall = canUseExternalFaceSwapInvite(flags);
 
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
@@ -104,6 +113,31 @@ export default function ChatPage() {
       setCallSelectorMode(null);
     } catch {
       toast.error(copy.startCallFailed);
+    } finally {
+      setCallLoading(false);
+    }
+  };
+
+  const startFaceSwapCall = async () => {
+    if (!canStartFaceSwapCall || !myCode || !theirCode) return;
+    setCallLoading(true);
+    try {
+      await startContactFaceSwapCall(
+        {
+          myCode,
+          theirCode,
+          myName,
+          chatName,
+          deviceId,
+        },
+        getOrCreateRoom,
+        startCall,
+      );
+    } catch (error) {
+      toast.error(
+        contactFaceSwapPreflightErrorMessage(error, messages.faceSwapInvite) ??
+          uiErrorMessage(error, copy.startCallFailed),
+      );
     } finally {
       setCallLoading(false);
     }
@@ -347,6 +381,14 @@ export default function ChatPage() {
           >
             <Video size={20} />
           </button>
+          <ContactFaceSwapCallButton
+            allowed={canStartFaceSwapCall}
+            busy={callLoading || !theirCode}
+            label={messages.consultation.faceSwapVideo}
+            onStart={() => void startFaceSwapCall()}
+            className="p-1 opacity-70 hover:opacity-100"
+            iconSize={20}
+          />
         </div>
       </div>
 

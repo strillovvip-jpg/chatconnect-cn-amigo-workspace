@@ -106,6 +106,12 @@ export class VideoSourceManager {
     );
   }
 
+  useCamera(deviceId: string) {
+    return this.enqueue(async () =>
+      this.replaceWith(new CameraSource(deviceId)),
+    );
+  }
+
   private async replaceWith(source: VideoSource) {
     const copy = getRuntimeMessages().videoSources;
     if (!source.isSupported())
@@ -141,7 +147,10 @@ export class VideoSourceManager {
       if (source.kind === "screen-share" || source.kind === "video-file") {
         next.track.addEventListener(
           "ended",
-          () => void this.switchTo("camera", { automatic: true }),
+          () => {
+            if (this.current === next)
+              void this.switchTo("camera", { automatic: true });
+          },
           { once: true },
         );
       }

@@ -86,11 +86,15 @@ export function LiveKitStage({
   compact = false,
   mode = "p2p",
   showSelfPreview = false,
+  localPublisherIdentity,
+  remoteVideoIdentityPrefix,
 }: {
   room: Room;
   compact?: boolean;
   mode?: "p2p" | "group";
   showSelfPreview?: boolean;
+  localPublisherIdentity?: string;
+  remoteVideoIdentityPrefix?: string;
 }) {
   const { messages } = useI18n();
   const [, refresh] = useReducer((value) => value + 1, 0);
@@ -120,7 +124,13 @@ export function LiveKitStage({
     };
   }, [room]);
 
-  const remotes = Array.from(room.remoteParticipants.values());
+  const allRemotes = Array.from(room.remoteParticipants.values());
+  const localPublisher = localPublisherIdentity
+    ? room.remoteParticipants.get(localPublisherIdentity)
+    : undefined;
+  const remotes = allRemotes.filter(
+    (participant) => participant.identity !== localPublisherIdentity,
+  );
   useEffect(() => {
     if (pinnedIdentity && !room.remoteParticipants.has(pinnedIdentity))
       setPinnedIdentity(null);
@@ -133,12 +143,28 @@ export function LiveKitStage({
     ? room.remoteParticipants.get(pinnedIdentity)
     : undefined;
   const activeSpeaker = remotes.find((participant) => participant.isSpeaking);
-  const primary = screenSharer ?? pinned ?? activeSpeaker ?? remotes[0];
+  const remoteProcessedVideo = remoteVideoIdentityPrefix
+    ? remotes.find((participant) =>
+        participant.identity.startsWith(remoteVideoIdentityPrefix),
+      )
+    : undefined;
+  const participantWithVideo = remotes.find(
+    (participant) =>
+      participant.getTrackPublication(Track.Source.ScreenShare)?.track ||
+      participant.getTrackPublication(Track.Source.Camera)?.track,
+  );
+  const primary =
+    screenSharer ??
+    pinned ??
+    remoteProcessedVideo ??
+    activeSpeaker ??
+    participantWithVideo ??
+    remotes[0];
   const visibleParticipants = useMemo(() => {
     const list: Participant[] = [...remotes];
-    if (showSelfPreview) list.push(room.localParticipant);
+    if (showSelfPreview) list.push(localPublisher ?? room.localParticipant);
     return list;
-  }, [remotes, room.localParticipant, showSelfPreview]);
+  }, [localPublisher, remotes, room.localParticipant, showSelfPreview]);
   const remoteAudio = remotes.flatMap((participant) =>
     Array.from(participant.audioTrackPublications.values()).filter(
       (publication) => publication.track,
@@ -203,7 +229,9 @@ export function LiveKitStage({
               : "absolute bottom-[calc(7.5rem+var(--app-safe-area-bottom))] right-3 z-20 h-36 w-24 overflow-hidden rounded-xl border border-white/40 bg-[#111e38] shadow-2xl sm:h-44 sm:w-32"
           }
         >
-          <ParticipantTile participant={room.localParticipant} />
+          <ParticipantTile
+            participant={localPublisher ?? room.localParticipant}
+          />
         </div>
       )}
       {remoteAudio.map((publication) => (

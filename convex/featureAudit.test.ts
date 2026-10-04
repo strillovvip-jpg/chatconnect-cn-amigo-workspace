@@ -211,6 +211,76 @@ describe("presence and browser notification subscriptions", () => {
     ).rejects.toThrow();
   });
 
+  test("a full authorization code with two device slots allows one phone and one desktop", async () => {
+    const t = convexTest({ schema, modules });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("allowed_codes", {
+        code: "FULL2",
+        role: "user",
+        enabled: true,
+        maxDevices: 2,
+      });
+    });
+    await t.mutation(api.authCodes.claimCode, {
+      code: "FULL2",
+      deviceId: "phone-1",
+      deviceType: "mobile",
+      name: "Full Device",
+    });
+    await t.mutation(api.authCodes.claimCode, {
+      code: "FULL2",
+      deviceId: "desktop-1",
+      deviceType: "desktop",
+      name: "Full Device",
+    });
+    expect(
+      await t.query(api.authCodes.getSessionRole, {
+        code: "FULL2",
+        deviceId: "phone-1",
+      }),
+    ).toMatchObject({ role: "user" });
+    expect(
+      await t.query(api.authCodes.getSessionRole, {
+        code: "FULL2",
+        deviceId: "desktop-1",
+      }),
+    ).toMatchObject({ role: "user" });
+    await expect(
+      t.mutation(api.authCodes.claimCode, {
+        code: "FULL2",
+        deviceId: "phone-2",
+        deviceType: "mobile",
+        name: "Full Device",
+      }),
+    ).rejects.toThrow();
+  });
+
+  test("a limited authorization code with one device slot rejects a second device", async () => {
+    const t = convexTest({ schema, modules });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("allowed_codes", {
+        code: "LIMITED1",
+        role: "user",
+        enabled: true,
+        maxDevices: 1,
+      });
+    });
+    await t.mutation(api.authCodes.claimCode, {
+      code: "LIMITED1",
+      deviceId: "phone-1",
+      deviceType: "mobile",
+      name: "Limited Device",
+    });
+    await expect(
+      t.mutation(api.authCodes.claimCode, {
+        code: "LIMITED1",
+        deviceId: "desktop-1",
+        deviceType: "desktop",
+        name: "Limited Device",
+      }),
+    ).rejects.toThrow();
+  });
+
   test("an unlimited authorization code accepts additional devices", async () => {
     const t = convexTest({ schema, modules });
     await t.run(async (ctx) => {

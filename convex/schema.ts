@@ -14,6 +14,7 @@ export default defineSchema({
     mobileDeviceId: v.optional(v.string()),
     mobileAppDeviceId: v.optional(v.string()),
     desktopDeviceId: v.optional(v.string()),
+    deviceIds: v.optional(v.array(v.string())),
     name: v.string(),
     department: v.optional(v.string()),
     usedAt: v.string(),
@@ -53,6 +54,7 @@ export default defineSchema({
     companyId: v.optional(v.string()),
     enabled: v.optional(v.boolean()),
     unlimitedDevices: v.optional(v.boolean()),
+    maxDevices: v.optional(v.number()),
     licenseProfileId: v.optional(v.id("license_profiles")),
     expiresAt: v.optional(v.number()),
     createdAt: v.optional(v.number()),
@@ -61,6 +63,7 @@ export default defineSchema({
 
   license_profiles: defineTable({
     name: v.string(),
+    companyId: v.optional(v.string()),
     description: v.optional(v.string()),
     features: v.object({
       canVideoCall: v.boolean(),
@@ -215,6 +218,9 @@ export default defineSchema({
     callId: v.string(),
     roomName: v.string(),
     type: v.union(v.literal("audio"), v.literal("video")),
+    callerMediaMode: v.optional(
+      v.union(v.literal("camera"), v.literal("face-swap")),
+    ),
     status: v.union(
       v.literal("ringing"),
       v.literal("accepted"),
@@ -256,6 +262,7 @@ export default defineSchema({
 
   external_video_invites: defineTable({
     inviteId: v.string(),
+    tenantId: v.optional(v.string()),
     roomName: v.string(),
     operatorCode: v.string(),
     operatorName: v.string(),
@@ -323,8 +330,10 @@ export default defineSchema({
     callId: v.string(),
     roomName: v.string(),
     fromUserId: v.string(),
+    fromDeviceId: v.optional(v.string()),
     remoteUserId: v.string(),
     targetUserId: v.string(),
+    targetDeviceId: v.optional(v.string()),
     status: v.union(
       v.literal("pending"),
       v.literal("accepted"),

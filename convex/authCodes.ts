@@ -3,6 +3,10 @@ import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 import { requireSession } from "./roles";
 
+function uniqueDevices(devices: Array<string | undefined>) {
+  return [...new Set(devices.filter(Boolean) as string[])];
+}
+
 export const importAllowedCodes = internalMutation({
   args: {
     password: v.string(),
@@ -136,22 +140,50 @@ export const claimCode = mutation({
           message: "此授权码已停用。",
         });
       if (allowed.unlimitedDevices === true) {
-        await ctx.db.patch(existing._id, { name, lastLoginAt: Date.now() });
+        await ctx.db.patch(existing._id, {
+          name,
+          deviceIds: uniqueDevices([...(existing.deviceIds ?? []), args.deviceId]),
+          lastLoginAt: Date.now(),
+        });
         return { success: true, role: allowed.role, name };
       }
+      const explicitMaxDevices =
+        typeof allowed.maxDevices === "number" && allowed.maxDevices > 0
+          ? Math.floor(allowed.maxDevices)
+          : null;
       const standaloneMobile =
         args.deviceType === "mobile" && args.deviceContext === "standalone";
       const alreadyBound =
+        existing.deviceIds?.includes(args.deviceId) ||
         existing.deviceId === args.deviceId ||
         existing.mobileDeviceId === args.deviceId ||
         existing.mobileAppDeviceId === args.deviceId ||
         existing.desktopDeviceId === args.deviceId;
+      const currentDevices = uniqueDevices([
+        existing.deviceId,
+        existing.mobileDeviceId,
+        existing.mobileAppDeviceId,
+        existing.desktopDeviceId,
+        ...(existing.deviceIds ?? []),
+      ]);
+      if (
+        !alreadyBound &&
+        explicitMaxDevices !== null &&
+        currentDevices.length >= explicitMaxDevices
+      ) {
+        throw new ConvexError({
+          code: "CONFLICT",
+          message: "此授权码已达到可同时使用的设备数量上限。",
+        });
+      }
       const requestedSlot =
         args.deviceType === "desktop"
           ? existing.desktopDeviceId
-          : standaloneMobile
-            ? existing.mobileAppDeviceId
-            : existing.mobileDeviceId;
+          : explicitMaxDevices === 2
+            ? (existing.mobileDeviceId ?? existing.mobileAppDeviceId)
+            : standaloneMobile
+              ? existing.mobileAppDeviceId
+              : existing.mobileDeviceId;
       if (!alreadyBound && requestedSlot) {
         throw new ConvexError({
           code: "CONFLICT",
@@ -165,6 +197,7 @@ export const claimCode = mutation({
       // itself, reserve the mobile slot for it and still allow one desktop.
       if (
         !alreadyBound &&
+        explicitMaxDevices === null &&
         args.deviceType === "mobile" &&
         !existing.mobileDeviceId &&
         !existing.desktopDeviceId
@@ -179,17 +212,29 @@ export const claimCode = mutation({
           ? {
               name,
               desktopDeviceId: existing.desktopDeviceId ?? args.deviceId,
+              deviceIds: uniqueDevices([
+                ...currentDevices,
+                args.deviceId,
+              ]).slice(0, explicitMaxDevices ?? undefined),
               lastLoginAt: Date.now(),
             }
           : standaloneMobile
             ? {
                 name,
                 mobileAppDeviceId: existing.mobileAppDeviceId ?? args.deviceId,
+                deviceIds: uniqueDevices([
+                  ...currentDevices,
+                  args.deviceId,
+                ]).slice(0, explicitMaxDevices ?? undefined),
                 lastLoginAt: Date.now(),
               }
             : {
                 name,
                 mobileDeviceId: existing.mobileDeviceId ?? args.deviceId,
+                deviceIds: uniqueDevices([
+                  ...currentDevices,
+                  args.deviceId,
+                ]).slice(0, explicitMaxDevices ?? undefined),
                 lastLoginAt: Date.now(),
               };
       await ctx.db.patch(existing._id, patch);
@@ -210,6 +255,7 @@ export const claimCode = mutation({
           : undefined,
       desktopDeviceId:
         args.deviceType === "desktop" ? args.deviceId : undefined,
+      deviceIds: [args.deviceId],
       name,
       department: args.department,
       usedAt: new Date().toISOString(),

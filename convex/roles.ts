@@ -9,6 +9,8 @@ type AllowedCodeRecord = {
   role: SystemRole;
   companyId?: string;
   enabled?: boolean;
+  unlimitedDevices?: boolean;
+  maxDevices?: number;
   licenseProfileId?: Id<"license_profiles">;
   expiresAt?: number;
 };
@@ -30,6 +32,7 @@ export async function requireSession(
   const validDevice =
     session &&
     (allowed?.unlimitedDevices === true ||
+      session.deviceIds?.includes(deviceId) ||
       session.deviceId === deviceId ||
       session.mobileDeviceId === deviceId ||
       session.mobileAppDeviceId === deviceId ||

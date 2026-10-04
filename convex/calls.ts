@@ -1,6 +1,10 @@
 "use node";
 import { createHash, randomInt } from "node:crypto";
-import { AccessToken, RoomServiceClient } from "livekit-server-sdk";
+import {
+  AccessToken,
+  RoomServiceClient,
+  TrackSource,
+} from "livekit-server-sdk";
 import { makeFunctionReference } from "convex/server";
 import { action } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
@@ -109,6 +113,9 @@ export const getOrCreateRoom = action({
     myName: v.string(),
     deviceId: v.string(),
     callType: v.union(v.literal("audio"), v.literal("video")),
+    callerMediaMode: v.optional(
+      v.union(v.literal("camera"), v.literal("face-swap")),
+    ),
   },
   handler: async (
     ctx,
@@ -121,12 +128,15 @@ export const getOrCreateRoom = action({
     myCode: string;
     remoteCode: string;
     callType: "audio" | "video";
+    localMediaMode: "camera" | "face-swap";
+    remoteMediaMode: "camera" | "face-swap";
   }> => {
     const prepared = await ctx.runMutation(api.callState.prepareP2P, {
       code: args.myCode,
       deviceId: args.deviceId,
       theirCode: args.theirCode,
       callType: args.callType,
+      callerMediaMode: args.callerMediaMode,
     });
     return {
       serverUrl: "",
@@ -136,6 +146,8 @@ export const getOrCreateRoom = action({
       myCode: args.myCode.trim().toUpperCase(),
       remoteCode: prepared.peerCode,
       callType: args.callType,
+      localMediaMode: prepared.localMediaMode,
+      remoteMediaMode: prepared.remoteMediaMode,
     };
   },
 });
@@ -154,32 +166,73 @@ export const joinAcceptedOutgoingCall = action({
     remoteCode: string;
     callType: "audio" | "video";
     chatName: string;
+    localMediaMode: "camera" | "face-swap";
+    remoteMediaMode: "camera" | "face-swap";
+    browserIdentity: string;
+    nativeVideoToken?: string;
+    nativeVideoIdentity?: string;
   }> => {
     const { serverUrl, apiKey, apiSecret } = liveKitConfig();
     const prepared = await ctx.runMutation(
       api.callState.authorizeOutgoingJoin,
       args,
     );
+    const normalizedCode = args.code.trim().toUpperCase();
+    const browserIdentity = `${normalizedCode}-${crypto.randomUUID()}`;
     const accessToken = new AccessToken(apiKey, apiSecret, {
-      identity: `${args.code.trim().toUpperCase()}-${crypto.randomUUID()}`,
+      identity: browserIdentity,
       name: prepared.name,
       ttl: "15m",
     });
-    accessToken.addGrant({
-      roomJoin: true,
-      room: prepared.roomName,
-      canPublish: true,
-      canSubscribe: true,
-    });
+    if (prepared.localMediaMode === "face-swap") {
+      accessToken.addGrant({
+        roomJoin: true,
+        room: prepared.roomName,
+        canPublish: true,
+        canPublishSources: [TrackSource.MICROPHONE],
+        canSubscribe: true,
+      });
+    } else {
+      accessToken.addGrant({
+        roomJoin: true,
+        room: prepared.roomName,
+        canPublish: true,
+        canSubscribe: true,
+      });
+    }
+    let nativeVideoToken: string | undefined;
+    let nativeVideoIdentity: string | undefined;
+    if (prepared.localMediaMode === "face-swap") {
+      nativeVideoIdentity = `${normalizedCode}-face-swap-${crypto.randomUUID()}`;
+      const videoAccessToken = new AccessToken(apiKey, apiSecret, {
+        identity: nativeVideoIdentity,
+        name: prepared.name,
+        ttl: "15m",
+      });
+      videoAccessToken.addGrant({
+        roomJoin: true,
+        room: prepared.roomName,
+        canPublish: true,
+        canPublishSources: [TrackSource.CAMERA],
+        canPublishData: false,
+        canSubscribe: false,
+      });
+      nativeVideoToken = await videoAccessToken.toJwt();
+    }
     return {
       serverUrl,
       token: await accessToken.toJwt(),
       roomName: prepared.roomName,
       callId: prepared.callId,
-      myCode: args.code.trim().toUpperCase(),
+      myCode: normalizedCode,
       remoteCode: prepared.calleeCode,
       callType: prepared.callType,
       chatName: prepared.calleeName,
+      localMediaMode: prepared.localMediaMode,
+      remoteMediaMode: prepared.remoteMediaMode,
+      browserIdentity,
+      nativeVideoToken,
+      nativeVideoIdentity,
     };
   },
 });
@@ -244,6 +297,8 @@ export const acceptIncomingCall = action({
     remoteCode: string;
     callType: "audio" | "video";
     chatName: string;
+    localMediaMode: "camera" | "face-swap";
+    remoteMediaMode: "camera" | "face-swap";
   }> => {
     const { serverUrl, apiKey, apiSecret } = liveKitConfig();
     const prepared = await ctx.runMutation(
@@ -270,6 +325,8 @@ export const acceptIncomingCall = action({
       remoteCode: prepared.callerCode,
       callType: prepared.callType,
       chatName: prepared.callerName,
+      localMediaMode: prepared.localMediaMode,
+      remoteMediaMode: prepared.remoteMediaMode,
     };
   },
 });

@@ -39,4 +39,23 @@ describe("canUseExternalFaceSwapInvite", () => {
       }),
     ).toBe(false);
   });
+
+  it("rejects a custom profile that lacks the full recording capability", () => {
+    expect(
+      canUseExternalFaceSwapInvite({
+        canVideoCall: true,
+        canVoiceCall: true,
+        canAIFace: true,
+        canVideoSource: true,
+        canPlayVideo: true,
+        canScreenShare: true,
+        canTransferCall: true,
+        canGroupCall: true,
+        canPictureInPicture: true,
+        canFloatingWindow: true,
+        canFileSearch: true,
+        canRecord: false,
+      }),
+    ).toBe(false);
+  });
 });

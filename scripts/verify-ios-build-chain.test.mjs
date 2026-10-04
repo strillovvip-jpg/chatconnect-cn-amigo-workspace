@@ -239,7 +239,7 @@ test("app restart and call creation never silently re-enroll an old saved photo"
   assert.match(inviteModal, /disabled=\{[^}]*!faceReady/);
 });
 
-test("native external face-swap track publishes a black privacy frame until a swapped frame is ready", () => {
+test("native external face-swap track holds the last processed frame across transient SDK misses", () => {
   const plugin = read(
     "ios/App/CapApp-SPM/Sources/CapApp-SPM/AmigoFaceSwapPlugin.swift",
   );
@@ -306,9 +306,15 @@ test("native external face-swap track publishes a black privacy frame until a sw
     processor,
     /stage=realtimeProcessFrame result=privacyPlaceholder[\s\S]*rawCameraPublished=false/,
   );
+  for (const reason of ["processorNotReady", "trackDimensionBootstrap"]) {
+    assert.match(
+      processor,
+      new RegExp(
+        `privacyPlaceholderFrame\\(\\s*for: frame,\\s*reason: "${reason}"\\s*\\)`,
+      ),
+    );
+  }
   for (const reason of [
-    "processorNotReady",
-    "trackDimensionBootstrap",
     "inputPixelBufferUnavailable",
     "noFaceDetectedInFrame",
     "outputBufferAllocationFailed",
@@ -317,10 +323,13 @@ test("native external face-swap track publishes a black privacy frame until a sw
     assert.match(
       processor,
       new RegExp(
-        `privacyPlaceholderFrame\\(\\s*for: frame,\\s*reason: "${reason}"\\s*\\)`,
+        `stableFallbackFrame\\(\\s*for: frame,\\s*reason: "${reason}"\\s*\\)`,
       ),
     );
   }
+  assert.match(processor, /private var lastProcessedPixelBuffer: CVPixelBuffer\?/);
+  assert.match(processor, /private var pixelBufferPool: CVPixelBufferPool\?/);
+  assert.doesNotMatch(processor, /private var cachedPixelBuffer: CVPixelBuffer\?/);
   assert.match(
     processor,
     /private func privacyPlaceholderFrame\(for frame: VideoFrame[\s\S]{0,1600}CIImage\(\s*color: CIColor\(red: 0, green: 0, blue: 0, alpha: 1\)\s*\)/,

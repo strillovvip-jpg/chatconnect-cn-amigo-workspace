@@ -6,23 +6,18 @@ import type {
 } from "./types.ts";
 import { amigoFaceSwap } from "@/lib/amigo/face-swap.ts";
 import { getRuntimeMessages } from "@/lib/i18n";
-
-const cameraConstraints: MediaTrackConstraints = {
-  width: { ideal: 1280 },
-  height: { ideal: 720 },
-  frameRate: { ideal: 24, max: 30 },
-  facingMode: "user",
-};
+import { buildCameraConstraints } from "@/lib/calls/camera-control.ts";
 
 export class CameraSource implements VideoSource {
   readonly kind = "camera" as const;
+  constructor(private readonly deviceId?: string) {}
   isSupported() {
     return Boolean(navigator.mediaDevices?.getUserMedia);
   }
   async prepare(_room: Room): Promise<PreparedVideoSource> {
     const copy = getRuntimeMessages().videoSources;
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: cameraConstraints,
+      video: buildCameraConstraints(this.deviceId),
       audio: false,
     });
     const track = stream.getVideoTracks()[0];
@@ -163,8 +158,7 @@ export class AISource implements VideoSource {
   }
   async prepare(room: Room): Promise<PreparedVideoSource> {
     const copy = getRuntimeMessages().videoSources;
-    if (!amigoFaceSwap.isAvailable)
-      throw new Error(copy.aiIosOnly);
+    if (!amigoFaceSwap.isAvailable) throw new Error(copy.aiIosOnly);
     const published = room.localParticipant.getTrackPublication(
       Track.Source.Camera,
     )?.videoTrack as LocalVideoTrack | undefined;

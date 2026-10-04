@@ -1415,7 +1415,7 @@ private final class NativeLiveKitSession {
                         options: CameraCaptureOptions(
                             position: .front,
                             dimensions: .h720_169,
-                            fps: 24
+                            fps: 15
                         ),
                         processor: processor
                     )
@@ -1787,27 +1787,31 @@ private final class AmigoRealtimeVideoProcessor: NSObject, LiveKit.VideoProcesso
     private let ciContext = CIContext(options: nil)
     private var targetLatent: FaceLatent?
     private var faceSwapEnabled = false
-    private var cachedPixelBuffer: CVPixelBuffer?
-    private var cachedBufferSize: CGSize?
+    private var pixelBufferPool: CVPixelBufferPool?
+    private var pixelBufferPoolSize: CGSize?
+    private var lastProcessedPixelBuffer: CVPixelBuffer?
     private var didLogFirstProcessedFrame = false
-    private var didEmitPublishBootstrap = false
     private var loggedPrivacyReasons = Set<String>()
 
     func setTargetLatent(_ latent: FaceLatent?) {
         stateLock.lock()
         targetLatent = latent
+        lastProcessedPixelBuffer = nil
         stateLock.unlock()
     }
 
     func setEnabled(_ enabled: Bool) {
         stateLock.lock()
         faceSwapEnabled = enabled
+        if !enabled {
+            lastProcessedPixelBuffer = nil
+        }
         stateLock.unlock()
     }
 
     func prepareForPublish() {
         stateLock.lock()
-        didEmitPublishBootstrap = false
+        lastProcessedPixelBuffer = nil
         stateLock.unlock()
     }
 
@@ -1815,20 +1819,13 @@ private final class AmigoRealtimeVideoProcessor: NSObject, LiveKit.VideoProcesso
         stateLock.lock()
         let latent = targetLatent
         let enabled = faceSwapEnabled
-        let shouldEmitPublishBootstrap = enabled && latent != nil && !didEmitPublishBootstrap
-        if shouldEmitPublishBootstrap {
-            didEmitPublishBootstrap = true
-        }
         stateLock.unlock()
 
         guard enabled, let latent else {
             return privacyPlaceholderFrame(for: frame, reason: "processorNotReady")
         }
-        if shouldEmitPublishBootstrap {
-            return privacyPlaceholderFrame(for: frame, reason: "trackDimensionBootstrap")
-        }
         guard let inputBuffer = frame.toCVPixelBuffer() else {
-            return privacyPlaceholderFrame(for: frame, reason: "inputPixelBufferUnavailable")
+            return stableFallbackFrame(for: frame, reason: "inputPixelBufferUnavailable")
         }
 
         do {
@@ -1837,16 +1834,19 @@ private final class AmigoRealtimeVideoProcessor: NSObject, LiveKit.VideoProcesso
                 using: latent,
                 lipMode: .innerLips
             ) else {
-                return privacyPlaceholderFrame(for: frame, reason: "noFaceDetectedInFrame")
+                return stableFallbackFrame(for: frame, reason: "noFaceDetectedInFrame")
             }
             let size = CGSize(
                 width: Int(frame.dimensions.width),
                 height: Int(frame.dimensions.height)
             )
             guard let outputBuffer = getOutputBuffer(for: size) else {
-                return privacyPlaceholderFrame(for: frame, reason: "outputBufferAllocationFailed")
+                return stableFallbackFrame(for: frame, reason: "outputBufferAllocationFailed")
             }
             ciContext.render(outputImage, to: outputBuffer)
+            stateLock.lock()
+            lastProcessedPixelBuffer = outputBuffer
+            stateLock.unlock()
             if !didLogFirstProcessedFrame {
                 didLogFirstProcessedFrame = true
                 AmigoSDKDiagnostics.record(
@@ -1867,8 +1867,58 @@ private final class AmigoRealtimeVideoProcessor: NSObject, LiveKit.VideoProcesso
                 error: error,
                 mappedCode: mapped.code
             )
-            return privacyPlaceholderFrame(for: frame, reason: "sdkProcessingFailed")
+            return stableFallbackFrame(for: frame, reason: "sdkProcessingFailed")
         }
+    }
+
+    private func stableFallbackFrame(for frame: VideoFrame, reason: String) -> VideoFrame? {
+        let size = CGSize(
+            width: Int(frame.dimensions.width),
+            height: Int(frame.dimensions.height)
+        )
+        stateLock.lock()
+        let heldBuffer = lastProcessedPixelBuffer
+        let shouldLog = loggedPrivacyReasons.insert("held:\(reason)").inserted
+        stateLock.unlock()
+
+        if let heldBuffer {
+            let heldWidth = CVPixelBufferGetWidth(heldBuffer)
+            let heldHeight = CVPixelBufferGetHeight(heldBuffer)
+            let outputBuffer: CVPixelBuffer
+            if heldWidth == Int(size.width), heldHeight == Int(size.height) {
+                outputBuffer = heldBuffer
+            } else if let resizedBuffer = getOutputBuffer(for: size) {
+                let heldImage = CIImage(cvPixelBuffer: heldBuffer)
+                let scaleX = size.width / max(1, CGFloat(heldWidth))
+                let scaleY = size.height / max(1, CGFloat(heldHeight))
+                ciContext.render(
+                    heldImage.transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY)),
+                    to: resizedBuffer
+                )
+                outputBuffer = resizedBuffer
+            } else {
+                return privacyPlaceholderFrame(for: frame, reason: reason)
+            }
+            if shouldLog {
+                AmigoSDKDiagnostics.record(
+                    "[AmigoSDK] stage=realtimeProcessFrame result=heldProcessedFrame " +
+                    "reason=\(reason) rawCameraPublished=false"
+                )
+            }
+            return VideoFrame(
+                dimensions: frame.dimensions,
+                rotation: frame.rotation,
+                timeStampNs: frame.timeStampNs,
+                buffer: CVPixelVideoBuffer(pixelBuffer: outputBuffer)
+            )
+        }
+        if shouldLog {
+            AmigoSDKDiagnostics.record(
+                "[AmigoSDK] stage=realtimeProcessFrame result=dropped " +
+                "reason=\(reason) waitingForFirstProcessedFrame=true rawCameraPublished=false"
+            )
+        }
+        return nil
     }
 
     private func privacyPlaceholderFrame(for frame: VideoFrame, reason: String) -> VideoFrame? {
@@ -1910,19 +1960,36 @@ private final class AmigoRealtimeVideoProcessor: NSObject, LiveKit.VideoProcesso
     }
 
     private func getOutputBuffer(for size: CGSize) -> CVPixelBuffer? {
-        if cachedBufferSize != size {
-            var pixelBuffer: CVPixelBuffer?
-            CVPixelBufferCreate(
+        guard size.width > 0, size.height > 0 else { return nil }
+        if pixelBufferPoolSize != size || pixelBufferPool == nil {
+            let pixelBufferAttributes: [String: Any] = [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+                kCVPixelBufferWidthKey as String: Int(size.width),
+                kCVPixelBufferHeightKey as String: Int(size.height),
+                kCVPixelBufferIOSurfacePropertiesKey as String: [:]
+            ]
+            let poolAttributes: [String: Any] = [
+                kCVPixelBufferPoolMinimumBufferCountKey as String: 4
+            ]
+            var pool: CVPixelBufferPool?
+            let status = CVPixelBufferPoolCreate(
                 kCFAllocatorDefault,
-                Int(size.width),
-                Int(size.height),
-                kCVPixelFormatType_32BGRA,
-                nil,
-                &pixelBuffer
+                poolAttributes as CFDictionary,
+                pixelBufferAttributes as CFDictionary,
+                &pool
             )
-            cachedPixelBuffer = pixelBuffer
-            cachedBufferSize = size
+            guard status == kCVReturnSuccess, let pool else { return nil }
+            pixelBufferPool = pool
+            pixelBufferPoolSize = size
         }
-        return cachedPixelBuffer
+        guard let pixelBufferPool else { return nil }
+        var pixelBuffer: CVPixelBuffer?
+        let status = CVPixelBufferPoolCreatePixelBuffer(
+            kCFAllocatorDefault,
+            pixelBufferPool,
+            &pixelBuffer
+        )
+        guard status == kCVReturnSuccess else { return nil }
+        return pixelBuffer
     }
 }

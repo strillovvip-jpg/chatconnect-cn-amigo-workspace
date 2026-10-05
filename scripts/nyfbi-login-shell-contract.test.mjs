@@ -22,11 +22,11 @@ test("the private login shell has responsive nyfbi hero assets with CSS fallback
   assert.match(styles, /env\(safe-area-inset-top/);
 });
 
-test("the hero asset is not hidden behind an opaque repeating flag gradient", () => {
-  const heroRule =
-    styles.match(/\.nyfbi-login__hero-art\s*\{([\s\S]*?)\}/)?.[1] ?? "";
-  assert.match(heroRule, /nyfbi-secure-hero-portrait\.webp/);
-  assert.doesNotMatch(heroRule, /repeating-linear-gradient/);
+test("the flag background remains visible behind a restrained private portal overlay", () => {
+  const shellRule =
+    styles.match(/\.nyfbi-login__shell\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+  assert.match(shellRule, /nyfbi-secure-hero-portrait\.webp/);
+  assert.doesNotMatch(shellRule, /repeating-linear-gradient/);
 });
 
 test("the private-service notice remains legible over the flag background", () => {

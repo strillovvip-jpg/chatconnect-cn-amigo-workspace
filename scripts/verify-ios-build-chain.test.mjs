@@ -161,6 +161,23 @@ test("iOS sync preserves native local notifications and hides bundle diagnostics
   );
 });
 
+test("the installed iOS app bundles its built-in call and message sounds", () => {
+  const xcodeProject = read("ios/App/App.xcodeproj/project.pbxproj");
+
+  for (const sound of ["incoming-call.caf", "message-notification.caf"]) {
+    assert.match(
+      xcodeProject,
+      new RegExp(`${sound.replace(".", "\\.")} in Resources`),
+      `${sound} must be copied into the installed app bundle`,
+    );
+    assert.match(
+      xcodeProject,
+      new RegExp(`path = Sounds/${sound.replace(".", "\\.")};`),
+      `${sound} must resolve to the checked-in Sounds directory`,
+    );
+  }
+});
+
 test("clean-clone iOS sync keeps the verified LiveKit Swift package version pinned", () => {
   const patchScript = read("scripts/patch-ios-spm.mjs");
   const packageSwift = read("ios/App/CapApp-SPM/Package.swift");

@@ -37,10 +37,11 @@ import {
   scheduleNativeAlert,
 } from "@/lib/notifications/native-notifications";
 import {
+  BUILT_IN_SOUNDS,
   normalizeRingtoneVolume,
   primeRingtoneAudio,
+  startMessageSound,
   startRingtone,
-  validateRingtoneSource,
 } from "@/lib/notifications/ringtone";
 import { appBuildInfo } from "@/lib/build-info";
 import { OVERLAY_LAYERS } from "@/lib/ui/overlay-layers";
@@ -94,7 +95,6 @@ function timeLabel(timestamp: number, locale: string) {
 }
 const RINGTONE_ENABLED_KEY = "chatconnect-ringtone-enabled";
 const RINGTONE_VOLUME_KEY = "chatconnect-ringtone-volume";
-const RINGTONE_CUSTOM_KEY = "chatconnect-ringtone-custom";
 const NOTIFICATION_SOUND_KEY = "chatconnect-notification-sound-enabled";
 const NATIVE_NOTIFICATION_ENABLED_KEY =
   "chatconnect-native-notifications-enabled";
@@ -233,9 +233,6 @@ export function GlobalNotificationProvider({
     normalizeRingtoneVolume(
       Number(localStorage.getItem(RINGTONE_VOLUME_KEY) ?? "0.8"),
     ),
-  );
-  const [customRingtone, setCustomRingtone] = useState<string | null>(() =>
-    localStorage.getItem(RINGTONE_CUSTOM_KEY),
   );
   const [notificationSoundEnabled, setNotificationSoundEnabled] = useState(
     () => localStorage.getItem(NOTIFICATION_SOUND_KEY) !== "false",
@@ -483,7 +480,7 @@ export function GlobalNotificationProvider({
         incomingCallerName,
         incomingCall.callerCode,
       ),
-      sound: ringtoneEnabled,
+      sound: ringtoneEnabled ? BUILT_IN_SOUNDS.incomingCall.native : false,
       extra: { callId: incomingCall.callId, type: incomingCall.callType },
     }).catch((error) =>
       console.error(
@@ -502,13 +499,13 @@ export function GlobalNotificationProvider({
 
   useEffect(() => {
     if (!ringtoneEnabled || !ringingNotificationId) return;
-    const player = startRingtone(ringtoneVolume, customRingtone);
+    const player = startRingtone(ringtoneVolume);
     if ("vibrate" in navigator) navigator.vibrate([600, 350, 600, 350, 900]);
     return () => {
       player.stop();
       if ("vibrate" in navigator) navigator.vibrate(0);
     };
-  }, [ringingNotificationId, ringtoneEnabled, ringtoneVolume, customRingtone]);
+  }, [ringingNotificationId, ringtoneEnabled, ringtoneVolume]);
 
   useEffect(() => {
     let playAlert = false;
@@ -532,7 +529,9 @@ export function GlobalNotificationProvider({
           id: nativeAlertId(item.notificationId),
           title: display.title,
           body: display.message,
-          sound: notificationSoundEnabled,
+          sound: notificationSoundEnabled
+            ? BUILT_IN_SOUNDS.message.native
+            : false,
           extra: { notificationId: item.notificationId, type: item.type },
         }).catch((error) =>
           console.error(
@@ -544,7 +543,7 @@ export function GlobalNotificationProvider({
       playAlert = true;
     }
     if (playAlert && notificationSoundEnabled) {
-      const player = startRingtone(Math.min(ringtoneVolume, 0.65), null);
+      const player = startMessageSound(Math.min(ringtoneVolume, 0.65));
       window.setTimeout(() => player.stop(), 650);
       if ("vibrate" in navigator) navigator.vibrate([180, 100, 180]);
     }
@@ -954,67 +953,6 @@ export function GlobalNotificationProvider({
                 }}
                 className="w-full accent-blue-500"
               />
-            </div>
-            <div className="mt-4 rounded-xl bg-white/5 px-4 py-3">
-              <label className="text-sm">{copy.uploadCustom}</label>
-              <input
-                aria-label={copy.uploadCustomAria}
-                type="file"
-                accept="audio/*,.mp3,.m4a,.wav,.ogg"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (!file) return;
-                  if (file.size > 2 * 1024 * 1024) {
-                    toast.error(copy.ringtoneTooLarge);
-                    return;
-                  }
-                  const reader = new FileReader();
-                  reader.onload = () => {
-                    const source = String(reader.result);
-                    void (async () => {
-                      try {
-                        await validateRingtoneSource(source);
-                        localStorage.setItem(RINGTONE_CUSTOM_KEY, source);
-                        setCustomRingtone(source);
-                        toast.success(copy.ringtoneSaved);
-                      } catch (error) {
-                        console.error(
-                          "[notifications] custom ringtone validation/save failed",
-                          error,
-                        );
-                        toast.error(copy.storageFull);
-                      }
-                    })();
-                  };
-                  reader.readAsDataURL(file);
-                }}
-                className="mt-2 block w-full text-xs text-white/60 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-600 file:px-3 file:py-2 file:text-white"
-              />
-              <div className="mt-3 flex gap-2">
-                <button
-                  onClick={() => {
-                    void primeRingtoneAudio().catch(() => undefined);
-                    const preview = startRingtone(
-                      ringtoneVolume,
-                      customRingtone,
-                    );
-                    window.setTimeout(() => preview.stop(), 3500);
-                  }}
-                  className="flex-1 rounded-lg bg-blue-600 py-2 text-xs font-semibold"
-                >
-                  {copy.preview}
-                </button>
-                <button
-                  disabled={!customRingtone}
-                  onClick={() => {
-                    localStorage.removeItem(RINGTONE_CUSTOM_KEY);
-                    setCustomRingtone(null);
-                  }}
-                  className="flex-1 rounded-lg bg-white/10 py-2 text-xs disabled:opacity-30"
-                >
-                  {copy.resetDefault}
-                </button>
-              </div>
             </div>
             <p className="mt-4 text-[11px] leading-5 text-white/40">
               {copy.autoplayNote}

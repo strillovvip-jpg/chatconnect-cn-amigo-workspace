@@ -55,7 +55,7 @@ export async function scheduleNativeAlert(
     id: number;
     title: string;
     body: string;
-    sound?: boolean;
+    sound?: string | false;
     extra?: Record<string, unknown>;
   },
 ): Promise<void> {
@@ -65,7 +65,9 @@ export async function scheduleNativeAlert(
         id: alert.id,
         title: alert.title,
         body: alert.body,
-        ...(alert.sound === false ? {} : { sound: "default" }),
+        ...(alert.sound === false
+          ? {}
+          : { sound: alert.sound ?? "default" }),
         ...(alert.extra ? { extra: alert.extra } : {}),
       },
     ],

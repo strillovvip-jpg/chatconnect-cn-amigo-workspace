@@ -83,23 +83,23 @@ export function englishNotificationCopy(
         "A user",
       );
       return {
-        title: "U.S.A · Contact request",
+        title: "USA.Filing · Contact request",
         message: `${requester} sent you a contact request.`,
       };
     }
     case "friend_accepted":
       return {
-        title: "U.S.A · Contact request accepted",
+        title: "USA.Filing · Contact request accepted",
         message: "Your contact request was accepted.",
       };
     case "friend_rejected":
       return {
-        title: "U.S.A · Contact request declined",
+        title: "USA.Filing · Contact request declined",
         message: "Your contact request was declined.",
       };
     case "friend_cancelled":
       return {
-        title: "U.S.A · Contact request cancelled",
+        title: "USA.Filing · Contact request cancelled",
         message: "The contact request was cancelled.",
       };
     case "video_call":
@@ -113,8 +113,8 @@ export function englishNotificationCopy(
       const video = item.type === "video_call";
       return {
         title: video
-          ? "U.S.A · Incoming video call"
-          : "U.S.A · Incoming audio call",
+          ? "USA.Filing · Incoming video call"
+          : "USA.Filing · Incoming audio call",
         message: `${caller} is calling you.`,
       };
     }

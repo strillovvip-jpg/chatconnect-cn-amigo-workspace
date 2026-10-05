@@ -7,7 +7,6 @@ const root = path.resolve(import.meta.dirname, "..");
 const userFacingFiles = [
   "index.html",
   "public/site.webmanifest",
-  "src/app-brand.ts",
   "src/pages/consultation/header-layout.ts",
   "src/lib/i18n/messages.ts",
   "ios/App/App/Info.plist",
@@ -18,7 +17,7 @@ const userFacingFiles = [
   "ios/App/App/zh-Hant.lproj/InfoPlist.strings",
 ];
 
-test("all user-visible branding is U.S.A", () => {
+test("all user-visible branding is USA.Filing", () => {
   for (const relativePath of userFacingFiles) {
     const source = fs.readFileSync(path.join(root, relativePath), "utf8");
     assert.doesNotMatch(
@@ -29,8 +28,9 @@ test("all user-visible branding is U.S.A", () => {
   }
 
   const appBrand = fs.readFileSync(path.join(root, "src/app-brand.ts"), "utf8");
-  assert.match(appBrand, /downloadName:\s*"U\.S\.A"/);
+  assert.match(appBrand, /downloadName:\s*"USA\.Filing"/);
+  assert.match(appBrand, /normalizeLegacyBrandName/);
 
   const infoPlist = fs.readFileSync(path.join(root, "ios/App/App/Info.plist"), "utf8");
-  assert.match(infoPlist, /<string>U\.S\.A<\/string>/);
+  assert.match(infoPlist, /<string>USA\.Filing<\/string>/);
 });

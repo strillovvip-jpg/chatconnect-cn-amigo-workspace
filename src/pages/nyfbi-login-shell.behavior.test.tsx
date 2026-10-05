@@ -98,37 +98,39 @@ describe("nyfbi private login shell", () => {
     vi.clearAllMocks();
   });
 
-  it("presents the private-service portal while keeping authorization-code, name, and QR login available", () => {
+  it("presents the premium USA.Filing portal while keeping authorization-code, name, and QR login available", () => {
     render(<ChinesePortal />);
 
     expect(
       screen.getByRole("heading", {
-        name: "Private Communications Access Portal",
+        name: "USA.Filing Secure Communications",
       }),
     ).toBeVisible();
     expect(
-      screen.getByRole("heading", { name: "Authorized users only" }),
+      screen.getByRole("heading", { name: "Authorized Access Portal" }),
     ).toBeVisible();
-    expect(
-      screen.getAllByText("Secure access • Confidential communication"),
-    ).toHaveLength(2);
     expect(
       screen.getByText(
         "Private service — Not affiliated with any government agency.",
       ),
     ).toBeVisible();
-    expect(screen.getByTestId("private-service-shield")).toBeVisible();
-    expect(screen.getByPlaceholderText("Authorization code")).toBeVisible();
-    expect(screen.getByPlaceholderText("Name (optional)")).toBeVisible();
+    expect(screen.getByTestId("private-service-shield")).toHaveAttribute(
+      "src",
+      "/icon/usa-192.png?v=3",
+    );
+    expect(screen.queryByText("SC")).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Enter authorization code")).toBeVisible();
+    expect(screen.getByPlaceholderText("Enter your full name")).toBeVisible();
     expect(
       screen.getByRole("button", { name: "Sign in with QR code" }),
     ).toBeEnabled();
     expect(
       screen.queryByRole("combobox", { name: "language" }),
     ).not.toBeInTheDocument();
+    expect(document.title).toBe("USA.Filing Secure Communications");
   });
 
-  it("uses the same shell for a native app while retaining localized copy and language selection", () => {
+  it("uses the same English USA.Filing shell for a native app", () => {
     mocks.nyfbi = false;
     mocks.native = true;
     mocks.portalTitle = "プライベート通信アクセス";
@@ -136,10 +138,13 @@ describe("nyfbi private login shell", () => {
     render(<ChinesePortal />);
 
     expect(
-      screen.getByRole("heading", { name: "プライベート通信アクセス" }),
+      screen.getByRole("heading", { name: "USA.Filing Secure Communications" }),
     ).toBeVisible();
-    expect(screen.getByRole("combobox")).toBeVisible();
-    expect(screen.getByTestId("private-service-shield")).toBeVisible();
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    expect(screen.getByTestId("private-service-shield")).toHaveAttribute(
+      "src",
+      "/icon/usa-192.png?v=3",
+    );
   });
 
   it("claims a native mobile app session in the standalone device slot", async () => {
@@ -148,13 +153,13 @@ describe("nyfbi private login shell", () => {
     mocks.claimCode.mockResolvedValue({ name: "IGIDM user", role: "user" });
 
     render(<ChinesePortal />);
-    fireEvent.change(screen.getByPlaceholderText("Authorization code"), {
+    fireEvent.change(screen.getByPlaceholderText("Enter authorization code"), {
       target: { value: "IGIDM" },
     });
-    fireEvent.change(screen.getByPlaceholderText("Name (optional)"), {
+    fireEvent.change(screen.getByPlaceholderText("Enter your full name"), {
       target: { value: "IGIDM user" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    fireEvent.click(screen.getByRole("button", { name: "Log In" }));
 
     await waitFor(() => expect(mocks.claimCode).toHaveBeenCalledTimes(1));
     expect(mocks.claimCode).toHaveBeenCalledWith(

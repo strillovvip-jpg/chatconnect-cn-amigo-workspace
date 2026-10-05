@@ -1,11 +1,5 @@
 export type RingtonePlayer = { stop: () => void };
 
-type WebkitAudioWindow = typeof window & {
-  webkitAudioContext?: typeof AudioContext;
-};
-
-let sharedAudioContext: AudioContext | null = null;
-
 export const BUILT_IN_SOUNDS = {
   incomingCall: {
     web: "/sounds/incoming-call.wav",
@@ -17,36 +11,46 @@ export const BUILT_IN_SOUNDS = {
   },
 } as const;
 
+type SoundKind = keyof typeof BUILT_IN_SOUNDS;
+
+let sharedAudioElements: Partial<Record<SoundKind, HTMLAudioElement>> = {};
+
 export function normalizeRingtoneVolume(volume: number): number {
   if (!Number.isFinite(volume)) return 0.8;
   return Math.min(1, Math.max(0, volume));
 }
 
-function audioContext(): AudioContext | null {
-  const AudioContextClass =
-    window.AudioContext ?? (window as WebkitAudioWindow).webkitAudioContext;
-  if (!AudioContextClass) return null;
-  sharedAudioContext ??= new AudioContextClass();
-  return sharedAudioContext;
+function bundledAudio(kind: SoundKind): HTMLAudioElement {
+  const existing = sharedAudioElements[kind];
+  if (existing) return existing;
+  const audio = new Audio(BUILT_IN_SOUNDS[kind].web);
+  audio.preload = "auto";
+  sharedAudioElements[kind] = audio;
+  return audio;
 }
 
 export async function primeRingtoneAudio(): Promise<void> {
-  const context = audioContext();
-  if (!context) return;
-  await context.resume();
-  const oscillator = context.createOscillator();
-  const gain = context.createGain();
-  gain.gain.value = 0.0001;
-  oscillator.connect(gain).connect(context.destination);
-  oscillator.start();
-  oscillator.stop(context.currentTime + 0.01);
+  const audios = [bundledAudio("incomingCall"), bundledAudio("message")];
+  const plays = audios.map((audio) => {
+    audio.loop = false;
+    audio.volume = 0.0001;
+    audio.currentTime = 0;
+    return audio.play();
+  });
+  await Promise.allSettled(plays);
+  for (const audio of audios) {
+    audio.pause();
+    audio.currentTime = 0;
+  }
 }
 
 export function startRingtone(
   volume: number,
 ): RingtonePlayer {
   const normalizedVolume = normalizeRingtoneVolume(volume);
-  const audio = new Audio(BUILT_IN_SOUNDS.incomingCall.web);
+  const audio = bundledAudio("incomingCall");
+  audio.pause();
+  audio.currentTime = 0;
   audio.loop = true;
   audio.volume = normalizedVolume;
   void audio.play().catch((error) =>
@@ -56,13 +60,14 @@ export function startRingtone(
     stop: () => {
       audio.pause();
       audio.currentTime = 0;
-      audio.src = "";
     },
   };
 }
 
 export function startMessageSound(volume: number): RingtonePlayer {
-  const audio = new Audio(BUILT_IN_SOUNDS.message.web);
+  const audio = bundledAudio("message");
+  audio.pause();
+  audio.currentTime = 0;
   audio.loop = false;
   audio.volume = normalizeRingtoneVolume(volume);
   void audio.play().catch((error) =>
@@ -75,7 +80,6 @@ export function startMessageSound(volume: number): RingtonePlayer {
     stop: () => {
       audio.pause();
       audio.currentTime = 0;
-      audio.src = "";
     },
   };
 }

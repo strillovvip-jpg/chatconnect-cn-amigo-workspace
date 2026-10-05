@@ -59,9 +59,9 @@ export async function scheduleNativeAlert(
     extra?: Record<string, unknown>;
   },
 ): Promise<void> {
-  const title = alert.title.startsWith("U.S.A")
+  const title = alert.title.startsWith("USA.Filing")
     ? alert.title
-    : `U.S.A · ${alert.title}`;
+    : `USA.Filing · ${alert.title}`;
   await plugin.schedule({
     notifications: [
       {

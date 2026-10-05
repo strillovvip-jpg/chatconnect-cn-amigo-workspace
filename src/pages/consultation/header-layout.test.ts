@@ -33,11 +33,11 @@ describe("getConsultationHeaderClassName", () => {
 });
 
 describe("getConsultationHeaderBrand", () => {
-  it("uses U.S.A instead of the old flag block", () => {
+  it("uses USA.Filing instead of the old flag block", () => {
     expect(getConsultationHeaderBrand()).toEqual({
-      ariaLabel: "U.S.A",
-      badgeText: "U.S.A",
-      title: "U.S.A",
+      ariaLabel: "USA.Filing",
+      badgeText: "USA.Filing",
+      title: "USA.Filing",
     });
   });
 });

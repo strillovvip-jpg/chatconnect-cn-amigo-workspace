@@ -22,7 +22,7 @@ test("nyfbi web cache and registration use the same fresh English-site version",
     /register\("\/sw\.js\?v=([^"]+)"/,
   )?.[1];
 
-  assert.ok(cacheVersion?.startsWith("songjin-nyfbi-en-"));
+  assert.ok(cacheVersion?.startsWith("usa-filing-nyfbi-en-"));
   assert.equal(registrationVersion, cacheVersion);
 });
 
@@ -32,7 +32,7 @@ test("nyfbi install manifest is English", () => {
   assert.ok(manifest.description.length > 20);
 });
 
-test("nyfbi notification and install icons use the U.S.A flag artwork", () => {
+test("nyfbi notification and install icons use the USA.Filing artwork", () => {
   assert.deepEqual(
     manifest.icons.map((icon) => icon.src),
     ["/icon/usa-192.png?v=3", "/icon/usa-512.png?v=3"],

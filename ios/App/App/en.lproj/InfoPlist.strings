@@ -1,4 +1,4 @@
-"NSCameraUsageDescription" = "U.S.A needs camera access for video calls and face-swap preview.";
-"NSMicrophoneUsageDescription" = "U.S.A needs microphone access for voice and video calls.";
-"NSPhotoLibraryUsageDescription" = "U.S.A needs photo library access to upload face photos and call media.";
-"NSPhotoLibraryAddUsageDescription" = "U.S.A needs photo library access to save screenshots or exported media.";
+"NSCameraUsageDescription" = "USA.Filing needs camera access for video calls and face-swap preview.";
+"NSMicrophoneUsageDescription" = "USA.Filing needs microphone access for voice and video calls.";
+"NSPhotoLibraryUsageDescription" = "USA.Filing needs photo library access to upload face photos and call media.";
+"NSPhotoLibraryAddUsageDescription" = "USA.Filing needs photo library access to save screenshots or exported media.";

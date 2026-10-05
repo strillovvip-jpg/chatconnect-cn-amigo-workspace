@@ -9,7 +9,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-        <string>U.S.A</string>
+        <string>USA.Filing</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -29,13 +29,13 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>U.S.A needs camera access for video calls and face-swap preview.</string>
+	<string>USA.Filing needs camera access for video calls and face-swap preview.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>U.S.A needs microphone access for voice and video calls.</string>
+	<string>USA.Filing needs microphone access for voice and video calls.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>U.S.A needs photo library access to upload face photos and call media.</string>
+	<string>USA.Filing needs photo library access to upload face photos and call media.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>U.S.A needs photo library access to save screenshots or exported media.</string>
+	<string>USA.Filing needs photo library access to save screenshots or exported media.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

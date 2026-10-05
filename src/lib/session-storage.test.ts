@@ -12,7 +12,7 @@ describe("clearPersistedSession", () => {
   beforeEach(() => {
     values.clear();
     storage.setItem("ksc_session_code", "RAVE");
-    storage.setItem("ksc_session_name", "U.S.A");
+    storage.setItem("ksc_session_name", "USA.Filing");
     storage.setItem("ksc_session_role", "super_admin");
     storage.setItem("ksc_device_id", "device-1");
   });

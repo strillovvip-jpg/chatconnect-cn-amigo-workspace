@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { appBrand } from "./app-brand";
+import { normalizeLegacyBrandName } from "./app-brand";
 
-describe("appBrand", () => {
-  it("uses U.S.A as the downloadable app name", () => {
-    expect(appBrand.downloadName).toBe("U.S.A");
+describe("legacy brand display names", () => {
+  it.each(["Song Jin", "song jin", "SONGJIN", "頌進", "颂进"])(
+    "renders %s as USA.Filing",
+    (name) => {
+      expect(normalizeLegacyBrandName(name)).toBe("USA.Filing");
+    },
+  );
+
+  it("keeps an actual contact name unchanged", () => {
+    expect(normalizeLegacyBrandName("RAVE")).toBe("RAVE");
   });
 });

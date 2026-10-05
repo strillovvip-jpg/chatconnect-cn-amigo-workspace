@@ -1283,10 +1283,7 @@
   overflow-x: hidden;
   position: relative;
   color: #f8fbff;
-  background:
-    linear-gradient(180deg, #061427 0%, #061427ee 42%, #020913 100%),
-    radial-gradient(circle at 22% 10%, #1b5da388 0 18%, transparent 42%),
-    radial-gradient(circle at 78% 20%, #c19b4a3b 0 10%, transparent 30%);
+  background: #e6edf5;
   font-family:
     Inter,
     ui-sans-serif,
@@ -1322,15 +1319,13 @@
   position: relative;
   display: grid;
   place-items: center;
-  padding: max(0.7rem, var(--app-safe-area-top))
+  padding: max(1rem, var(--app-safe-area-top))
     max(0.7rem, var(--app-safe-area-right))
-    max(0.8rem, var(--app-safe-area-bottom))
+    max(1rem, var(--app-safe-area-bottom))
     max(0.7rem, var(--app-safe-area-left));
   background:
-    linear-gradient(180deg, #03091488 0%, #020913ee 76%, #020913 100%),
-    radial-gradient(circle at 50% 17%, #ffffff18 0 9%, transparent 27%),
-    linear-gradient(110deg, #0a1a31bb 0 24%, transparent 48%),
-    url("/nyfbi-secure-hero-portrait.webp") center / cover no-repeat;
+    linear-gradient(180deg, #eaf2fac7 0%, #10233f52 34%, #031126e8 100%),
+    url("/usa-secure-daylight-portrait.png") center / cover no-repeat;
 }
 
 .nyfbi-login__shell::before {
@@ -1339,29 +1334,30 @@
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(circle at 50% 12%, #e0bd6d24 0 11%, transparent 31%),
-    linear-gradient(180deg, transparent 0 55%, #020913e8 88% 100%);
+    radial-gradient(circle at 50% 6%, #ffffffa8 0 8%, transparent 28%),
+    linear-gradient(180deg, transparent 0 20%, #07162b2e 43%, #020b18c4 100%);
 }
 
 .nyfbi-login__form-column {
   position: relative;
   z-index: 2;
-  width: min(100%, 35.4rem);
+  width: min(100%, 32rem);
   margin: 0 auto;
 }
 
 .nyfbi-login__card {
-  border: 1px solid #bd9550;
-  border-radius: 0.2rem;
-  padding: clamp(1rem, 3.4vw, 1.45rem);
+  border: 1px solid #ddb96a;
+  border-radius: 1.4rem;
+  padding: clamp(1.05rem, 3.8vw, 1.5rem);
   background:
-    linear-gradient(180deg, #07162bea 0%, #03101ff5 100%),
-    radial-gradient(circle at 50% 12%, #b68a4536 0 16%, transparent 34%);
+    linear-gradient(155deg, #071a35e8 0%, #031124f4 58%, #020a17f7 100%),
+    radial-gradient(circle at 50% 6%, #deb96a30 0 14%, transparent 35%);
   box-shadow:
-    0 1.4rem 4rem #000c,
-    inset 0 1px 0 #ffffff2b,
-    inset 0 0 0 1px #ffffff12;
-  backdrop-filter: blur(10px);
+    0 1.8rem 5rem #00102770,
+    inset 0 1px 0 #ffffff45,
+    inset 0 0 0 1px #ffffff12,
+    0 0 0 1px #091b34a8;
+  backdrop-filter: blur(16px) saturate(120%);
 }
 
 .nyfbi-login__utility {
@@ -1399,28 +1395,20 @@
 }
 
 .nyfbi-login__shield {
-  width: clamp(7.6rem, 31vw, 10.4rem);
-  height: clamp(7.6rem, 31vw, 10.4rem);
-  margin: -0.2rem auto 1rem;
-  display: grid;
-  place-items: center;
-  border: 0.45rem solid #cda95b;
-  border-radius: 50%;
-  color: #fff;
-  background:
-    radial-gradient(circle at 50% 50%, #0e2b54 0 42%, transparent 43%),
-    repeating-conic-gradient(from 0deg, #cda95b 0 5deg, transparent 5deg 12deg),
-    radial-gradient(circle, #071d38 0 58%, #d7b568 59% 70%, #06182f 71%);
+  width: clamp(5.7rem, 23vw, 7.6rem);
+  height: clamp(5.7rem, 23vw, 7.6rem);
+  margin: 0 auto 0.7rem;
+  display: block;
+  border: 1px solid #f2d58c;
+  border-radius: 1.45rem;
+  object-fit: cover;
   box-shadow:
-    0 1rem 2.4rem #000a,
-    inset 0 0 0 2px #0a213f,
-    inset 0 0 0 8px #dfbd72;
-  font-size: clamp(2.3rem, 10vw, 4.05rem);
-  font-weight: 950;
-  letter-spacing: -0.08em;
+    0 0.8rem 2rem #0009,
+    0 0 1.4rem #d7b56842;
 }
 
 .nyfbi-login__eyebrow,
+.nyfbi-login__tagline,
 .nyfbi-login__form-heading p {
   margin: 0;
   color: #e9eef9;
@@ -1431,12 +1419,24 @@
   text-transform: uppercase;
 }
 
+.nyfbi-login__eyebrow {
+  color: #e7c777;
+  font-size: 0.68rem;
+  font-weight: 850;
+  letter-spacing: 0.32em;
+}
+
+.nyfbi-login__tagline {
+  margin-top: 0.45rem;
+  color: #dbe7f5;
+}
+
 .nyfbi-login__header h1 {
-  max-width: 19ch;
-  margin: 0 auto;
+  max-width: 22ch;
+  margin: 0.25rem auto 0;
   color: #fff;
-  font-size: clamp(1.95rem, 8.2vw, 3.25rem);
-  line-height: 0.96;
+  font-size: clamp(1.7rem, 6.7vw, 2.55rem);
+  line-height: 1.02;
   white-space: pre-line;
   letter-spacing: 0.015em;
   text-transform: uppercase;
@@ -1444,7 +1444,7 @@
 }
 
 .nyfbi-login__form-heading {
-  margin: 0.95rem 0 1.15rem;
+  margin: 0.8rem 0 0.95rem;
 }
 
 .nyfbi-login__form-heading h2 {
@@ -1470,9 +1470,9 @@
   gap: 0.75rem;
   margin-top: 0.45rem;
   border: 1px solid #7d92ab;
-  border-radius: 0.38rem;
+  border-radius: 0.78rem;
   padding: 0 0.95rem;
-  background: #031326d9;
+  background: #031326b8;
   color: #d7b568;
 }
 
@@ -1515,15 +1515,16 @@
 .nyfbi-login__primary {
   margin-top: 1.25rem;
   border: 1px solid #36a6ff;
-  background: linear-gradient(180deg, #097df0 0%, #054184 100%);
-  color: #fff;
+  border-color: #efd58f;
+  background: linear-gradient(180deg, #e3bf70 0%, #ad772d 100%);
+  color: #07172c;
   padding: 0.92rem 1rem;
   font-size: clamp(1.05rem, 3.3vw, 1.25rem);
   font-weight: 800;
   letter-spacing: 0.18em;
   box-shadow:
-    0 0.7rem 1.8rem #0077ff33,
-    inset 0 1px 0 #ffffff5f;
+    0 0.8rem 2rem #d9ac5552,
+    inset 0 1px 0 #fff8c9aa;
 }
 
 .nyfbi-login__primary:disabled {
@@ -1571,7 +1572,7 @@
   border: 1px solid #c89a4f;
   border-radius: 0.55rem;
   padding: 0.8rem;
-  background: linear-gradient(180deg, #07172ee8, #020a14f0);
+  background: linear-gradient(180deg, #10284ac7, #061327e8);
   color: #f0d292;
 }
 
@@ -1584,8 +1585,6 @@
   border-radius: 50%;
   background: #082244;
   color: #fff;
-  font-weight: 900;
-  letter-spacing: 0.05em;
 }
 
 .nyfbi-login__approval strong,
@@ -1714,9 +1713,8 @@
     padding-block: max(1.2rem, var(--app-safe-area-top))
       max(1.2rem, var(--app-safe-area-bottom));
     background:
-      linear-gradient(180deg, #03091488 0%, #020913ee 76%, #020913 100%),
-      radial-gradient(circle at 50% 17%, #ffffff18 0 9%, transparent 27%),
-      url("/nyfbi-secure-hero-landscape.webp") center / cover no-repeat;
+      linear-gradient(90deg, #eaf2fa7a 0%, #09203a52 45%, #031126cf 100%),
+      url("/usa-secure-daylight-portrait.png") center 36% / cover no-repeat;
   }
 
   .nyfbi-login__form-column {

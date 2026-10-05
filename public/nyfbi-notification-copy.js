@@ -57,23 +57,23 @@
           "A user",
         );
         return {
-          title: "U.S.A · Contact request",
+          title: "USA.Filing · Contact request",
           body: `${requester} sent you a contact request.`,
         };
       }
       case "friend_accepted":
         return {
-          title: "U.S.A · Contact request accepted",
+          title: "USA.Filing · Contact request accepted",
           body: "Your contact request was accepted.",
         };
       case "friend_rejected":
         return {
-          title: "U.S.A · Contact request declined",
+          title: "USA.Filing · Contact request declined",
           body: "Your contact request was declined.",
         };
       case "friend_cancelled":
         return {
-          title: "U.S.A · Contact request cancelled",
+          title: "USA.Filing · Contact request cancelled",
           body: "The contact request was cancelled.",
         };
       case "video_call":
@@ -87,8 +87,8 @@
         return {
           title:
             type === "video_call"
-              ? "U.S.A · Incoming video call"
-              : "U.S.A · Incoming audio call",
+              ? "USA.Filing · Incoming video call"
+              : "USA.Filing · Incoming audio call",
           body: `${caller} is calling you.`,
         };
       }

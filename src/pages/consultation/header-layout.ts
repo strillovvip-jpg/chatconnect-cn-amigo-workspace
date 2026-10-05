@@ -16,8 +16,8 @@ export function getConsultationTabBarClassName() {
 
 export function getConsultationHeaderBrand() {
   return {
-    ariaLabel: "U.S.A",
-    badgeText: "U.S.A",
-    title: "U.S.A",
+    ariaLabel: "USA.Filing",
+    badgeText: "USA.Filing",
+    title: "USA.Filing",
   };
 }

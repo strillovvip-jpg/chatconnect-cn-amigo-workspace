@@ -26,7 +26,7 @@ describe("nyfbi service-worker notification copy", () => {
         options: { body: "山田正在呼叫您" },
       }),
     ).toEqual({
-      title: "U.S.A · Incoming video call",
+      title: "USA.Filing · Incoming video call",
       body: "Yamada (ABCDE) is calling you.",
     });
 
@@ -38,7 +38,7 @@ describe("nyfbi service-worker notification copy", () => {
         options: { body: "山田向您发送了联系人请求" },
       }),
     ).toEqual({
-      title: "U.S.A · Contact request",
+      title: "USA.Filing · Contact request",
       body: "Yamada (ABCDE) sent you a contact request.",
     });
 

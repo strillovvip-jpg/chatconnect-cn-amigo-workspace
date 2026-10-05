@@ -1,6 +1,6 @@
 {
 	"appId": "com.tokoyochet.amigoswaptest",
-	"appName": "U.S.A",
+	"appName": "USA.Filing",
 	"webDir": "dist",
 	"ios": {
 		"minVersion": "16.0"

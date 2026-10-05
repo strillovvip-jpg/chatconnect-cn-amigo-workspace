@@ -15,17 +15,16 @@ const messages = readFileSync(
   "utf8",
 );
 
-test("the private login shell has responsive nyfbi hero assets with CSS fallbacks", () => {
+test("the private login shell has a responsive daylight hero with CSS fallbacks", () => {
   assert.match(styles, /nyfbi-login/);
-  assert.match(styles, /nyfbi-secure-hero-landscape\.webp/);
-  assert.match(styles, /nyfbi-secure-hero-portrait\.webp/);
+  assert.match(styles, /usa-secure-daylight-portrait\.png/);
   assert.match(styles, /env\(safe-area-inset-top/);
 });
 
 test("the flag background remains visible behind a restrained private portal overlay", () => {
   const shellRule =
     styles.match(/\.nyfbi-login__shell\s*\{([\s\S]*?)\}/)?.[1] ?? "";
-  assert.match(shellRule, /nyfbi-secure-hero-portrait\.webp/);
+  assert.match(shellRule, /usa-secure-daylight-portrait\.png/);
   assert.doesNotMatch(shellRule, /repeating-linear-gradient/);
 });
 
@@ -50,6 +49,6 @@ test("the login uses the secure portal header and independent trust panel", () =
   assert.match(portal, /nyfbi-login__header/);
   assert.match(portal, /AUTHORIZED ACCESS ONLY/);
   assert.match(portal, /nyfbi-login__feature-grid/);
-  assert.match(portal, /PRIVATE ACCESS VERIFIED/);
+  assert.match(portal, /SECURE ACCESS GATEWAY/);
   assert.doesNotMatch(portal, /APPROVED BY THE FCC|OFFICIAL GOVERNMENT/);
 });

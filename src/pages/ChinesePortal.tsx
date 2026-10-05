@@ -21,6 +21,7 @@ import {
   isAichijpWebRuntime,
   isNyfbiWebRuntime,
 } from "@/lib/runtime-surface.ts";
+import { normalizeLegacyBrandName } from "@/app-brand.ts";
 
 const forcedDeviceId = import.meta.env.VITE_FORCE_DEVICE_ID?.trim() || "";
 const forcedDeviceContext = import.meta.env.VITE_FORCE_DEVICE_CONTEXT?.trim();
@@ -172,7 +173,12 @@ export default function ChinesePortal() {
   useEffect(() => {
     if (!savedSession) return;
     localStorage.setItem("ksc_session_code", savedSession.code);
-    localStorage.setItem("ksc_session_name", savedSession.name);
+    localStorage.setItem(
+      "ksc_session_name",
+      usePrivateLoginShell
+        ? normalizeLegacyBrandName(savedSession.name)
+        : savedSession.name,
+    );
     localStorage.setItem("ksc_session_role", savedSession.role);
     window.dispatchEvent(new Event("chatconnect-session-changed"));
     navigate(
@@ -182,7 +188,7 @@ export default function ChinesePortal() {
           : "/consultation"),
       { replace: true },
     );
-  }, [navigate, postLoginPath, savedSession]);
+  }, [navigate, postLoginPath, savedSession, usePrivateLoginShell]);
 
   useEffect(() => {
     if (!savedCode || !savedDeviceId || savedSession !== null) return;
@@ -209,7 +215,9 @@ export default function ChinesePortal() {
   useEffect(() => {
     document.title = useAichijpLoginShell
       ? "ご利用者ログイン｜愛知県向け届出・申請サポート"
-      : copy.title;
+      : usePrivateLoginShell
+        ? "USA.Filing Secure Communications"
+        : copy.title;
     const description = document.querySelector('meta[name="description"]');
     description?.setAttribute(
       "content",
@@ -217,7 +225,12 @@ export default function ChinesePortal() {
         ? "発行済みの認証コードをお持ちの方専用のオンライン入口です。"
         : copy.description,
     );
-  }, [copy.description, copy.title, useAichijpLoginShell]);
+  }, [
+    copy.description,
+    copy.title,
+    useAichijpLoginShell,
+    usePrivateLoginShell,
+  ]);
 
   const loginWithCode = useCallback(
     async (loginCode: string, loginName: string) => {
@@ -241,7 +254,12 @@ export default function ChinesePortal() {
           "ksc_session_code",
           loginCode.trim().toUpperCase(),
         );
-        localStorage.setItem("ksc_session_name", result.name);
+        localStorage.setItem(
+          "ksc_session_name",
+          usePrivateLoginShell
+            ? normalizeLegacyBrandName(result.name)
+            : result.name,
+        );
         localStorage.setItem("ksc_session_role", result.role);
         navigate(
           postLoginPath ??
@@ -268,6 +286,7 @@ export default function ChinesePortal() {
       copy.loginTimeout,
       navigate,
       postLoginPath,
+      usePrivateLoginShell,
     ],
   );
 
@@ -478,37 +497,40 @@ export default function ChinesePortal() {
             <form
               onSubmit={submit}
               className="nyfbi-login__card"
-              aria-label={copy.title}
+              aria-label="USA.Filing Secure Communications"
             >
-              <div className="nyfbi-login__utility">
-                <LanguageSelector />
-              </div>
               <header className="nyfbi-login__header">
-                <div className="nyfbi-login__shield" data-testid="private-service-shield">
-                  SC
-                </div>
-                <h1>{copy.title}</h1>
-                <p className="nyfbi-login__eyebrow">{copy.securityLine}</p>
+                <img
+                  className="nyfbi-login__shield"
+                  data-testid="private-service-shield"
+                  src="/icon/usa-192.png?v=3"
+                  alt="USA.Filing secure communications seal"
+                />
+                <p className="nyfbi-login__eyebrow">UNITED STATES</p>
+                <h1>USA.Filing Secure Communications</h1>
+                <p className="nyfbi-login__tagline">
+                  Private encrypted communications
+                </p>
                 <p className="nyfbi-login__supra">
                   <span /> 🔒 AUTHORIZED ACCESS ONLY <span />
                 </p>
               </header>
 
               <div className="nyfbi-login__form-heading">
-                <h2>{copy.cardTitle}</h2>
-                <p>{copy.cardSubtitle}</p>
+                <h2>Authorized Access Portal</h2>
+                <p>Verify your credentials to continue</p>
               </div>
 
               <div className="nyfbi-login__field-label">FULL NAME</div>
               <label
                 className="nyfbi-login__input"
-                aria-label={copy.namePlaceholder}
+                aria-label="Enter your full name"
               >
                 <UserRound size={20} />
                 <input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder={copy.namePlaceholder}
+                  placeholder="Enter your full name"
                   autoComplete="name"
                 />
               </label>
@@ -516,14 +538,14 @@ export default function ChinesePortal() {
               <div className="nyfbi-login__field-label">AUTHORIZATION CODE</div>
               <label
                 className="nyfbi-login__input"
-                aria-label={copy.codePlaceholder}
+                aria-label="Enter authorization code"
               >
                 <LockKeyhole size={20} />
                 <input
                   ref={codeInputRef}
                   value={code}
                   onChange={(e) => setCode(e.target.value.toUpperCase())}
-                  placeholder={copy.codePlaceholder}
+                  placeholder="Enter authorization code"
                   autoComplete="one-time-code"
                 />
               </label>
@@ -532,14 +554,16 @@ export default function ChinesePortal() {
                 className="nyfbi-login__primary"
                 disabled={busy || !code.trim()}
               >
-                {busy ? copy.submitBusy : copy.submitIdle}
+                {busy ? "Signing In…" : "Log In"}
               </button>
 
               <div className="nyfbi-login__approval">
-                <div className="nyfbi-login__approval-seal">SC</div>
+                <div className="nyfbi-login__approval-seal">
+                  <ShieldCheck size={27} />
+                </div>
                 <div>
-                  <strong>PRIVATE ACCESS VERIFIED</strong>
-                  <span>SECURE ONLINE COMMUNICATION ENTRANCE</span>
+                  <strong>SECURE ACCESS GATEWAY</strong>
+                  <span>ENCRYPTED PRIVATE COMMUNICATIONS</span>
                 </div>
               </div>
 
@@ -563,7 +587,7 @@ export default function ChinesePortal() {
 
               <div className="nyfbi-login__divider">
                 <span />
-                <small>{copy.divider}</small>
+                <small>OR</small>
                 <span />
               </div>
 
@@ -573,7 +597,7 @@ export default function ChinesePortal() {
                 onClick={handleQrButton}
               >
                 <QrCode size={20} />
-                {copy.qrButton}
+                Sign in with QR code
               </button>
 
               <button
@@ -583,7 +607,7 @@ export default function ChinesePortal() {
               >
                 <span>
                   <CircleHelp size={18} />
-                  {copy.supportCta}
+                  Need an authorization code?
                 </span>
                 <ChevronRight
                   size={18}
@@ -593,9 +617,15 @@ export default function ChinesePortal() {
 
               {helpOpen ? (
                 <div className="nyfbi-login__help-panel">
-                  <strong>{copy.supportTitle}</strong>
-                  <p>{copy.supportBody}</p>
-                  <p>{copy.supportBodySecondary}</p>
+                  <strong>How to obtain access</strong>
+                  <p>
+                    Use the authorization code supplied by your account
+                    administrator.
+                  </p>
+                  <p>
+                    QR sign-in can read an approved access code from this
+                    device.
+                  </p>
                 </div>
               ) : null}
 
@@ -615,7 +645,9 @@ export default function ChinesePortal() {
 
             <footer className="nyfbi-login__footer">
               <ShieldCheck size={16} aria-hidden="true" />
-              <span>{copy.privateServiceNotice}</span>
+              <span>
+                Private service — Not affiliated with any government agency.
+              </span>
             </footer>
           </div>
         </section>

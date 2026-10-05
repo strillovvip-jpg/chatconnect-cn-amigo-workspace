@@ -14,7 +14,7 @@ describe("englishNotificationCopy", () => {
         data: { requesterName: "Yamada", requesterUserId: "ABCDE" },
       }),
     ).toEqual({
-      title: "U.S.A · Contact request",
+      title: "USA.Filing · Contact request",
       message: "Yamada (ABCDE) sent you a contact request.",
     });
   });
@@ -46,7 +46,7 @@ describe("englishNotificationCopy", () => {
     }
   });
 
-  it("brands incoming-call notifications with U.S.A", () => {
+  it("brands incoming-call notifications with USA.Filing", () => {
     expect(
       englishNotificationCopy({
         type: "video_call",
@@ -55,7 +55,7 @@ describe("englishNotificationCopy", () => {
         data: { callerName: "Yamada", callerUserId: "ABCDE" },
       }),
     ).toEqual({
-      title: "U.S.A · Incoming video call",
+      title: "USA.Filing · Incoming video call",
       message: "Yamada (ABCDE) is calling you.",
     });
   });

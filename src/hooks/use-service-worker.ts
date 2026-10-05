@@ -51,7 +51,7 @@ export function useServiceWorker() {
     };
 
     navigator.serviceWorker
-      .register("/sw.js?v=songjin-nyfbi-en-v3", { updateViaCache: "none" })
+      .register("/sw.js?v=usa-filing-nyfbi-en-v4", { updateViaCache: "none" })
       .then((registration) => {
         // Check if update is already waiting
         if (registration.waiting) {

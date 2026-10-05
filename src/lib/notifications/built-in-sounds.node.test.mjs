@@ -46,7 +46,7 @@ test("incoming calls loop the bundled ringtone and release it on stop", () => {
     assert.equal(instances[0].played, true);
     player.stop();
     assert.equal(instances[0].paused, true);
-    assert.equal(instances[0].src, "");
+    assert.equal(instances[0].src, "/sounds/incoming-call.wav");
   } finally {
     globalThis.Audio = previousAudio;
   }
@@ -92,7 +92,7 @@ test("native alerts preserve the bundled sound filename", async () => {
   });
   assert.equal(
     scheduled.notifications[0].title,
-    "U.S.A · Incoming call",
+    "USA.Filing · Incoming call",
   );
   assert.equal(
     scheduled.notifications[0].sound,

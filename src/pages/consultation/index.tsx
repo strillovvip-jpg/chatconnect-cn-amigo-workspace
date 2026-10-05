@@ -1,6 +1,7 @@
 import { useLocation, useNavigate } from "react-router-dom";
 import { useI18n } from "@/lib/i18n";
 import { logoutToLogin } from "@/lib/session-storage";
+import { normalizeLegacyBrandName } from "@/app-brand";
 import ConsultationPage from "./page.tsx";
 
 function getDeviceId(): string {
@@ -21,10 +22,11 @@ export default function ConsultationRoute() {
     userName?: string;
     userCode?: string;
   } | null;
-  const userName =
+  const userName = normalizeLegacyBrandName(
     state?.userName ??
-    localStorage.getItem("ksc_session_name") ??
-    messages.consultation.guestName;
+      localStorage.getItem("ksc_session_name") ??
+      messages.consultation.guestName,
+  );
   const userCode =
     state?.userCode ?? localStorage.getItem(`ksc_session_code`) ?? "";
 

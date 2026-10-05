@@ -1790,6 +1790,7 @@ private final class AmigoRealtimeVideoProcessor: NSObject, LiveKit.VideoProcesso
     private var pixelBufferPool: CVPixelBufferPool?
     private var pixelBufferPoolSize: CGSize?
     private var lastProcessedPixelBuffer: CVPixelBuffer?
+    private var shouldEmitPublishBootstrap = false
     private var didLogFirstProcessedFrame = false
     private var loggedPrivacyReasons = Set<String>()
 
@@ -1811,7 +1812,7 @@ private final class AmigoRealtimeVideoProcessor: NSObject, LiveKit.VideoProcesso
 
     func prepareForPublish() {
         stateLock.lock()
-        lastProcessedPixelBuffer = nil
+        shouldEmitPublishBootstrap = true
         stateLock.unlock()
     }
 
@@ -1819,10 +1820,20 @@ private final class AmigoRealtimeVideoProcessor: NSObject, LiveKit.VideoProcesso
         stateLock.lock()
         let latent = targetLatent
         let enabled = faceSwapEnabled
+        let emitBootstrap = shouldEmitPublishBootstrap
+        if shouldEmitPublishBootstrap {
+            shouldEmitPublishBootstrap = false
+        }
         stateLock.unlock()
 
+        if emitBootstrap {
+            return stableFallbackFrame(for: frame, reason: "trackDimensionBootstrap")
+                ?? privacyPlaceholderFrame(for: frame, reason: "trackDimensionBootstrap")
+        }
+
         guard enabled, let latent else {
-            return privacyPlaceholderFrame(for: frame, reason: "processorNotReady")
+            return stableFallbackFrame(for: frame, reason: "processorNotReady")
+                ?? privacyPlaceholderFrame(for: frame, reason: "processorNotReady")
         }
         guard let inputBuffer = frame.toCVPixelBuffer() else {
             return stableFallbackFrame(for: frame, reason: "inputPixelBufferUnavailable")

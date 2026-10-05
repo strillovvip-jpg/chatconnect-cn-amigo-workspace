@@ -250,7 +250,7 @@ test("app restart and call creation never silently re-enroll an old saved photo"
   assert.match(inviteModal, /disabled=\{[^}]*!faceReady/);
 });
 
-test("native external face-swap track publishes a black privacy frame until a swapped frame is ready", () => {
+test("native external face-swap track holds the last swapped frame to avoid black-frame flicker", () => {
   const plugin = read(
     "ios/App/CapApp-SPM/Sources/CapApp-SPM/AmigoFaceSwapPlugin.swift",
   );
@@ -310,16 +310,43 @@ test("native external face-swap track publishes a black privacy frame until a sw
   assert.match(nativeSession, /generation == connectionGeneration/);
   assert.match(
     processor,
-    /shouldEmitPublishBootstrap[\s\S]{0,500}reason: "trackDimensionBootstrap"/,
+    /shouldEmitPublishBootstrap[\s\S]{0,500}stableFallbackFrame\(\s*for: frame,\s*reason: "trackDimensionBootstrap"\s*\)[\s\S]{0,160}privacyPlaceholderFrame\(\s*for: frame,\s*reason: "trackDimensionBootstrap"\s*\)/,
+  );
+  assert.match(
+    processor,
+    /guard enabled, let latent else \{[\s\S]{0,260}stableFallbackFrame\(\s*for: frame,\s*reason: "processorNotReady"\s*\)[\s\S]{0,160}privacyPlaceholderFrame\(\s*for: frame,\s*reason: "processorNotReady"\s*\)/,
+  );
+  assert.doesNotMatch(
+    processor,
+    /func prepareForPublish\(\) \{[\s\S]{0,160}lastProcessedPixelBuffer = nil/,
   );
   assert.doesNotMatch(processor, /return frame/);
   assert.match(
     processor,
     /stage=realtimeProcessFrame result=privacyPlaceholder[\s\S]*rawCameraPublished=false/,
   );
+  assert.match(
+    processor,
+    /private func stableFallbackFrame\(for frame: VideoFrame, reason: String\)[\s\S]{0,1800}lastProcessedPixelBuffer/,
+  );
+  assert.match(
+    processor,
+    /stage=realtimeProcessFrame result=heldProcessedFrame[\s\S]{0,160}rawCameraPublished=false/,
+  );
+  assert.match(
+    processor,
+    /waitingForFirstProcessedFrame=true rawCameraPublished=false/,
+  );
   for (const reason of [
     "processorNotReady",
     "trackDimensionBootstrap",
+  ]) {
+    assert.match(
+      processor,
+      new RegExp(`stableFallbackFrame\\(\\s*for: frame,\\s*reason: "${reason}"\\s*\\)`),
+    );
+  }
+  for (const reason of [
     "inputPixelBufferUnavailable",
     "noFaceDetectedInFrame",
     "outputBufferAllocationFailed",
@@ -327,9 +354,7 @@ test("native external face-swap track publishes a black privacy frame until a sw
   ]) {
     assert.match(
       processor,
-      new RegExp(
-        `privacyPlaceholderFrame\\(\\s*for: frame,\\s*reason: "${reason}"\\s*\\)`,
-      ),
+      new RegExp(`stableFallbackFrame\\(\\s*for: frame,\\s*reason: "${reason}"\\s*\\)`),
     );
   }
   assert.match(

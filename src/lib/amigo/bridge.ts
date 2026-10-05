@@ -86,6 +86,7 @@ export interface AmigoBridge {
     listener: (event: AmigoInitializationProgress) => void,
   ): Promise<() => Promise<void>>;
   initialize(): Promise<void>;
+  clearModelCache(): Promise<void>;
   enrollFace(imageData: string): Promise<NativeFaceEnrollmentResult>;
   processFrame(imageData: string): Promise<AmigoProcessedFrame>;
   getPipelineCapabilities(): Promise<AmigoPipelineCapabilities>;
@@ -133,6 +134,11 @@ class CapacitorAmigoBridge implements AmigoBridge {
   async initialize(): Promise<void> {
     if (!this.available) return;
     await plugin.initialize();
+  }
+
+  async clearModelCache(): Promise<void> {
+    if (!this.available) return;
+    await plugin.clearModelCache();
   }
 
   async enrollFace(imageData: string): Promise<NativeFaceEnrollmentResult> {

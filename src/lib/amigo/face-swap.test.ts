@@ -3,6 +3,7 @@ import { AmigoFaceSwapService } from "./face-swap";
 
 const mocks = vi.hoisted(() => ({
   initialize: vi.fn(),
+  clearModelCache: vi.fn(),
   enrollFace: vi.fn(),
 }));
 
@@ -10,6 +11,7 @@ vi.mock("./bridge.ts", () => ({
   amigoBridge: {
     available: true,
     initialize: mocks.initialize,
+    clearModelCache: mocks.clearModelCache,
     enrollFace: mocks.enrollFace,
     processFrame: vi.fn(),
   },
@@ -18,6 +20,7 @@ vi.mock("./bridge.ts", () => ({
 describe("AmigoFaceSwapService", () => {
   beforeEach(() => {
     mocks.initialize.mockReset().mockResolvedValue(undefined);
+    mocks.clearModelCache.mockReset().mockResolvedValue(undefined);
     mocks.enrollFace.mockReset().mockResolvedValue({
       success: true,
       enrolled: true,
@@ -259,7 +262,7 @@ describe("AmigoFaceSwapService", () => {
     expect(mocks.initialize).toHaveBeenCalledTimes(1);
   });
 
-  it("stops after three model-download retries, preserves the final error, and remains manually retryable", async () => {
+  it("clears a possibly interrupted native model cache before the final model-download retry", async () => {
     vi.useFakeTimers();
     try {
       for (let attempt = 1; attempt <= 4; attempt += 1) {
@@ -273,18 +276,45 @@ describe("AmigoFaceSwapService", () => {
       mocks.initialize.mockResolvedValueOnce(undefined);
       const service = new AmigoFaceSwapService();
 
+      const initialization = service.initialize();
+      await vi.runAllTimersAsync();
+
+      await expect(initialization).resolves.toBeUndefined();
+      expect(mocks.initialize).toHaveBeenCalledTimes(5);
+      expect(mocks.clearModelCache).toHaveBeenCalledTimes(1);
+      expect(service.isInitialized).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops after the cache-reset model-download retry, preserves the final error, and remains manually retryable", async () => {
+    vi.useFakeTimers();
+    try {
+      for (let attempt = 1; attempt <= 5; attempt += 1) {
+        mocks.initialize.mockRejectedValueOnce(
+          Object.assign(new Error(`Download interruption ${attempt}.`), {
+            code: "SDK_MODEL_DOWNLOAD_FAILED",
+            data: { stage: "initialize", attempt },
+          }),
+        );
+      }
+      mocks.initialize.mockResolvedValueOnce(undefined);
+      const service = new AmigoFaceSwapService();
+
       const firstInitialization = service.initialize();
       const firstResult = expect(firstInitialization).rejects.toMatchObject({
         code: "SDK_MODEL_DOWNLOAD_FAILED",
-        message: "Download interruption 4.",
-        nativeDetails: expect.objectContaining({ attempt: 4 }),
+        message: "Download interruption 5.",
+        nativeDetails: expect.objectContaining({ attempt: 5 }),
       });
       await vi.runAllTimersAsync();
       await firstResult;
-      expect(mocks.initialize).toHaveBeenCalledTimes(4);
+      expect(mocks.initialize).toHaveBeenCalledTimes(5);
+      expect(mocks.clearModelCache).toHaveBeenCalledTimes(1);
 
       await expect(service.initialize()).resolves.toBeUndefined();
-      expect(mocks.initialize).toHaveBeenCalledTimes(5);
+      expect(mocks.initialize).toHaveBeenCalledTimes(6);
       expect(service.isInitialized).toBe(true);
     } finally {
       vi.useRealTimers();

@@ -59,11 +59,14 @@ export async function scheduleNativeAlert(
     extra?: Record<string, unknown>;
   },
 ): Promise<void> {
+  const title = alert.title.startsWith("U.S.A")
+    ? alert.title
+    : `U.S.A · ${alert.title}`;
   await plugin.schedule({
     notifications: [
       {
         id: alert.id,
-        title: alert.title,
+        title,
         body: alert.body,
         ...(alert.sound === false
           ? {}

@@ -96,7 +96,7 @@ describe("native notification scheduling", () => {
       notifications: [
         expect.objectContaining({
           id: 314,
-          title: "Incoming call",
+          title: "U.S.A · Incoming call",
           body: "Caller",
           sound: "default",
         }),

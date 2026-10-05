@@ -91,6 +91,10 @@ test("native alerts preserve the bundled sound filename", async () => {
     sound: "incoming-call.caf",
   });
   assert.equal(
+    scheduled.notifications[0].title,
+    "U.S.A · Incoming call",
+  );
+  assert.equal(
     scheduled.notifications[0].sound,
     "incoming-call.caf",
   );

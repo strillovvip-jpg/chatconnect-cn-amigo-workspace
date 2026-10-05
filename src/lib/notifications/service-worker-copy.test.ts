@@ -26,8 +26,20 @@ describe("nyfbi service-worker notification copy", () => {
         options: { body: "山田正在呼叫您" },
       }),
     ).toEqual({
-      title: "Incoming video call",
+      title: "U.S.A · Incoming video call",
       body: "Yamada (ABCDE) is calling you.",
+    });
+
+    expect(
+      scope.nyfbiEnglishNotificationCopy?.({
+        type: "friend_invite",
+        title: "联系人请求",
+        data: { requesterName: "Yamada", requesterUserId: "ABCDE" },
+        options: { body: "山田向您发送了联系人请求" },
+      }),
+    ).toEqual({
+      title: "U.S.A · Contact request",
+      body: "Yamada (ABCDE) sent you a contact request.",
     });
 
     expect(

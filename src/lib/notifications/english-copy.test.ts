@@ -14,7 +14,7 @@ describe("englishNotificationCopy", () => {
         data: { requesterName: "Yamada", requesterUserId: "ABCDE" },
       }),
     ).toEqual({
-      title: "Contact request",
+      title: "U.S.A · Contact request",
       message: "Yamada (ABCDE) sent you a contact request.",
     });
   });
@@ -44,6 +44,20 @@ describe("englishNotificationCopy", () => {
         /[\u3040-\u30ff\u3400-\u9fff]/u,
       );
     }
+  });
+
+  it("brands incoming-call notifications with U.S.A", () => {
+    expect(
+      englishNotificationCopy({
+        type: "video_call",
+        title: "视频来电",
+        message: "山田正在呼叫您",
+        data: { callerName: "Yamada", callerUserId: "ABCDE" },
+      }),
+    ).toEqual({
+      title: "U.S.A · Incoming video call",
+      message: "Yamada (ABCDE) is calling you.",
+    });
   });
 
   it("keeps user-authored chat content while localizing its title", () => {

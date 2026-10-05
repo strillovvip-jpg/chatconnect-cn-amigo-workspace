@@ -1,13 +1,13 @@
 importScripts("/nyfbi-notification-copy.js");
 
 // Dedicated nyfbi.org English-site cache.
-const CACHE_NAME = "songjin-nyfbi-en-v2";
+const CACHE_NAME = "songjin-nyfbi-en-v3";
 const urlsToCache = [
   "/",
   "/site.webmanifest",
-  "/icon/shojin-180.png?v=2",
-  "/icon/shojin-192.png?v=2",
-  "/icon/shojin-512.png?v=2",
+  "/icon/usa-180.png?v=3",
+  "/icon/usa-192.png?v=3",
+  "/icon/usa-512.png?v=3",
 ];
 
 // Install event - cache core assets

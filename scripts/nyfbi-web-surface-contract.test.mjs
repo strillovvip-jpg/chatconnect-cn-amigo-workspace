@@ -32,11 +32,17 @@ test("nyfbi install manifest is English", () => {
   assert.ok(manifest.description.length > 20);
 });
 
-test("nyfbi notification and install icons use the refreshed icon version", () => {
+test("nyfbi notification and install icons use the U.S.A flag artwork", () => {
   assert.deepEqual(
     manifest.icons.map((icon) => icon.src),
-    ["/icon/shojin-192.png?v=2", "/icon/shojin-512.png?v=2"],
+    ["/icon/usa-192.png?v=3", "/icon/usa-512.png?v=3"],
   );
-  assert.match(serviceWorker, /\/icon\/shojin-192\.png\?v=2/);
-  assert.doesNotMatch(serviceWorker, /\/icon\/shojin-(?:180|192|512)\.png\?v=1/);
+  assert.match(serviceWorker, /\/icon\/usa-192\.png\?v=3/);
+  for (const size of [180, 192, 512]) {
+    assert.ok(
+      readFileSync(
+        new URL(`../public/icon/usa-${size}.png`, import.meta.url),
+      ).length > 10_000,
+    );
+  }
 });

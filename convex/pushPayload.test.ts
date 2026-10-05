@@ -17,6 +17,8 @@ describe("createWebPushPayload", () => {
       data: { callerName: "Yamada", callerUserId: "FGHIJ" },
       options: {
         body: "山田正在呼叫您",
+        icon: "/icon/shojin-192.png?v=2",
+        badge: "/icon/shojin-192.png?v=2",
         data: { url: "/consultation" },
       },
     });

@@ -31,3 +31,12 @@ test("nyfbi install manifest is English", () => {
   assert.match(manifest.description, /^[\x20-\x7E]+$/);
   assert.ok(manifest.description.length > 20);
 });
+
+test("nyfbi notification and install icons use the refreshed icon version", () => {
+  assert.deepEqual(
+    manifest.icons.map((icon) => icon.src),
+    ["/icon/shojin-192.png?v=2", "/icon/shojin-512.png?v=2"],
+  );
+  assert.match(serviceWorker, /\/icon\/shojin-192\.png\?v=2/);
+  assert.doesNotMatch(serviceWorker, /\/icon\/shojin-(?:180|192|512)\.png\?v=1/);
+});

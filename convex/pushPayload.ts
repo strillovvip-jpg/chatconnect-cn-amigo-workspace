@@ -14,8 +14,8 @@ export function createWebPushPayload(input: WebPushPayloadInput) {
     data: input.data,
     options: {
       body: input.message,
-      icon: "/icon/shojin-192.png?v=1",
-      badge: "/icon/shojin-192.png?v=1",
+      icon: "/icon/shojin-192.png?v=2",
+      badge: "/icon/shojin-192.png?v=2",
       vibrate: [400, 180, 400],
       renotify: true,
       tag: `chatconnect-${input.userId}`,

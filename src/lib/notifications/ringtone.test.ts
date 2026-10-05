@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  BUILT_IN_SOUNDS,
   normalizeRingtoneVolume,
+  startMessageSound,
   startRingtone,
-  validateRingtoneSource,
 } from "./ringtone";
 
 class FakeAudio extends EventTarget {
@@ -17,7 +18,8 @@ class FakeAudio extends EventTarget {
 }
 
 function stubAudio(audio: FakeAudio) {
-  vi.stubGlobal("Audio", function AudioMock() {
+  vi.stubGlobal("Audio", function AudioMock(source?: string) {
+    audio.src = source ?? "";
     return audio;
   });
 }
@@ -34,11 +36,12 @@ describe("ringtone playback", () => {
     expect(normalizeRingtoneVolume(Number.NaN)).toBe(0.8);
   });
 
-  it("plays and fully releases a custom ringtone", () => {
+  it("plays and fully releases the bundled incoming-call ringtone", () => {
     const audio = new FakeAudio();
     stubAudio(audio);
 
-    const player = startRingtone(1.5, "data:audio/mpeg;base64,AA==");
+    const player = startRingtone(1.5);
+    expect(audio.src).toBe(BUILT_IN_SOUNDS.incomingCall.web);
     expect(audio.loop).toBe(true);
     expect(audio.volume).toBe(1);
     expect(audio.play).toHaveBeenCalledOnce();
@@ -48,26 +51,19 @@ describe("ringtone playback", () => {
     expect(audio.currentTime).toBe(0);
     expect(audio.src).toBe("");
   });
-});
 
-describe("custom ringtone validation", () => {
-  it("resolves only after the selected audio can be decoded", async () => {
+  it("plays the bundled message sound once", () => {
     const audio = new FakeAudio();
     stubAudio(audio);
 
-    const validation = validateRingtoneSource("data:audio/mpeg;base64,AA==");
-    audio.dispatchEvent(new Event("canplaythrough"));
+    const player = startMessageSound(0.6);
+    expect(audio.src).toBe(BUILT_IN_SOUNDS.message.web);
+    expect(audio.loop).toBe(false);
+    expect(audio.volume).toBe(0.6);
+    expect(audio.play).toHaveBeenCalledOnce();
 
-    await expect(validation).resolves.toBeUndefined();
-  });
-
-  it("rejects an invalid custom audio payload", async () => {
-    const audio = new FakeAudio();
-    stubAudio(audio);
-
-    const validation = validateRingtoneSource("data:audio/mpeg;base64,broken");
-    audio.dispatchEvent(new Event("error"));
-
-    await expect(validation).rejects.toThrow("Custom ringtone cannot be decoded");
+    player.stop();
+    expect(audio.pause).toHaveBeenCalledOnce();
+    expect(audio.src).toBe("");
   });
 });

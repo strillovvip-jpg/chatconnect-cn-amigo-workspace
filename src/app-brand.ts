@@ -1,3 +1,3 @@
 export const appBrand = {
-  downloadName: "Song Jin",
+  downloadName: "U.S.A",
 } as const;

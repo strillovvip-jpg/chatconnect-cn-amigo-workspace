@@ -21,7 +21,7 @@
 | `npm run build` | 通过（tsc + vite，2463 modules） |
 | `npm run lint` | 通过（eslint） |
 | `npm run test` | 通过（5 files / 28 tests） |
-| 日本版首页 | 已重构为黑金日式登录页，品牌为 `頌進 / ソン・ジン / 信頼・絆・未来`，含认証コード登录、QR图片读取登录、帮助展开区，浏览器真实渲染无报错 |
+| 日本版首页 | 已重构为黑金日式登录页，品牌为 `U.S.A / 信頼・絆・未来`，含认証コード登录、QR图片读取登录、帮助展开区，浏览器真实渲染无报错 |
 | pbxproj 结构 | 括号平衡、文件引用无缺失 |
 | Info.plist | plistlib 解析合法，无 storyboard 双入口 |
 | Swift 文件 | AppDelegate/SceneDelegate/AmigoFaceSwapPlugin 括号平衡 |
@@ -37,7 +37,7 @@
 - 安装脚本 `scripts/install-local-amigo-sdk.sh`：从 `~/Downloads/AmigoFaceSwapSDK.xcframework.zip`（可传参指定）解包 SDK 到 `ios/App/CapApp-SPM/Vendor/`。
 
 ### 本轮首页改造（2026-08-06）
-- `src/pages/ChinesePortal.tsx` 已改成日本版首页，仅保留日文文案和日本版品牌：`頌進 / ソン・ジン / 信頼・絆・未来`。
+- `src/pages/ChinesePortal.tsx` 已改成日本版首页，仅保留日文文案和品牌：`U.S.A / 信頼・絆・未来`。
 - 首页结构：品牌区 → 日式主标题 → 认証コード输入 → お名前（任意）→ 登录按钮 → `または` 分隔 → `QRコードでログイン` → 帮助展开区 → 安全声明。
 - `QRコードでログイン` 当前实现为：在支持 `BarcodeDetector` 的浏览器/移动端，从相册或相机选择 QR 图片后自动解析 `code` 并填入认证码输入框。
 - 登录后跳转逻辑未变：`admin/super_admin` → `/admin`，其他角色 → `/consultation`。

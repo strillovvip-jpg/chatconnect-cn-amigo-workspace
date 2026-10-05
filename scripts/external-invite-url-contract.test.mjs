@@ -34,7 +34,7 @@ test("shared invite metadata is English rather than Japanese", () => {
   assert.match(appIndex, /<html lang="en"/);
   assert.match(
     appIndex,
-    /<title>Song Jin \| Secure Communication Portal<\/title>/,
+    /<title>U\.S\.A \| Secure Communication Portal<\/title>/,
   );
   assert.doesNotMatch(appIndex, /セキュア通信ポータル|認証済み利用者向け/);
 });

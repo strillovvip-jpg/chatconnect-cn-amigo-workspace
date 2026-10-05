@@ -48,7 +48,7 @@ vi.mock("@/lib/i18n", () => ({
         languageEn: "English",
       },
       portal: {
-        title: "頌進 | セキュア通信ポータル",
+        title: "U.S.A | セキュア通信ポータル",
         description: "民間サービス",
         restore: "セッションを復元しています…",
         cardTitle: "ご利用を開始する",

@@ -33,11 +33,11 @@ describe("getConsultationHeaderClassName", () => {
 });
 
 describe("getConsultationHeaderBrand", () => {
-  it("uses Song Jin instead of the old flag block", () => {
+  it("uses U.S.A instead of the old flag block", () => {
     expect(getConsultationHeaderBrand()).toEqual({
-      ariaLabel: "Song Jin",
-      badgeText: "Song Jin",
-      title: "Song Jin",
+      ariaLabel: "U.S.A",
+      badgeText: "U.S.A",
+      title: "U.S.A",
     });
   });
 });

@@ -16,8 +16,8 @@ export function getConsultationTabBarClassName() {
 
 export function getConsultationHeaderBrand() {
   return {
-    ariaLabel: "Song Jin",
-    badgeText: "Song Jin",
-    title: "Song Jin",
+    ariaLabel: "U.S.A",
+    badgeText: "U.S.A",
+    title: "U.S.A",
   };
 }

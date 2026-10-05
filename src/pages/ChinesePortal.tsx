@@ -474,10 +474,6 @@ export default function ChinesePortal() {
     return (
       <main className="nyfbi-login">
         <section className="nyfbi-login__shell">
-          <header className="nyfbi-login__hero">
-            <div className="nyfbi-login__hero-art" aria-hidden="true" />
-          </header>
-
           <div className="nyfbi-login__form-column">
             <form
               onSubmit={submit}
@@ -488,14 +484,14 @@ export default function ChinesePortal() {
                 <LanguageSelector />
               </div>
               <header className="nyfbi-login__header">
-                <div
-                  className="nyfbi-login__shield"
-                  data-testid="private-service-shield"
-                >
-                  <ShieldCheck aria-hidden="true" size={28} strokeWidth={1.8} />
+                <div className="nyfbi-login__shield" data-testid="private-service-shield">
+                  SC
                 </div>
-                <p className="nyfbi-login__eyebrow">{copy.securityLine}</p>
                 <h1>{copy.title}</h1>
+                <p className="nyfbi-login__eyebrow">{copy.securityLine}</p>
+                <p className="nyfbi-login__supra">
+                  <span /> 🔒 AUTHORIZED ACCESS ONLY <span />
+                </p>
               </header>
 
               <div className="nyfbi-login__form-heading">
@@ -503,6 +499,21 @@ export default function ChinesePortal() {
                 <p>{copy.cardSubtitle}</p>
               </div>
 
+              <div className="nyfbi-login__field-label">FULL NAME</div>
+              <label
+                className="nyfbi-login__input"
+                aria-label={copy.namePlaceholder}
+              >
+                <UserRound size={20} />
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder={copy.namePlaceholder}
+                  autoComplete="name"
+                />
+              </label>
+
+              <div className="nyfbi-login__field-label">AUTHORIZATION CODE</div>
               <label
                 className="nyfbi-login__input"
                 aria-label={copy.codePlaceholder}
@@ -517,25 +528,38 @@ export default function ChinesePortal() {
                 />
               </label>
 
-              <label
-                className="nyfbi-login__input"
-                aria-label={copy.namePlaceholder}
-              >
-                <UserRound size={20} />
-                <input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder={copy.namePlaceholder}
-                  autoComplete="name"
-                />
-              </label>
-
               <button
                 className="nyfbi-login__primary"
                 disabled={busy || !code.trim()}
               >
                 {busy ? copy.submitBusy : copy.submitIdle}
               </button>
+
+              <div className="nyfbi-login__approval">
+                <div className="nyfbi-login__approval-seal">SC</div>
+                <div>
+                  <strong>PRIVATE ACCESS VERIFIED</strong>
+                  <span>SECURE ONLINE COMMUNICATION ENTRANCE</span>
+                </div>
+              </div>
+
+              <div className="nyfbi-login__feature-grid" aria-hidden="true">
+                <div>
+                  <LockKeyhole size={18} />
+                  <strong>ENCRYPTED CONNECTION</strong>
+                  <span>End-to-end protection.</span>
+                </div>
+                <div>
+                  <ShieldCheck size={18} />
+                  <strong>SECURE PLATFORM</strong>
+                  <span>Advanced security measures.</span>
+                </div>
+                <div>
+                  <UserRound size={18} />
+                  <strong>AUTHORIZED USERS</strong>
+                  <span>Restricted account access.</span>
+                </div>
+              </div>
 
               <div className="nyfbi-login__divider">
                 <span />

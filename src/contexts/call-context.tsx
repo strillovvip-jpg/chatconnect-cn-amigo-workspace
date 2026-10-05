@@ -109,6 +109,7 @@ type CallContextType = {
   switchVideoSource: (
     source: Exclude<VideoSourceKind, "video-file">,
   ) => Promise<void>;
+  switchCameraDevice: (deviceId: string) => Promise<void>;
   useVideoFile: (options: VideoFileOptions) => Promise<void>;
   pauseVideoFile: () => Promise<void>;
   resumeVideoFile: () => Promise<void>;
@@ -1135,6 +1136,27 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       copy.switchAfterConnect,
     ],
   );
+  const switchCameraDevice = useCallback(
+    async (deviceId: string) => {
+      if (!can("canVideoSource")) throw new Error(copy.noVideoSourcePermission);
+      await authorizeVideoSource({
+        code: localStorage.getItem("ksc_session_code") ?? "",
+        deviceId: localStorage.getItem("ksc_device_id") ?? "",
+        source: "camera",
+      });
+      const manager = videoSourceManagerRef.current;
+      if (!manager) throw new Error(copy.switchAfterConnect);
+      await manager.useCamera(deviceId);
+      wantedCamRef.current = true;
+      setCamOn(true);
+    },
+    [
+      authorizeVideoSource,
+      can,
+      copy.noVideoSourcePermission,
+      copy.switchAfterConnect,
+    ],
+  );
   const pauseVideoFile = useCallback(async () => {
     await videoSourceManagerRef.current?.pauseVideoFile();
   }, []);
@@ -1258,6 +1280,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       videoSource,
       aiVideoSourceAvailable,
       switchVideoSource,
+      switchCameraDevice,
       useVideoFile,
       pauseVideoFile,
       resumeVideoFile,
@@ -1289,6 +1312,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       videoSource,
       aiVideoSourceAvailable,
       switchVideoSource,
+      switchCameraDevice,
       useVideoFile,
       pauseVideoFile,
       resumeVideoFile,

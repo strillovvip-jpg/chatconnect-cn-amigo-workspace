@@ -140,10 +140,31 @@ describe("presence and browser notification subscriptions", () => {
   test("one authorization code allows a phone browser, its installed app, and one desktop", async () => {
     const t = convexTest({ schema, modules });
     await t.run(async (ctx) => {
+      const profileId = await ctx.db.insert("license_profiles", {
+        name: "Full feature",
+        features: {
+          canVideoCall: true,
+          canVoiceCall: true,
+          canAIFace: true,
+          canVideoSource: true,
+          canPlayVideo: true,
+          canScreenShare: true,
+          canTransferCall: true,
+          canGroupCall: true,
+          canPictureInPicture: true,
+          canFloatingWindow: true,
+          canFileSearch: true,
+          canRecord: true,
+        },
+        createdBy: "ROOT1",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
       await ctx.db.insert("allowed_codes", {
         code: "LIMIT1",
         role: "user",
         enabled: true,
+        licenseProfileId: profileId,
       });
     });
     await t.mutation(api.authCodes.claimCode, {

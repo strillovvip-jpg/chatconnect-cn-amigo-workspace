@@ -11,6 +11,7 @@ export default defineSchema({
   auth_codes: defineTable({
     code: v.string(),
     deviceId: v.string(),
+    deviceIds: v.optional(v.array(v.string())),
     mobileDeviceId: v.optional(v.string()),
     mobileAppDeviceId: v.optional(v.string()),
     desktopDeviceId: v.optional(v.string()),
@@ -53,6 +54,7 @@ export default defineSchema({
     companyId: v.optional(v.string()),
     enabled: v.optional(v.boolean()),
     unlimitedDevices: v.optional(v.boolean()),
+    maxDevices: v.optional(v.number()),
     licenseProfileId: v.optional(v.id("license_profiles")),
     expiresAt: v.optional(v.number()),
     createdAt: v.optional(v.number()),
@@ -328,6 +330,7 @@ export default defineSchema({
     callId: v.string(),
     roomName: v.string(),
     fromUserId: v.string(),
+    fromDeviceId: v.optional(v.string()),
     remoteUserId: v.string(),
     targetUserId: v.string(),
     status: v.union(

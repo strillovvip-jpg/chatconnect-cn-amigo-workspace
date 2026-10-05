@@ -45,3 +45,11 @@ test("the redesigned login names no official agency and uses the private-service
     /Department of Justice|Federal Bureau of Investigation|U\.S\. government/i,
   );
 });
+
+test("the login uses the secure portal masthead and independent trust panel", () => {
+  assert.match(portal, /nyfbi-login__masthead/);
+  assert.match(portal, /SECURE COMMUNICATIONS PORTAL/);
+  assert.match(portal, /nyfbi-login__trust-grid/);
+  assert.match(portal, /INDEPENDENT SECURE ACCESS/);
+  assert.doesNotMatch(portal, /APPROVED BY THE FCC|OFFICIAL GOVERNMENT/);
+});

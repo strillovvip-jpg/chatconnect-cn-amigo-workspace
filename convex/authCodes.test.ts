@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "./schema";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 
 const modules = import.meta.glob("./**/*.*s");
 
@@ -256,5 +256,65 @@ describe("atomic authorization-code replacement", () => {
       expect(await ctx.db.query("contacts").collect()).toHaveLength(1);
       expect(await ctx.db.query("messages").collect()).toHaveLength(1);
     });
+  });
+});
+
+describe("authorization-code device slots", () => {
+  test("a full-feature code can bind one desktop and one mobile device", async () => {
+    const { t, profileIds } = await setup();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("allowed_codes", {
+        code: "FULL2",
+        role: "user",
+        enabled: true,
+        licenseProfileId: profileIds.full,
+      });
+    });
+
+    await t.mutation(api.authCodes.claimCode, {
+      code: "FULL2",
+      deviceId: "desktop-1",
+      deviceType: "desktop",
+      deviceContext: "browser",
+      name: "Full User",
+    });
+    await expect(
+      t.mutation(api.authCodes.claimCode, {
+        code: "FULL2",
+        deviceId: "mobile-1",
+        deviceType: "mobile",
+        deviceContext: "standalone",
+        name: "Full User",
+      }),
+    ).resolves.toMatchObject({ success: true });
+  });
+
+  test("a limited code cannot bind a second device", async () => {
+    const { t, profileIds } = await setup();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("allowed_codes", {
+        code: "LIMIT2",
+        role: "user",
+        enabled: true,
+        licenseProfileId: profileIds.limited,
+      });
+    });
+
+    await t.mutation(api.authCodes.claimCode, {
+      code: "LIMIT2",
+      deviceId: "desktop-1",
+      deviceType: "desktop",
+      deviceContext: "browser",
+      name: "Limited User",
+    });
+    await expect(
+      t.mutation(api.authCodes.claimCode, {
+        code: "LIMIT2",
+        deviceId: "mobile-1",
+        deviceType: "mobile",
+        deviceContext: "standalone",
+        name: "Limited User",
+      }),
+    ).rejects.toThrow("仅允许绑定一台设备");
   });
 });

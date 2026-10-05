@@ -2,6 +2,7 @@ import { mutation, query, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 import { assertSurfaceAccess, requireSession } from "./roles";
+import { effectiveFeatures } from "./features";
 import type { MutationCtx } from "./_generated/server";
 
 const authorizationCodePattern = /^[A-Z0-9]{4,20}$/;
@@ -512,6 +513,11 @@ export const claimCode = mutation({
         message: "此授权码已过期。",
       });
     }
+    const license = await effectiveFeatures(ctx, allowed);
+    const supportsComputerAndPhone =
+      allowed.role === "admin" ||
+      allowed.role === "super_admin" ||
+      profileFeatureKeys.every((key) => license.features[key] === true);
 
     // Check if this code is already claimed
     const existing = await ctx.db
@@ -536,6 +542,12 @@ export const claimCode = mutation({
         existing.mobileDeviceId === args.deviceId ||
         existing.mobileAppDeviceId === args.deviceId ||
         existing.desktopDeviceId === args.deviceId;
+      if (!alreadyBound && !supportsComputerAndPhone) {
+        throw new ConvexError({
+          code: "CONFLICT",
+          message: "此授权码仅允许绑定一台设备。",
+        });
+      }
       const requestedSlot =
         args.deviceType === "desktop"
           ? existing.desktopDeviceId

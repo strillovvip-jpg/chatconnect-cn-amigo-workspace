@@ -25,6 +25,10 @@ import { MonitorOff, MonitorUp } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { uiErrorMessage } from "@/lib/utils.ts";
 import { OVERLAY_LAYERS } from "@/lib/ui/overlay-layers";
+import {
+  listCameraDevices,
+  type CameraDeviceOption,
+} from "@/lib/calls/camera-control.ts";
 
 function formatDuration(s: number) {
   const m = Math.floor(s / 60)
@@ -37,6 +41,20 @@ function formatDuration(s: number) {
 function useCallUiCopy() {
   const { messages } = useI18n();
   return messages.callUi;
+}
+
+export function callControlVisibility(features: {
+  canVideoSource: boolean;
+  canPlayVideo: boolean;
+  canScreenShare: boolean;
+  canTransferCall: boolean;
+}) {
+  return {
+    camera: true,
+    albumVideo: features.canVideoSource && features.canPlayVideo,
+    screenShare: features.canScreenShare,
+    transfer: features.canTransferCall,
+  };
 }
 
 export function CallOverlay() {
@@ -59,6 +77,7 @@ export function CallOverlay() {
     participantCount,
     videoSource,
     switchVideoSource,
+    switchCameraDevice,
     useVideoFile,
     aiVideoSourceAvailable,
   } = useCall();
@@ -77,6 +96,12 @@ export function CallOverlay() {
     callState === "connecting" ||
     callState === "reconnecting";
   const isGroup = callInfo?.mode === "group";
+  const controls = callControlVisibility({
+    canVideoSource: can("canVideoSource"),
+    canPlayVideo: can("canPlayVideo"),
+    canScreenShare: can("canScreenShare"),
+    canTransferCall: can("canTransferCall"),
+  });
 
   return (
     <div
@@ -133,7 +158,9 @@ export function CallOverlay() {
               <p className="text-xl font-semibold text-white">
                 {callInfo?.chatName}
               </p>
-              {isGroup && <p className="text-xs text-white/40">{copy.groupCall}</p>}
+              {isGroup && (
+                <p className="text-xs text-white/40">{copy.groupCall}</p>
+              )}
               <div className="flex items-center gap-2 text-sm text-white/50 justify-center">
                 <Loader2 size={14} className="animate-spin" />
                 {callState === "ringing"
@@ -144,7 +171,9 @@ export function CallOverlay() {
               </div>
             </div>
             <button
-              aria-label={callState === "ringing" ? copy.cancelDial : copy.endCall}
+              aria-label={
+                callState === "ringing" ? copy.cancelDial : copy.endCall
+              }
               onClick={() => void hangUp()}
               className="mt-2 flex h-16 w-16 items-center justify-center rounded-full bg-red-600 text-white shadow-lg shadow-red-950/40 transition active:scale-95"
             >
@@ -191,7 +220,7 @@ export function CallOverlay() {
             </div>
           </div>
           <div className="flex min-w-11 justify-end">
-            {callInfo?.mode === "p2p" && can("canTransferCall") && (
+            {callInfo?.mode === "p2p" && controls.transfer && (
               <TransferButton compact={false} />
             )}
           </div>
@@ -214,7 +243,10 @@ export function CallOverlay() {
                 source={videoSource.active}
                 switching={videoSource.switching}
                 aiAvailable={can("canAIFace") && aiVideoSourceAvailable}
+                allowAlbumVideo={controls.albumVideo}
+                allowScreenShare={controls.screenShare}
                 onSwitch={switchVideoSource}
+                onCamera={switchCameraDevice}
                 onFile={useVideoFile}
               />
             )}
@@ -228,7 +260,10 @@ export function CallOverlay() {
               </CallTool>
             )}
             {callInfo?.callType === "video" && camOn && (
-              <CallTool label={copy.switchCamera} onClick={() => void flipCamera()}>
+              <CallTool
+                label={copy.switchCamera}
+                onClick={() => void flipCamera()}
+              >
                 <SwitchCamera size={19} />
               </CallTool>
             )}
@@ -239,14 +274,16 @@ export function CallOverlay() {
             >
               {micOn ? <Mic size={19} /> : <MicOff size={19} />}
             </CallTool>
-            {callInfo?.callType === "video" && can("canScreenShare") && (
+            {callInfo?.callType === "video" && controls.screenShare && (
               <CallTool
                 label={screenShareOn ? copy.stopShare : copy.screenShare}
                 active={screenShareOn}
                 disabled={!screenShareOn && !screenShareSupported}
                 onClick={() =>
                   void toggleScreenShare().catch((error) =>
-                    toast.error(uiErrorMessage(error, copy.screenShareUnsupported)),
+                    toast.error(
+                      uiErrorMessage(error, copy.screenShareUnsupported),
+                    ),
                   )
                 }
               >
@@ -299,24 +336,36 @@ function VideoSourceButton({
   source,
   switching,
   onSwitch,
+  onCamera,
   onFile,
   aiAvailable,
+  allowAlbumVideo,
+  allowScreenShare,
 }: {
   source: "camera" | "video-file" | "ai" | "screen-share";
   switching: boolean;
   onSwitch: (source: "camera" | "ai" | "screen-share") => Promise<void>;
+  onCamera: (deviceId: string) => Promise<void>;
   onFile: (options: {
     file?: File;
     url?: string;
     loop: boolean;
   }) => Promise<void>;
   aiAvailable: boolean;
+  allowAlbumVideo: boolean;
+  allowScreenShare: boolean;
 }) {
   const copy = useCallUiCopy();
   const [open, setOpen] = useState(false);
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
+  const [cameraPanel, setCameraPanel] = useState(false);
+  const [cameraDevices, setCameraDevices] = useState<CameraDeviceOption[]>([]);
+  const [loadingCameras, setLoadingCameras] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const desktopCameraPicker =
+    typeof navigator !== "undefined" &&
+    !/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
   const labels = {
     camera: copy.sourceCamera,
     "video-file": copy.sourceVideo,
@@ -332,6 +381,17 @@ function VideoSourceButton({
       toast.error(uiErrorMessage(error, copy.sourceSwitchFailed));
     } finally {
       setBusy(false);
+    }
+  };
+  const loadCameras = async () => {
+    setCameraPanel(true);
+    setLoadingCameras(true);
+    try {
+      setCameraDevices(await listCameraDevices());
+    } catch (error) {
+      toast.error(uiErrorMessage(error, copy.cameraListFailed));
+    } finally {
+      setLoadingCameras(false);
     }
   };
 
@@ -379,20 +439,28 @@ function VideoSourceButton({
                 active={source === "camera"}
                 disabled={busy}
                 label={copy.sourceCamera}
-                onClick={() => void run(() => onSwitch("camera"))}
+                onClick={() =>
+                  desktopCameraPicker
+                    ? void loadCameras()
+                    : void run(() => onSwitch("camera"))
+                }
               />
-              <SourceOption
-                active={source === "screen-share"}
-                disabled={busy}
-                label={copy.sourceScreenShare}
-                onClick={() => void run(() => onSwitch("screen-share"))}
-              />
-              <SourceOption
-                active={source === "video-file"}
-                disabled={busy}
-                label={copy.chooseVideoFile}
-                onClick={() => fileRef.current?.click()}
-              />
+              {allowScreenShare && (
+                <SourceOption
+                  active={source === "screen-share"}
+                  disabled={busy}
+                  label={copy.sourceScreenShare}
+                  onClick={() => void run(() => onSwitch("screen-share"))}
+                />
+              )}
+              {allowAlbumVideo && (
+                <SourceOption
+                  active={source === "video-file"}
+                  disabled={busy}
+                  label={copy.chooseVideoFile}
+                  onClick={() => fileRef.current?.click()}
+                />
+              )}
               {aiAvailable && (
                 <SourceOption
                   active={source === "ai"}
@@ -402,6 +470,49 @@ function VideoSourceButton({
                 />
               )}
             </div>
+            {desktopCameraPicker && cameraPanel && (
+              <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold">
+                    {copy.installedCameras}
+                  </p>
+                  <button
+                    type="button"
+                    disabled={loadingCameras || busy}
+                    onClick={() => void loadCameras()}
+                    className="text-xs text-blue-300 disabled:opacity-40"
+                  >
+                    {copy.refreshCameras}
+                  </button>
+                </div>
+                <div className="mt-2 grid gap-2">
+                  {loadingCameras ? (
+                    <div className="flex items-center gap-2 py-2 text-sm text-white/60">
+                      <Loader2 size={16} className="animate-spin" />
+                      {copy.loadingCameras}
+                    </div>
+                  ) : cameraDevices.length ? (
+                    cameraDevices.map((device) => (
+                      <button
+                        key={device.deviceId}
+                        type="button"
+                        disabled={busy}
+                        onClick={() =>
+                          void run(() => onCamera(device.deviceId))
+                        }
+                        className="rounded-xl border border-white/10 bg-white/7 px-3 py-3 text-left text-sm hover:border-blue-400 hover:bg-blue-500/15 disabled:opacity-40"
+                      >
+                        {device.label}
+                      </button>
+                    ))
+                  ) : (
+                    <p className="py-2 text-sm text-white/55">
+                      {copy.noCamerasFound}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
             <input
               ref={fileRef}
               type="file"
@@ -540,6 +651,12 @@ export function CallPiP() {
   if (callState !== "minimized") return null;
 
   const isGroup = callInfo?.mode === "group";
+  const controls = callControlVisibility({
+    canVideoSource: can("canVideoSource"),
+    canPlayVideo: can("canPlayVideo"),
+    canScreenShare: can("canScreenShare"),
+    canTransferCall: can("canTransferCall"),
+  });
 
   return (
     <motion.div
@@ -657,7 +774,7 @@ export function CallPiP() {
             </div>
           )}
           <div className="flex items-center gap-1.5">
-            {callInfo?.mode === "p2p" && can("canTransferCall") && (
+            {callInfo?.mode === "p2p" && controls.transfer && (
               <TransferButton compact />
             )}
             <button
@@ -680,7 +797,7 @@ export function CallPiP() {
                 <MicOff size={12} className="text-white" />
               )}
             </button>
-            {callInfo?.callType === "video" && can("canScreenShare") && (
+            {callInfo?.callType === "video" && (
               <button
                 aria-label={copy.toggleCam}
                 onPointerDown={(e) => e.stopPropagation()}
@@ -702,9 +819,11 @@ export function CallPiP() {
                 )}
               </button>
             )}
-            {callInfo?.callType === "video" && (
+            {callInfo?.callType === "video" && controls.screenShare && (
               <button
-                aria-label={screenShareOn ? copy.stopScreenShare : copy.shareScreen}
+                aria-label={
+                  screenShareOn ? copy.stopScreenShare : copy.shareScreen
+                }
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -904,7 +1023,7 @@ function TransferButton({ compact }: { compact: boolean }) {
                       .replace(/\s/g, "")
                       .toUpperCase();
                     setTargetCode(
-                      /^[A-Z]{5}$/.test(normalized) ? normalized : "",
+                      /^[A-Z0-9]{4,20}$/.test(normalized) ? normalized : "",
                     );
                   }}
                   placeholder={copy.searchCodeOrName}
@@ -1026,7 +1145,9 @@ export function GlobalTransferNotification() {
         <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-blue-600/25">
           <ArrowRightLeft size={34} />
         </div>
-        <p className="mt-5 text-xl font-semibold">{copy.incomingTransferTitle}</p>
+        <p className="mt-5 text-xl font-semibold">
+          {copy.incomingTransferTitle}
+        </p>
         <p className="mt-3 text-sm leading-6 text-white/70">
           {copy.incomingTransferBody(pending.fromName, pending.remoteName)}
         </p>

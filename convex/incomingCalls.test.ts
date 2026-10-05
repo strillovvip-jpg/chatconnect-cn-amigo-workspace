@@ -57,6 +57,8 @@ async function setup(options?: {
     await ctx.db.insert("auth_codes", {
       code: "AAAAA",
       deviceId: "device-a",
+      mobileDeviceId: "device-a-mobile",
+      desktopDeviceId: "device-a",
       name: "Caller A",
       usedAt: new Date().toISOString(),
     });
@@ -799,6 +801,67 @@ describe("global incoming calls", () => {
       peerCode: "BBBBB",
       peerName: "Callee B",
     });
+  });
+
+  test("a call can be handed off to another device using the same authorization code", async () => {
+    const t = await setup();
+    const created = await t.mutation(api.callState.prepareP2P, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      theirCode: "BBBBB",
+      callType: "video",
+    });
+    await t.mutation(api.callState.acceptAndAuthorizeIncomingJoin, {
+      code: "BBBBB",
+      deviceId: "device-b",
+      callId: created.callId,
+    });
+    await t.mutation(api.callState.markParticipantConnected, {
+      code: "BBBBB",
+      deviceId: "device-b",
+      callId: created.callId,
+    });
+    await t.mutation(api.callState.markParticipantConnected, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      callId: created.callId,
+    });
+
+    const transferId = await t.mutation(api.callState.initiateTransfer, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      callId: created.callId,
+      targetCode: "AAAAA",
+    });
+
+    expect(
+      await t.query(api.callState.pendingTransfer, {
+        code: "AAAAA",
+        deviceId: "device-a",
+      }),
+    ).toBeNull();
+    expect(
+      await t.query(api.callState.pendingTransfer, {
+        code: "AAAAA",
+        deviceId: "device-a-mobile",
+      }),
+    ).toMatchObject({ _id: transferId, targetUserId: "AAAAA" });
+    await expect(
+      t.mutation(api.callState.respondTransfer, {
+        code: "AAAAA",
+        deviceId: "device-a",
+        transferId,
+        accept: true,
+      }),
+    ).rejects.toThrow("不能在发起转移的设备上接收");
+    await expect(
+      t.mutation(api.callState.respondTransfer, {
+        code: "AAAAA",
+        deviceId: "device-a-mobile",
+        transferId,
+        accept: true,
+      }),
+    ).resolves.toMatchObject({ callId: created.callId });
   });
 
   test("a recently backgrounded mobile target can still receive a transfer", async () => {

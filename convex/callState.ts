@@ -884,10 +884,10 @@ export const initiateTransfer = mutation({
         message: "找不到当前通话对象。",
       });
     const targetCode = args.targetCode.normalize("NFKC").trim().toUpperCase();
-    if (targetCode === auth.code || targetCode === remote)
+    if (targetCode === remote)
       throw new ConvexError({
         code: "BAD_REQUEST",
-        message: "不能转接给自己或当前通话对象。",
+        message: "不能转接给当前通话对象。",
       });
     const target = await ctx.db
       .query("auth_codes")
@@ -897,6 +897,19 @@ export const initiateTransfer = mutation({
       throw new ConvexError({
         code: "NOT_FOUND",
         message: "找不到转接目标的授权码，请输入正确的授权码。",
+      });
+    if (
+      targetCode === auth.code &&
+      ![
+        target.deviceId,
+        target.mobileDeviceId,
+        target.mobileAppDeviceId,
+        target.desktopDeviceId,
+      ].some((deviceId) => deviceId && deviceId !== args.deviceId)
+    )
+      throw new ConvexError({
+        code: "OFFLINE",
+        message: "同一授权码尚未登录其他设备。",
       });
     const allowed = await ctx.db
       .query("allowed_codes")
@@ -939,6 +952,7 @@ export const initiateTransfer = mutation({
       callId: call.callId,
       roomName: call.roomName,
       fromUserId: auth.code,
+      fromDeviceId: args.deviceId,
       remoteUserId: remote,
       targetUserId: targetCode,
       status: "pending",
@@ -1029,6 +1043,11 @@ export const pendingTransfer = query({
     let transfer = null;
     for (const candidate of transfers) {
       if (candidate.expiresAt <= Date.now()) continue;
+      if (
+        candidate.targetUserId === candidate.fromUserId &&
+        candidate.fromDeviceId === args.deviceId
+      )
+        continue;
       if (await transferMatchesAuthTenant(ctx, auth, candidate)) {
         transfer = candidate;
         break;
@@ -1069,6 +1088,7 @@ export const myOutgoingTransfer = query({
     for (const transfer of transfers) {
       if (
         transfer.fromUserId === auth.code &&
+        (!transfer.fromDeviceId || transfer.fromDeviceId === args.deviceId) &&
         (await transferMatchesAuthTenant(ctx, auth, transfer))
       )
         return transfer;
@@ -1095,6 +1115,14 @@ export const respondTransfer = mutation({
       throw new ConvexError({
         code: "FORBIDDEN",
         message: "没有权限执行此操作。",
+      });
+    if (
+      transfer.targetUserId === transfer.fromUserId &&
+      transfer.fromDeviceId === args.deviceId
+    )
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "不能在发起转移的设备上接收，请使用另一台设备。",
       });
     await requireTransferInAuthTenant(ctx, auth, transfer);
     if (transfer.status !== "pending" || transfer.expiresAt <= Date.now())
@@ -1152,6 +1180,14 @@ export const authorizeTransferJoin = mutation({
       throw new ConvexError({
         code: "FORBIDDEN",
         message: "不允许加入此转接通话。",
+      });
+    if (
+      transfer.targetUserId === transfer.fromUserId &&
+      transfer.fromDeviceId === args.deviceId
+    )
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "不能在发起转移的设备上接收，请使用另一台设备。",
       });
     await requireTransferInAuthTenant(ctx, auth, transfer);
     await ctx.db.patch(transfer._id, { status: "joining" });

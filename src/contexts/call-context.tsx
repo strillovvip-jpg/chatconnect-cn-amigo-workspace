@@ -1053,8 +1053,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     wantedCamRef.current = next;
     if (callInfoRef.current?.localMediaMode === "face-swap") {
       try {
-        const status = await nativeAmigoRoom.setFaceSwapEnabled(next);
-        setCamOn(status.faceSwapEnabled);
+        const status = await nativeAmigoRoom.setCameraEnabled(next);
+        setCamOn(status.videoPublished === true && status.videoMuted === false);
       } catch {
         wantedCamRef.current = camOn;
         toast.error(copy.cameraAccess);

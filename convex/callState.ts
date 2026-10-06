@@ -872,11 +872,6 @@ export const initiateTransfer = mutation({
         message: "不能转接您未参与的通话。",
       });
     await requireCallInAuthTenant(ctx, auth, call);
-    if (storedCallerMediaMode(call) === "face-swap")
-      throw new ConvexError({
-        code: "FEATURE_DISABLED",
-        message: "换脸视讯暂不支持转接。",
-      });
     const remote = call.participantCodes.find((code) => code !== auth.code);
     if (!remote)
       throw new ConvexError({

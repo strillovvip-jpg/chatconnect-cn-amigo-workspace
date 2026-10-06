@@ -941,12 +941,7 @@ function TransferButton({ compact }: { compact: boolean }) {
       online: contact.online,
     })),
   });
-  if (
-    !callInfo?.callId ||
-    callInfo.localMediaMode === "face-swap" ||
-    callInfo.remoteMediaMode === "face-swap"
-  )
-    return null;
+  if (!callInfo?.callId) return null;
   return (
     <>
       <button

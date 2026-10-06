@@ -42,6 +42,10 @@ class NativeAmigoRoomService {
     return amigoBridge.setNativeFaceSwapEnabled(enabled);
   }
 
+  setCameraEnabled(enabled: boolean): Promise<NativeRoomStatus> {
+    return amigoBridge.setNativeCameraEnabled(enabled);
+  }
+
   getStatus(): Promise<NativeRoomStatus> {
     return amigoBridge.getNativeRoomStatus();
   }

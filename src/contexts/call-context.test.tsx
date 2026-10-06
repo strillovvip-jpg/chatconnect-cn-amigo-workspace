@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   bridgeDisconnect: vi.fn(),
   bridgeStatus: vi.fn(),
   bridgeSetEnabled: vi.fn(),
+  bridgeSetCameraEnabled: vi.fn(),
   setCameraEnabled: vi.fn(),
   endP2PCall: vi.fn(),
   markP2PConnected: vi.fn(),
@@ -142,6 +143,7 @@ vi.mock("@/lib/amigo/bridge.ts", () => ({
     connectNativeRoom: mocks.bridgeConnect,
     disconnectNativeRoom: mocks.bridgeDisconnect,
     setNativeFaceSwapEnabled: mocks.bridgeSetEnabled,
+    setNativeCameraEnabled: mocks.bridgeSetCameraEnabled,
     getNativeRoomStatus: mocks.bridgeStatus,
     requestMediaPermissions: vi.fn(),
   },
@@ -288,6 +290,16 @@ describe("CallProvider native face-swap media mode", () => {
       videoMuted: false,
       pipeline: "native-livekit",
     });
+    mocks.bridgeSetCameraEnabled.mockResolvedValue({
+      connected: true,
+      roomUrl: "wss://live.example.test",
+      roomName: "contact-room",
+      faceSwapEnabled: true,
+      hasTargetFace: true,
+      videoPublished: true,
+      videoMuted: true,
+      pipeline: "native-livekit",
+    });
     mocks.setCameraEnabled.mockResolvedValue(undefined);
     mocks.endP2PCall.mockResolvedValue(undefined);
     mocks.markP2PConnected.mockResolvedValue(undefined);
@@ -330,6 +342,32 @@ describe("CallProvider native face-swap media mode", () => {
       browserRoom.localParticipant.setMicrophoneEnabled,
     ).toHaveBeenCalledWith(true);
     expect(mocks.setCameraEnabled).not.toHaveBeenCalled();
+  });
+
+  it("mutes the native published track when camera is turned off during face swap", async () => {
+    render(
+      <CallProvider>
+        <CaptureCallContext />
+      </CallProvider>,
+    );
+
+    await act(async () => {
+      await callApi.startCall({
+        ...baseCall,
+        token: "browser-subscriber-token",
+        localMediaMode: "face-swap",
+        nativeVideoToken: jwt("CALLER-native"),
+        nativeVideoIdentity: "CALLER-native",
+      });
+    });
+
+    await act(async () => {
+      await callApi.toggleCam();
+    });
+
+    expect(mocks.bridgeSetCameraEnabled).toHaveBeenCalledWith(false);
+    expect(mocks.bridgeSetEnabled).not.toHaveBeenCalledWith(false);
+    expect(callApi.camOn).toBe(false);
   });
 
   it("disconnects native publishing when browser subscription fails", async () => {

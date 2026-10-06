@@ -299,6 +299,7 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "connectNativeRoom", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "disconnectNativeRoom", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setNativeFaceSwapEnabled", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setNativeCameraEnabled", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getNativeRoomStatus", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "requestMediaPermissions", returnType: CAPPluginReturnPromise)
     ]
@@ -991,6 +992,19 @@ public class AmigoFaceSwapPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    @objc func setNativeCameraEnabled(_ call: CAPPluginCall) {
+        let enabled = call.getBool("enabled") ?? false
+        processingQueue.async {
+            self.nativeSession.setCameraEnabled(enabled) { error in
+                if let error {
+                    call.reject("Unable to change camera state.", nil, error)
+                } else {
+                    call.resolve(self.nativeSession.status())
+                }
+            }
+        }
+    }
+
     @objc func getNativeRoomStatus(_ call: CAPPluginCall) {
         processingQueue.async {
             call.resolve(self.nativeSession.status())
@@ -1289,6 +1303,33 @@ private final class NativeLiveKitSession {
         pendingProcessor?.setEnabled(enabled)
         stateLock.unlock()
         CAPLog.print("[NativeLiveKitSession] face swap toggled: \(enabled)")
+    }
+
+    func setCameraEnabled(_ enabled: Bool, completion: @escaping (Error?) -> Void) {
+        stateLock.lock()
+        let publication = publishedVideoPublication
+        stateLock.unlock()
+        guard let publication else {
+            completion(NSError(
+                domain: "TokyoConnect.NativeLiveKitSession",
+                code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "NATIVE_VIDEO_NOT_PUBLISHED"]
+            ))
+            return
+        }
+        Task {
+            do {
+                if enabled {
+                    try await publication.unmute()
+                } else {
+                    try await publication.mute()
+                }
+                CAPLog.print("[NativeLiveKitSession] camera enabled: \(enabled)")
+                completion(nil)
+            } catch {
+                completion(error)
+            }
+        }
     }
 
     func connect(

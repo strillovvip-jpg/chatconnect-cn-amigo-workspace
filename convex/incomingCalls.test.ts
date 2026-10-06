@@ -621,7 +621,7 @@ describe("global incoming calls", () => {
     ).rejects.toThrow("对方正在通话中");
   });
 
-  test("face-swap calls cannot be transferred", async () => {
+  test("face-swap calls can be transferred to another authorization code", async () => {
     const t = await setup({ callerHasCalleeContact: true });
     const created = await t.mutation(api.callState.prepareP2P, {
       code: "AAAAA",
@@ -646,21 +646,19 @@ describe("global incoming calls", () => {
       callId: created.callId,
     });
 
-    await expect(
-      t.mutation(api.callState.initiateTransfer, {
-        code: "AAAAA",
-        deviceId: "device-a",
-        callId: created.callId,
-        targetCode: "CCCCC",
-      }),
-    ).rejects.toThrow("换脸视讯暂不支持转接");
+    const transferId = await t.mutation(api.callState.initiateTransfer, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      callId: created.callId,
+      targetCode: "CCCCC",
+    });
 
     expect(
       await t.query(api.callState.pendingTransfer, {
         code: "CCCCC",
         deviceId: "device-c",
       }),
-    ).toBeNull();
+    ).toMatchObject({ _id: transferId, targetUserId: "CCCCC" });
   });
 
   test("a failed transfer join rolls back without replacing the original participants", async () => {

@@ -73,6 +73,9 @@ export type AmigoFaceSwapPlugin = {
   setNativeFaceSwapEnabled(options: {
     enabled: boolean;
   }): Promise<NativeRoomStatus>;
+  setNativeCameraEnabled(options: {
+    enabled: boolean;
+  }): Promise<NativeRoomStatus>;
   getNativeRoomStatus(): Promise<NativeRoomStatus>;
   requestMediaPermissions(options: {
     openSettingsIfDenied?: boolean;
@@ -99,6 +102,7 @@ export interface AmigoBridge {
   }): Promise<NativeRoomStatus>;
   disconnectNativeRoom(): Promise<NativeRoomStatus>;
   setNativeFaceSwapEnabled(enabled: boolean): Promise<NativeRoomStatus>;
+  setNativeCameraEnabled(enabled: boolean): Promise<NativeRoomStatus>;
   getNativeRoomStatus(): Promise<NativeRoomStatus>;
   requestMediaPermissions(options?: {
     openSettingsIfDenied?: boolean;
@@ -214,6 +218,18 @@ class CapacitorAmigoBridge implements AmigoBridge {
         pipeline: "unavailable",
       };
     return plugin.setNativeFaceSwapEnabled({ enabled });
+  }
+
+  async setNativeCameraEnabled(enabled: boolean): Promise<NativeRoomStatus> {
+    if (!this.available)
+      return {
+        connected: false,
+        roomUrl: null,
+        faceSwapEnabled: false,
+        hasTargetFace: false,
+        pipeline: "unavailable",
+      };
+    return plugin.setNativeCameraEnabled({ enabled });
   }
 
   async getNativeRoomStatus(): Promise<NativeRoomStatus> {

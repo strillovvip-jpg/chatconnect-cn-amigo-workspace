@@ -661,6 +661,44 @@ describe("global incoming calls", () => {
     ).toMatchObject({ _id: transferId, targetUserId: "CCCCC" });
   });
 
+  test("a transfer target must have the full call-transfer feature", async () => {
+    const t = await setup({
+      calleeFeatures: { canTransferCall: false },
+      callerHasCalleeContact: true,
+    });
+    const created = await t.mutation(api.callState.prepareP2P, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      theirCode: "BBBBB",
+      callType: "video",
+      callerMediaMode: "face-swap",
+    });
+    await t.mutation(api.callState.acceptAndAuthorizeIncomingJoin, {
+      code: "BBBBB",
+      deviceId: "device-b",
+      callId: created.callId,
+    });
+    await t.mutation(api.callState.markParticipantConnected, {
+      code: "BBBBB",
+      deviceId: "device-b",
+      callId: created.callId,
+    });
+    await t.mutation(api.callState.markParticipantConnected, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      callId: created.callId,
+    });
+
+    await expect(
+      t.mutation(api.callState.initiateTransfer, {
+        code: "AAAAA",
+        deviceId: "device-a",
+        callId: created.callId,
+        targetCode: "CCCCC",
+      }),
+    ).rejects.toThrow("转接目标必须使用全功能授权码");
+  });
+
   test("a failed transfer join rolls back without replacing the original participants", async () => {
     const t = await setup();
     const created = await t.mutation(api.callState.prepareP2P, {

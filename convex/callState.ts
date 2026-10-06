@@ -916,6 +916,12 @@ export const initiateTransfer = mutation({
         code: "FORBIDDEN",
         message: "转接目标的授权码已停用。",
       });
+    const targetLicense = await effectiveFeatures(ctx, allowed);
+    if (!targetLicense.features.canTransferCall)
+      throw new ConvexError({
+        code: "FEATURE_DISABLED",
+        message: "转接目标必须使用全功能授权码。",
+      });
     const presence = await ctx.db
       .query("user_presence")
       .withIndex("by_user", (q) => q.eq("userId", targetCode))

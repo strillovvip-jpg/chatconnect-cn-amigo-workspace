@@ -7,11 +7,18 @@ import { allowedForCode } from "./tenantBoundaries";
 
 // Search for a user by auth code or name (partial match on name)
 export const searchUser = query({
-  args: { query: v.string(), requesterCode: v.string(), deviceId: v.string() },
+  args: {
+    query: v.string(),
+    requesterCode: v.string(),
+    deviceId: v.string(),
+    exactCodeOnly: v.optional(v.boolean()),
+  },
   handler: async (ctx, args) => {
     const auth = await requireSession(ctx, args.requesterCode, args.deviceId);
     const q = args.query.trim().toUpperCase();
     const qOriginal = args.query.trim().toLowerCase();
+
+    if (args.exactCodeOnly && !/^[A-Z0-9]{5}$/.test(q)) return [];
 
     // Try exact match by code first
     const byCode = await ctx.db
@@ -33,6 +40,8 @@ export const searchUser = query({
         { code: byCode.code, name: byCode.name, department: byCode.department },
       ];
     }
+
+    if (args.exactCodeOnly) return [];
 
     // Search by name (partial, case-insensitive)
     const all = await ctx.db.query("auth_codes").collect();

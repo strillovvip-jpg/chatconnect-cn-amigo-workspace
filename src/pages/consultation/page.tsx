@@ -69,6 +69,11 @@ type SearchResult = {
   department?: string;
 };
 
+function exactAuthorizationCode(value: string) {
+  const normalized = value.normalize("NFKC").trim().toUpperCase();
+  return /^[A-Z0-9]{5}$/.test(normalized) ? normalized : null;
+}
+
 function Avatar({
   name,
   size = "md",
@@ -108,13 +113,15 @@ function AddContactModal({
   const copy = useConsultationPageCopy();
   const [searchInput, setSearchInput] = useState(initialSearch ?? "");
   const [debouncedSearch] = useDebounce(searchInput, 350);
+  const exactSearchCode = exactAuthorizationCode(debouncedSearch);
   const results = useQuery(
     api.contacts.searchUser,
-    debouncedSearch.trim().length >= 1
+    exactSearchCode
       ? {
-          query: debouncedSearch.trim(),
+          query: exactSearchCode,
           requesterCode: userCode,
           deviceId: localStorage.getItem("ksc_device_id") ?? "",
+          exactCodeOnly: true,
         }
       : "skip",
   ) as SearchResult[] | undefined | null;
@@ -201,12 +208,12 @@ function AddContactModal({
         </div>
 
         <div className="min-h-[80px]">
-          {debouncedSearch.trim().length >= 1 && results === undefined && (
+          {exactSearchCode && results === undefined && (
             <div className="text-xs opacity-30 text-center py-4">
               {copy.searching}
             </div>
           )}
-          {debouncedSearch.trim().length >= 1 &&
+          {exactSearchCode &&
             results !== undefined &&
             (Array.isArray(results) && results.length === 0 ? (
               <div className="flex flex-col items-center gap-2 py-6 opacity-30">
@@ -302,17 +309,19 @@ export function ContactsTab({
   const copy = useConsultationPageCopy();
   const [search, setSearch] = useState("");
   const [debouncedSearch] = useDebounce(search, 350);
+  const exactSearchCode = exactAuthorizationCode(debouncedSearch);
   const addContact = useMutation(api.contacts.addContact);
   const [addingCode, setAddingCode] = useState<string | null>(null);
 
   // Server search for users to add
   const serverResults = useQuery(
     api.contacts.searchUser,
-    debouncedSearch.trim().length >= 1
+    exactSearchCode
       ? {
-          query: debouncedSearch.trim(),
+          query: exactSearchCode,
           requesterCode: userCode,
           deviceId: localStorage.getItem("ksc_device_id") ?? "",
+          exactCodeOnly: true,
         }
       : "skip",
   ) as SearchResult[] | undefined;
@@ -385,7 +394,7 @@ export function ContactsTab({
 
       <div className="flex-1 overflow-auto">
         {/* Server search results — new users to add */}
-        {debouncedSearch.trim().length >= 1 && newUsers.length > 0 && (
+        {exactSearchCode && newUsers.length > 0 && (
           <div className="px-4 pt-3 pb-2">
             <p className="text-[10px] text-white/40 mb-2 uppercase tracking-wider font-semibold">
               {copy.addableUsers}
@@ -438,7 +447,7 @@ export function ContactsTab({
         )}
 
         {/* No results message */}
-        {debouncedSearch.trim().length >= 1 &&
+        {exactSearchCode &&
           serverResults !== undefined &&
           newUsers.length === 0 &&
           filteredContacts.length === 0 && (

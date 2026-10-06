@@ -478,6 +478,37 @@ describe("tenant communication boundaries", () => {
     ).resolves.toEqual([]);
   });
 
+  test("contact adding only returns an exact five-character authorization code", async () => {
+    const t = await setupTenantUsers();
+
+    await expect(
+      t.query(api.contacts.searchUser, {
+        requesterCode: "AIF01",
+        deviceId: "device-ai-full",
+        query: "Aichijp Limited",
+        exactCodeOnly: true,
+      }),
+    ).resolves.toEqual([]);
+    await expect(
+      t.query(api.contacts.searchUser, {
+        requesterCode: "AIF01",
+        deviceId: "device-ai-full",
+        query: "AIL0",
+        exactCodeOnly: true,
+      }),
+    ).resolves.toEqual([]);
+    await expect(
+      t.query(api.contacts.searchUser, {
+        requesterCode: "AIF01",
+        deviceId: "device-ai-full",
+        query: "ail01",
+        exactCodeOnly: true,
+      }),
+    ).resolves.toEqual([
+      { code: "AIL01", name: "Aichijp Limited", department: undefined },
+    ]);
+  });
+
   test("friend requests cannot cross tenant boundaries", async () => {
     const t = await setupTenantUsers();
 

@@ -40,7 +40,7 @@ export const searchUser = query({
       (r) =>
         r.code !== auth.code &&
         tenantIdForAllowed(allowedByCode.get(r.code)) === requesterTenant &&
-        (r.name.toLowerCase().includes(qOriginal) || r.code.includes(q)),
+        r.name.toLowerCase().includes(qOriginal),
     );
 
     return results.slice(0, 10).map((r) => ({

@@ -1838,10 +1838,13 @@ private final class AmigoRealtimeVideoProcessor: NSObject, LiveKit.VideoProcesso
         guard let inputBuffer = frame.toCVPixelBuffer() else {
             return stableFallbackFrame(for: frame, reason: "inputPixelBufferUnavailable")
         }
+        guard let sdkInputBuffer = normalizedSDKInputBuffer(inputBuffer, for: frame) else {
+            return stableFallbackFrame(for: frame, reason: "inputPixelBufferNormalizationFailed")
+        }
 
         do {
             guard let outputImage = try AmigoFaceSwap.processFrame(
-                inputBuffer,
+                sdkInputBuffer,
                 using: latent,
                 lipMode: .innerLips
             ) else {
@@ -1880,6 +1883,37 @@ private final class AmigoRealtimeVideoProcessor: NSObject, LiveKit.VideoProcesso
             )
             return stableFallbackFrame(for: frame, reason: "sdkProcessingFailed")
         }
+    }
+
+    private func normalizedSDKInputBuffer(
+        _ inputBuffer: CVPixelBuffer,
+        for frame: VideoFrame
+    ) -> CVPixelBuffer? {
+        let pixelFormat = CVPixelBufferGetPixelFormatType(inputBuffer)
+        if pixelFormat == kCVPixelFormatType_32BGRA {
+            return inputBuffer
+        }
+
+        let size = CGSize(
+            width: CVPixelBufferGetWidth(inputBuffer),
+            height: CVPixelBufferGetHeight(inputBuffer)
+        )
+        guard let normalizedBuffer = getOutputBuffer(for: size) else {
+            return nil
+        }
+        let inputImage = CIImage(cvPixelBuffer: inputBuffer)
+        ciContext.render(
+            inputImage,
+            to: normalizedBuffer,
+            bounds: CGRect(origin: .zero, size: size),
+            colorSpace: CGColorSpaceCreateDeviceRGB()
+        )
+        AmigoSDKDiagnostics.record(
+            "[AmigoSDK] stage=realtimeProcessFrame result=inputNormalized " +
+            "sourcePixelFormat=\(pixelFormat) targetPixelFormat=BGRA " +
+            "dimensions=\(Int(frame.dimensions.width))x\(Int(frame.dimensions.height))"
+        )
+        return normalizedBuffer
     }
 
     private func stableFallbackFrame(for frame: VideoFrame, reason: String) -> VideoFrame? {
@@ -1977,6 +2011,7 @@ private final class AmigoRealtimeVideoProcessor: NSObject, LiveKit.VideoProcesso
                 kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
                 kCVPixelBufferWidthKey as String: Int(size.width),
                 kCVPixelBufferHeightKey as String: Int(size.height),
+                kCVPixelBufferMetalCompatibilityKey as String: true,
                 kCVPixelBufferIOSurfacePropertiesKey as String: [:]
             ]
             let poolAttributes: [String: Any] = [

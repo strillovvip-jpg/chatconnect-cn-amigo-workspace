@@ -57,6 +57,27 @@ export function callControlVisibility(features: {
   };
 }
 
+export function transferTargetOptions({
+  currentCode,
+  remoteCode,
+  contacts,
+}: {
+  currentCode: string;
+  remoteCode?: string;
+  contacts: Array<{ code: string; name: string; online?: boolean }>;
+}) {
+  return [
+    {
+      code: currentCode,
+      name: "This authorization code (other device)",
+    },
+    ...contacts.filter(
+      (contact) =>
+        contact.code !== currentCode && contact.code !== remoteCode,
+    ),
+  ];
+}
+
 export function CallOverlay() {
   const copy = useCallUiCopy();
   const { can } = useFeatures();
@@ -911,6 +932,15 @@ function TransferButton({ compact }: { compact: boolean }) {
   const selectableResults = (searchResults ?? []).filter(
     (result) => result.code !== callInfo?.remoteCode,
   );
+  const transferTargets = transferTargetOptions({
+    currentCode: creds.code,
+    remoteCode: callInfo?.remoteCode,
+    contacts: (contacts ?? []).map((contact) => ({
+      code: contact.targetCode,
+      name: contact.targetName,
+      online: contact.online,
+    })),
+  });
   if (
     !callInfo?.callId ||
     callInfo.localMediaMode === "face-swap" ||
@@ -988,26 +1018,22 @@ function TransferButton({ compact }: { compact: boolean }) {
                 <p className="mb-3 text-xs text-white/60">
                   {copy.transferSearchHint}
                 </p>
-                {(contacts?.length ?? 0) > 0 && (
+                {transferTargets.length > 0 && (
                   <div className="mb-3 max-h-36 space-y-1 overflow-auto">
-                    {contacts
-                      ?.filter(
-                        (contact) => contact.targetCode !== callInfo.remoteCode,
-                      )
-                      .map((contact) => (
+                    {transferTargets.map((contact) => (
                         <button
-                          key={contact._id}
-                          onClick={() => setTargetCode(contact.targetCode)}
-                          className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs ${targetCode === contact.targetCode ? "bg-blue-600" : "bg-white/5"}`}
+                          key={contact.code}
+                          onClick={() => setTargetCode(contact.code)}
+                          className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs ${targetCode === contact.code ? "bg-blue-600" : "bg-white/5"}`}
                         >
                           <span
-                            className={`h-2 w-2 rounded-full ${contact.online ? "bg-green-400" : "bg-white/25"}`}
+                            className={`h-2 w-2 rounded-full ${contact.code === creds.code ? "bg-blue-400" : contact.online ? "bg-green-400" : "bg-white/25"}`}
                           />
                           <span className="min-w-0 flex-1 truncate">
-                            {contact.targetName}
+                            {contact.name}
                           </span>
                           <span className="text-white/45">
-                            {contact.targetCode}
+                            {contact.code}
                           </span>
                         </button>
                       ))}

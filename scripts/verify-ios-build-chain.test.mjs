@@ -380,6 +380,32 @@ test("native external face-swap track holds the last swapped frame to avoid blac
   );
 });
 
+test("native face-swap normalizes newer camera pixel formats to BGRA before Amigo processing", () => {
+  const plugin = read(
+    "ios/App/CapApp-SPM/Sources/CapApp-SPM/AmigoFaceSwapPlugin.swift",
+  );
+  const processor = plugin.slice(
+    plugin.indexOf("private final class AmigoRealtimeVideoProcessor"),
+  );
+
+  assert.match(
+    processor,
+    /normalizedSDKInputBuffer\(inputBuffer, for: frame\)/,
+  );
+  assert.match(
+    processor,
+    /CVPixelBufferGetPixelFormatType\(inputBuffer\)[\s\S]{0,240}kCVPixelFormatType_32BGRA/,
+  );
+  assert.match(
+    processor,
+    /CIImage\(cvPixelBuffer: inputBuffer\)[\s\S]{0,500}ciContext\.render/,
+  );
+  assert.match(
+    processor,
+    /kCVPixelBufferMetalCompatibilityKey as String: true/,
+  );
+});
+
 test("native room teardown finishes before disconnect resolves or a replacement room connects", () => {
   const plugin = read(
     "ios/App/CapApp-SPM/Sources/CapApp-SPM/AmigoFaceSwapPlugin.swift",

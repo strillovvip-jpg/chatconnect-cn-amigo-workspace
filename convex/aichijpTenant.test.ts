@@ -466,6 +466,18 @@ describe("tenant communication boundaries", () => {
     ).resolves.toEqual([]);
   });
 
+  test("partial authorization-code text does not reveal matching accounts", async () => {
+    const t = await setupTenantUsers();
+
+    await expect(
+      t.query(api.contacts.searchUser, {
+        requesterCode: "AIF01",
+        deviceId: "device-ai-full",
+        query: "AIL",
+      }),
+    ).resolves.toEqual([]);
+  });
+
   test("friend requests cannot cross tenant boundaries", async () => {
     const t = await setupTenantUsers();
 

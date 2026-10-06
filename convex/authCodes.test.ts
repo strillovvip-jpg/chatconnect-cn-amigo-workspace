@@ -260,6 +260,57 @@ describe("atomic authorization-code replacement", () => {
 });
 
 describe("authorization-code device slots", () => {
+  test("a full-feature code allows any two devices and rejects a third", async () => {
+    const { t, profileIds } = await setup();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("allowed_codes", {
+        code: "FULL3",
+        role: "user",
+        enabled: true,
+        licenseProfileId: profileIds.full,
+      });
+    });
+
+    await t.mutation(api.authCodes.claimCode, {
+      code: "FULL3",
+      deviceId: "mobile-1",
+      deviceType: "mobile",
+      deviceContext: "standalone",
+      name: "Full User",
+    });
+    await expect(
+      t.mutation(api.authCodes.claimCode, {
+        code: "FULL3",
+        deviceId: "mobile-2",
+        deviceType: "mobile",
+        deviceContext: "standalone",
+        name: "Full User",
+      }),
+    ).resolves.toMatchObject({ success: true });
+    await expect(
+      t.mutation(api.authCodes.claimCode, {
+        code: "FULL3",
+        deviceId: "desktop-1",
+        deviceType: "desktop",
+        deviceContext: "browser",
+        name: "Full User",
+      }),
+    ).rejects.toThrow("最多同时登录两台设备");
+
+    await expect(
+      t.query(api.authCodes.getSessionRole, {
+        code: "FULL3",
+        deviceId: "mobile-1",
+      }),
+    ).resolves.toMatchObject({ role: "user" });
+    await expect(
+      t.query(api.authCodes.getSessionRole, {
+        code: "FULL3",
+        deviceId: "mobile-2",
+      }),
+    ).resolves.toMatchObject({ role: "user" });
+  });
+
   test("a full-feature code can bind one desktop and one mobile device", async () => {
     const { t, profileIds } = await setup();
     await t.run(async (ctx) => {

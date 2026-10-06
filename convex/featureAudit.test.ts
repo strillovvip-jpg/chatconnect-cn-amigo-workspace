@@ -137,7 +137,7 @@ describe("presence and browser notification subscriptions", () => {
     ).toBeNull();
   });
 
-  test("one authorization code allows a phone browser, its installed app, and one desktop", async () => {
+  test("one full-feature authorization code allows exactly two devices of any type", async () => {
     const t = convexTest({ schema, modules });
     await t.run(async (ctx) => {
       const profileId = await ctx.db.insert("license_profiles", {
@@ -176,13 +176,6 @@ describe("presence and browser notification subscriptions", () => {
     });
     await t.mutation(api.authCodes.claimCode, {
       code: "LIMIT1",
-      deviceId: "phone-app-1",
-      deviceType: "mobile",
-      deviceContext: "standalone",
-      name: "Device Test",
-    });
-    await t.mutation(api.authCodes.claimCode, {
-      code: "LIMIT1",
       deviceId: "desktop-1",
       deviceType: "desktop",
       name: "Device Test",
@@ -196,23 +189,18 @@ describe("presence and browser notification subscriptions", () => {
     expect(
       await t.query(api.authCodes.getSessionRole, {
         code: "LIMIT1",
-        deviceId: "phone-app-1",
-      }),
-    ).toMatchObject({ role: "user" });
-    expect(
-      await t.query(api.authCodes.getSessionRole, {
-        code: "LIMIT1",
         deviceId: "desktop-1",
       }),
     ).toMatchObject({ role: "user" });
     await expect(
       t.mutation(api.authCodes.claimCode, {
         code: "LIMIT1",
-        deviceId: "phone-2",
+        deviceId: "phone-app-1",
         deviceType: "mobile",
+        deviceContext: "standalone",
         name: "Device Test",
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow("最多同时登录两台设备");
     await expect(
       t.mutation(api.authCodes.claimCode, {
         code: "LIMIT1",

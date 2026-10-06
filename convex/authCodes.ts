@@ -518,6 +518,10 @@ export const claimCode = mutation({
       allowed.role === "admin" ||
       allowed.role === "super_admin" ||
       profileFeatureKeys.every((key) => license.features[key] === true);
+    const deviceLimit = Math.min(
+      2,
+      Math.max(1, allowed.maxDevices ?? (supportsComputerAndPhone ? 2 : 1)),
+    );
 
     // Check if this code is already claimed
     const existing = await ctx.db
@@ -535,65 +539,36 @@ export const claimCode = mutation({
         await ctx.db.patch(existing._id, { name, lastLoginAt: Date.now() });
         return { success: true, role: allowed.role, name };
       }
-      const standaloneMobile =
-        args.deviceType === "mobile" && args.deviceContext === "standalone";
-      const alreadyBound =
-        existing.deviceId === args.deviceId ||
-        existing.mobileDeviceId === args.deviceId ||
-        existing.mobileAppDeviceId === args.deviceId ||
-        existing.desktopDeviceId === args.deviceId;
-      if (!alreadyBound && !supportsComputerAndPhone) {
+      const boundDevices = Array.from(
+        new Set(
+          (existing.deviceIds?.length
+            ? existing.deviceIds
+            : [
+                existing.deviceId,
+                existing.mobileDeviceId,
+                existing.mobileAppDeviceId,
+                existing.desktopDeviceId,
+              ]
+          ).filter((deviceId): deviceId is string => Boolean(deviceId)),
+        ),
+      ).slice(0, deviceLimit);
+      const alreadyBound = boundDevices.includes(args.deviceId);
+      if (!alreadyBound && deviceLimit === 1) {
         throw new ConvexError({
           code: "CONFLICT",
           message: "此授权码仅允许绑定一台设备。",
         });
       }
-      const requestedSlot =
-        args.deviceType === "desktop"
-          ? existing.desktopDeviceId
-          : standaloneMobile
-            ? existing.mobileAppDeviceId
-            : existing.mobileDeviceId;
-      if (!alreadyBound && requestedSlot) {
+      if (!alreadyBound && boundDevices.length >= deviceLimit) {
         throw new ConvexError({
           code: "CONFLICT",
-          message:
-            args.deviceType === "mobile"
-              ? "此授权码已绑定其他移动设备。仅允许一个手机浏览器和一个已安装的手机应用。"
-              : "此授权码已绑定其他电脑。仅允许一台电脑。",
+          message: "此全功能授权码最多同时登录两台设备。",
         });
       }
-      // Legacy records had one device only. Until that device identifies
-      // itself, reserve the mobile slot for it and still allow one desktop.
-      if (
-        !alreadyBound &&
-        args.deviceType === "mobile" &&
-        !existing.mobileDeviceId &&
-        !existing.desktopDeviceId
-      ) {
-        throw new ConvexError({
-          code: "CONFLICT",
-          message: "此授权码已绑定其他移动设备。",
-        });
-      }
-      const patch =
-        args.deviceType === "desktop"
-          ? {
-              name,
-              desktopDeviceId: existing.desktopDeviceId ?? args.deviceId,
-              lastLoginAt: Date.now(),
-            }
-          : standaloneMobile
-            ? {
-                name,
-                mobileAppDeviceId: existing.mobileAppDeviceId ?? args.deviceId,
-                lastLoginAt: Date.now(),
-              }
-            : {
-                name,
-                mobileDeviceId: existing.mobileDeviceId ?? args.deviceId,
-                lastLoginAt: Date.now(),
-              };
+      const deviceIds = alreadyBound
+        ? boundDevices
+        : [...boundDevices, args.deviceId];
+      const patch = { name, deviceIds, lastLoginAt: Date.now() };
       await ctx.db.patch(existing._id, patch);
       return { success: true, role: allowed.role, name };
     }
@@ -602,6 +577,7 @@ export const claimCode = mutation({
     await ctx.db.insert("auth_codes", {
       code,
       deviceId: args.deviceId,
+      deviceIds: [args.deviceId],
       mobileDeviceId:
         args.deviceType === "mobile" && args.deviceContext !== "standalone"
           ? args.deviceId

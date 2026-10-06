@@ -896,6 +896,7 @@ export const initiateTransfer = mutation({
     if (
       targetCode === auth.code &&
       ![
+        ...(target.deviceIds ?? []),
         target.deviceId,
         target.mobileDeviceId,
         target.mobileAppDeviceId,

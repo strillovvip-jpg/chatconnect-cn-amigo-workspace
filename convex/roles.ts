@@ -71,6 +71,7 @@ export async function requireSession(
   const validDevice =
     session &&
     (allowed?.unlimitedDevices === true ||
+      session.deviceIds?.includes(deviceId) ||
       session.deviceId === deviceId ||
       session.mobileDeviceId === deviceId ||
       session.mobileAppDeviceId === deviceId ||

@@ -4,6 +4,7 @@ import type { MutationCtx } from "./_generated/server";
 import {
   assertAdminCanAccessCode,
   assertAuthorizationSetCanExpand,
+  requireAdmin,
   requireSuperAdmin,
 } from "./roles";
 
@@ -370,7 +371,7 @@ export const setCompanyScope = mutation({
 export const deleteCode = mutation({
   args: { ...credentialArgs, targetCode: v.string() },
   handler: async (ctx, args) => {
-    const auth = await requireSuperAdmin(ctx, args.password);
+    const auth = await requireAdmin(ctx, args.password);
     const targetCode = normalize(args.targetCode);
     const target = await ctx.db
       .query("allowed_codes")
@@ -379,10 +380,10 @@ export const deleteCode = mutation({
     if (!target)
       throw new ConvexError({ code: "NOT_FOUND", message: "找不到授权码。" });
     await assertAdminCanAccessCode(ctx, auth, targetCode);
-    if (target.role === "super_admin")
+    if (target.role !== "user")
       throw new ConvexError({
         code: "FORBIDDEN",
-        message: "无法删除总管理员。",
+        message: "普通管理员不能删除管理员授权码。",
       });
     const session = await ctx.db
       .query("auth_codes")

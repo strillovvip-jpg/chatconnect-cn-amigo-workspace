@@ -601,7 +601,6 @@ export default function AdminPage() {
   );
 
   const resetCode = useMutation(api.admin.resetCode);
-  const deleteUser = useMutation(api.admin.deleteUser);
   const updateCaseStatus = useMutation(api.admin.updateCaseStatusAdmin);
   const deleteCaseAdmin = useMutation(api.admin.deleteCaseAdmin);
   const updateCaseDetails = useMutation(api.cases.updateCaseDetails);
@@ -658,7 +657,16 @@ export default function AdminPage() {
             targetCode: newCode,
             profileId: requestedProfile,
           });
-        } else await createLicensedCode({ password, targetCode: newCode });
+        } else {
+          if (!limitedProfileId) {
+            throw new Error(copy.createAdminFailed);
+          }
+          await createLicensedCode({
+            password,
+            targetCode: newCode,
+            profileId: limitedProfileId,
+          });
+        }
         toast.success(
           newCodeTier === "advanced"
             ? copy.advancedCodeCreated
@@ -683,8 +691,7 @@ export default function AdminPage() {
   const handleDelete = async (code: string) => {
     if (!window.confirm(copy.deleteCodeConfirm(code))) return;
     try {
-      if (isSuperAdmin) await deleteAuthCode({ password, targetCode: code });
-      else await deleteUser({ password, code });
+      await deleteAuthCode({ password, targetCode: code });
       toast.success(copy.codeDeletedSuccess(code));
     } catch (err) {
       toast.error(uiErrorMessage(err, copy.deleteFailed));
@@ -854,8 +861,11 @@ export default function AdminPage() {
   const limitedProfileId = licenseProfiles?.find((profile) =>
     LEGACY_LIMITED_PROFILE_NAMES.includes(profile.name),
   )?._id;
-  const selectedProfileId =
-    newCodeTier === "advanced" ? fullProfileId : limitedProfileId;
+  const selectedProfileId = !isSuperAdmin
+    ? limitedProfileId
+    : newCodeTier === "advanced"
+      ? fullProfileId
+      : limitedProfileId;
   const selectedTierCodes = (allowedCodes ?? []).filter(
     (item) => item.licenseProfileId === selectedProfileId,
   );
@@ -1054,31 +1064,32 @@ export default function AdminPage() {
               </span>
             </div>
             {!isSuperAdmin && activeTab === "codes" && (
-              <div className="grid grid-cols-2 gap-2 rounded-xl bg-white/5 p-3">
-                <button
-                  type="button"
-                  onClick={() => setNewCodeTier("standard")}
-                  className={cn(
-                    "rounded-lg border px-3 py-3 text-sm",
-                    newCodeTier === "standard"
-                      ? "border-blue-400 bg-blue-500/20 text-blue-100"
-                      : "border-white/10 bg-black/10 text-white/50",
-                  )}
-                >
+              <div className="space-y-3 rounded-xl bg-white/5 p-3">
+                <div className="rounded-lg border border-blue-400 bg-blue-500/20 px-3 py-2 text-xs text-blue-100">
                   {copy.limitedTier}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setNewCodeTier("advanced")}
-                  className={cn(
-                    "rounded-lg border px-3 py-3 text-sm",
-                    newCodeTier === "advanced"
-                      ? "border-amber-400 bg-amber-500/20 text-amber-100"
-                      : "border-white/10 bg-black/10 text-white/50",
-                  )}
-                >
-                  {copy.fullTier}
-                </button>
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    value={newCode}
+                    onChange={(event) =>
+                      setNewCode(
+                        event.target.value
+                          .normalize("NFKC")
+                          .replace(/\s/g, "")
+                          .toUpperCase(),
+                      )
+                    }
+                    placeholder={copy.createCodePlaceholder}
+                    className="min-w-0 flex-1 rounded-lg bg-black/20 px-3 py-2 text-sm outline-none"
+                  />
+                  <button
+                    disabled={!newCode.trim() || !limitedProfileId}
+                    onClick={() => void handleCreateCode()}
+                    className="rounded-lg bg-blue-500 px-4 text-xs font-semibold text-white disabled:opacity-40"
+                  >
+                    {copy.addLimitedCode}
+                  </button>
+                </div>
               </div>
             )}
             {isSuperAdmin &&
@@ -1337,17 +1348,15 @@ export default function AdminPage() {
                                       {copy.logoutDevice}
                                     </button>
                                   )}
-                                  {isSuperAdmin && (
-                                    <button
-                                      onClick={() =>
-                                        void handleDelete(record.code)
-                                      }
-                                      className="flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white"
-                                    >
-                                      <Trash2 size={12} />
-                                      {copy.deleteCode}
-                                    </button>
-                                  )}
+                                  <button
+                                    onClick={() =>
+                                      void handleDelete(record.code)
+                                    }
+                                    className="flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white"
+                                  >
+                                    <Trash2 size={12} />
+                                    {copy.deleteCode}
+                                  </button>
                                 </div>
                               )}
                             {isSuperAdmin &&
@@ -1444,7 +1453,7 @@ export default function AdminPage() {
                         }}
                       >
                         {code}
-                        {isSuperAdmin && role !== "super_admin" && (
+                        {role === "user" && (
                           <button
                             aria-label={copy.deleteCodeAria(code)}
                             onClick={() => void handleDelete(code)}

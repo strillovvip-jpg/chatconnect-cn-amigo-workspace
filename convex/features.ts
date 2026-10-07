@@ -359,7 +359,7 @@ export const createAuthorizationCode = mutation({
     expiresAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const auth = await requireSuperAdmin(ctx, args.password);
+    const auth = await requireAdmin(ctx, args.password);
     assertAuthorizationSetCanExpand(auth);
     const code = args.targetCode.normalize("NFKC").trim().toUpperCase();
     if (!/^[A-Z0-9]{4,20}$/.test(code))
@@ -382,6 +382,21 @@ export const createAuthorizationCode = mutation({
           message: "找不到授权配置。",
         });
       await assertAdminCanAccessProfile(ctx, auth, profile);
+      if (
+        auth.role !== "super_admin" &&
+        (profile.features.canScreenShare ||
+          profile.features.canTransferCall ||
+          profile.features.canPlayVideo)
+      )
+        throw new ConvexError({
+          code: "FORBIDDEN",
+          message: "普通管理员只能新增受限授权码。",
+        });
+    } else if (auth.role !== "super_admin") {
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "普通管理员只能新增受限授权码。",
+      });
     }
     let profileId = args.profileId;
     if (!profileId) {

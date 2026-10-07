@@ -1127,7 +1127,60 @@ export function GlobalTransferNotification() {
   const failJoin = useMutation(api.callState.failTransferJoin);
   const join = useAction(api.calls.joinTransferredRoom);
   const [busy, setBusy] = useState(false);
+  const [choosingMedia, setChoosingMedia] = useState(false);
+  const [cameraDevices, setCameraDevices] = useState<CameraDeviceOption[]>([]);
+  const [loadingCameras, setLoadingCameras] = useState(false);
   const handledStatus = useRef<string | null>(null);
+
+  const acceptTransfer = async (
+    initialCameraEnabled: boolean,
+    cameraDeviceId?: string,
+  ) => {
+    setBusy(true);
+    try {
+      await respond({ ...creds, transferId: pending!._id, accept: true });
+      let joined = false;
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 3 && !joined; attempt += 1) {
+        try {
+          const details = await join({ ...creds, transferId: pending!._id });
+          await startCall({
+            ...details,
+            myName: creds.code,
+            chatName: pending!.remoteName,
+            callType: details.callType,
+            mode: "p2p",
+            initialCameraEnabled,
+            cameraDeviceId,
+          });
+          joined = true;
+        } catch (error) {
+          lastError = error;
+          if (attempt < 2)
+            await new Promise((resolve) =>
+              window.setTimeout(resolve, 700 * (attempt + 1)),
+            );
+        }
+      }
+      if (!joined)
+        throw lastError instanceof Error
+          ? lastError
+          : new Error(copy.connectTransferredFailed);
+      await waitForTransferReady();
+      await confirm({ ...creds, transferId: pending!._id });
+      toast.success(copy.joinedTransferred);
+    } catch (error) {
+      await failJoin({
+        ...creds,
+        transferId: pending!._id,
+        reason: uiErrorMessage(error, copy.connectTransferredFailed),
+      }).catch(() => undefined);
+      await hangUp();
+      toast.error(copy.joinTransferredFailed);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   useEffect(() => {
     if (!outgoing) return;
@@ -1172,6 +1225,51 @@ export function GlobalTransferNotification() {
         <p className="mt-3 text-sm leading-6 text-white/70">
           {copy.incomingTransferBody(pending.fromName, pending.remoteName)}
         </p>
+        {choosingMedia ? (
+          <div className="mt-6 space-y-3">
+            <button
+              disabled={busy}
+              onClick={() => void acceptTransfer(false)}
+              className="w-full rounded-xl bg-white/10 py-3 font-semibold"
+            >
+              Accept without Camera
+            </button>
+            <button
+              disabled={busy || loadingCameras}
+              onClick={async () => {
+                const desktop = !/Android|iPhone|iPad|iPod|Mobile/i.test(
+                  navigator.userAgent,
+                );
+                if (!desktop) return void acceptTransfer(true);
+                setLoadingCameras(true);
+                try {
+                  const devices = await listCameraDevices();
+                  setCameraDevices(devices);
+                  if (devices.length === 0) void acceptTransfer(true);
+                } catch (error) {
+                  toast.error(uiErrorMessage(error, copy.cameraListFailed));
+                } finally {
+                  setLoadingCameras(false);
+                }
+              }}
+              className="w-full rounded-xl bg-green-600 py-3 font-semibold disabled:opacity-40"
+            >
+              {loadingCameras ? "Loading Cameras…" : "Accept with Camera"}
+            </button>
+            {cameraDevices.map((camera) => (
+              <button
+                key={camera.deviceId}
+                disabled={busy}
+                onClick={() =>
+                  void acceptTransfer(true, camera.deviceId)
+                }
+                className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-3 text-left text-sm"
+              >
+                {camera.label}
+              </button>
+            ))}
+          </div>
+        ) : (
         <div className="mt-6 flex gap-3">
           <button
             disabled={busy}
@@ -1193,62 +1291,13 @@ export function GlobalTransferNotification() {
           </button>
           <button
             disabled={busy}
-            onClick={async () => {
-              setBusy(true);
-              try {
-                await respond({
-                  ...creds,
-                  transferId: pending._id,
-                  accept: true,
-                });
-                let joined = false;
-                let lastError: unknown;
-                for (let attempt = 0; attempt < 3 && !joined; attempt += 1) {
-                  try {
-                    const details = await join({
-                      ...creds,
-                      transferId: pending._id,
-                    });
-                    await startCall({
-                      ...details,
-                      myName: creds.code,
-                      chatName: pending.remoteName,
-                      callType: details.callType,
-                      mode: "p2p",
-                    });
-                    joined = true;
-                  } catch (error) {
-                    lastError = error;
-                    if (attempt < 2)
-                      await new Promise((resolve) =>
-                        window.setTimeout(resolve, 700 * (attempt + 1)),
-                      );
-                  }
-                }
-                if (!joined)
-                  throw lastError instanceof Error
-                    ? lastError
-                    : new Error(copy.connectTransferredFailed);
-                await waitForTransferReady();
-                await confirm({ ...creds, transferId: pending._id });
-                toast.success(copy.joinedTransferred);
-              } catch (error) {
-                await failJoin({
-                  ...creds,
-                  transferId: pending._id,
-                  reason: uiErrorMessage(error, copy.connectTransferredFailed),
-                }).catch(() => undefined);
-                await hangUp();
-                toast.error(copy.joinTransferredFailed);
-              } finally {
-                setBusy(false);
-              }
-            }}
+            onClick={() => setChoosingMedia(true)}
             className="flex-1 rounded-xl bg-green-600 py-2 font-semibold"
           >
             {copy.accept}
           </button>
         </div>
+        )}
       </div>
     </div>
   );

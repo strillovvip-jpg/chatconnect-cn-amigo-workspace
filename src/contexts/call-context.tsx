@@ -55,6 +55,7 @@ type CallInfo = {
   groupCallId?: string;
   initialVideoFile?: VideoFileOptions;
   cameraDeviceId?: string;
+  initialCameraEnabled?: boolean;
   localMediaMode?: LocalMediaMode;
   remoteMediaMode?: LocalMediaMode;
   browserIdentity?: string;
@@ -506,9 +507,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       callInfoRef.current = info;
       setCallState("loading");
       setMicOn(true);
-      setCamOn(info.callType === "video");
+      const initialCameraOn =
+        info.callType === "video" && info.initialCameraEnabled !== false;
+      setCamOn(initialCameraOn);
       wantedMicRef.current = true;
-      wantedCamRef.current = info.callType === "video";
+      wantedCamRef.current = initialCameraOn;
       setScreenShareOn(false);
       const useNativeFaceSwap = info.localMediaMode === "face-swap";
 
@@ -687,7 +690,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             id: "livekit-microphone-permission",
           });
         }
-        if (info.callType === "video" && !useNativeFaceSwap) {
+        if (initialCameraOn && !useNativeFaceSwap) {
           try {
             await setCallCameraEnabled(
               nextRoom.localParticipant,

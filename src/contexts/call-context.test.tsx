@@ -664,6 +664,25 @@ describe("CallProvider native face-swap media mode", () => {
     );
   });
 
+  it("joins a transferred video call without publishing a camera when the receiver declines video", async () => {
+    render(
+      <CallProvider>
+        <CaptureCallContext />
+      </CallProvider>,
+    );
+
+    await act(async () => {
+      await callApi.startCall({
+        ...baseCall,
+        token: "transfer-no-camera-token",
+        initialCameraEnabled: false,
+      });
+    });
+
+    expect(mocks.setCameraEnabled).not.toHaveBeenCalled();
+    expect(callApi.camOn).toBe(false);
+  });
+
   it("keeps an accepted ordinary call pending after a retryable setup failure", async () => {
     render(
       <CallProvider>

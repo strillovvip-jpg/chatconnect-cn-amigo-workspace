@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
+  <defs>
+    <path id="star" d="M0-20 4.7-6.5 19-6.2 7.6 2.5 11.8 16.2 0 8-11.8 16.2-7.6 2.5-19-6.2-4.7-6.5Z" fill="#fff"/>
+  </defs>
+  <rect width="1000" height="1000" fill="#fff"/>
+  <g fill="#b31942">
+    <rect width="1000" height="77" y="0"/>
+    <rect width="1000" height="77" y="154"/>
+    <rect width="1000" height="77" y="308"/>
+    <rect width="1000" height="77" y="462"/>
+    <rect width="1000" height="77" y="616"/>
+    <rect width="1000" height="77" y="770"/>
+    <rect width="1000" height="76" y="924"/>
+  </g>
+  <rect width="526" height="539" fill="#0a3161"/>
+  <g>
+    <use href="#star" transform="translate(44 45)"/><use href="#star" transform="translate(132 45)"/><use href="#star" transform="translate(220 45)"/><use href="#star" transform="translate(308 45)"/><use href="#star" transform="translate(396 45)"/><use href="#star" transform="translate(484 45)"/>
+    <use href="#star" transform="translate(88 101)"/><use href="#star" transform="translate(176 101)"/><use href="#star" transform="translate(264 101)"/><use href="#star" transform="translate(352 101)"/><use href="#star" transform="translate(440 101)"/>
+    <use href="#star" transform="translate(44 157)"/><use href="#star" transform="translate(132 157)"/><use href="#star" transform="translate(220 157)"/><use href="#star" transform="translate(308 157)"/><use href="#star" transform="translate(396 157)"/><use href="#star" transform="translate(484 157)"/>
+    <use href="#star" transform="translate(88 213)"/><use href="#star" transform="translate(176 213)"/><use href="#star" transform="translate(264 213)"/><use href="#star" transform="translate(352 213)"/><use href="#star" transform="translate(440 213)"/>
+    <use href="#star" transform="translate(44 269)"/><use href="#star" transform="translate(132 269)"/><use href="#star" transform="translate(220 269)"/><use href="#star" transform="translate(308 269)"/><use href="#star" transform="translate(396 269)"/><use href="#star" transform="translate(484 269)"/>
+    <use href="#star" transform="translate(88 325)"/><use href="#star" transform="translate(176 325)"/><use href="#star" transform="translate(264 325)"/><use href="#star" transform="translate(352 325)"/><use href="#star" transform="translate(440 325)"/>
+    <use href="#star" transform="translate(44 381)"/><use href="#star" transform="translate(132 381)"/><use href="#star" transform="translate(220 381)"/><use href="#star" transform="translate(308 381)"/><use href="#star" transform="translate(396 381)"/><use href="#star" transform="translate(484 381)"/>
+    <use href="#star" transform="translate(88 437)"/><use href="#star" transform="translate(176 437)"/><use href="#star" transform="translate(264 437)"/><use href="#star" transform="translate(352 437)"/><use href="#star" transform="translate(440 437)"/>
+    <use href="#star" transform="translate(44 493)"/><use href="#star" transform="translate(132 493)"/><use href="#star" transform="translate(220 493)"/><use href="#star" transform="translate(308 493)"/><use href="#star" transform="translate(396 493)"/><use href="#star" transform="translate(484 493)"/>
+  </g>
+</svg>

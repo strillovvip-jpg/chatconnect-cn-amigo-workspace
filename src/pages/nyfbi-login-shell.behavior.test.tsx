@@ -116,7 +116,7 @@ describe("nyfbi private login shell", () => {
     ).toBeVisible();
     expect(screen.getByTestId("private-service-shield")).toHaveAttribute(
       "src",
-      "/icon/usa-192.png?v=3",
+      "/icon/usa-192.png?v=4",
     );
     expect(screen.queryByText("SC")).not.toBeInTheDocument();
     expect(screen.getByPlaceholderText("Enter authorization code")).toBeVisible();
@@ -143,7 +143,7 @@ describe("nyfbi private login shell", () => {
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
     expect(screen.getByTestId("private-service-shield")).toHaveAttribute(
       "src",
-      "/icon/usa-192.png?v=3",
+      "/icon/usa-192.png?v=4",
     );
   });
 

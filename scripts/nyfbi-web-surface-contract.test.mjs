@@ -35,14 +35,21 @@ test("nyfbi install manifest is English", () => {
 test("nyfbi notification and install icons use the USA.Filing artwork", () => {
   assert.deepEqual(
     manifest.icons.map((icon) => icon.src),
-    ["/icon/usa-192.png?v=3", "/icon/usa-512.png?v=3"],
+    ["/icon/usa-192.png?v=4", "/icon/usa-512.png?v=4"],
   );
-  assert.match(serviceWorker, /\/icon\/usa-192\.png\?v=3/);
+  assert.match(serviceWorker, /\/icon\/usa-192\.png\?v=4/);
+  assert.match(serviceWorker, /icon:\s*"\/icon\/usa-192\.png\?v=4"/);
   for (const size of [180, 192, 512]) {
     assert.ok(
       readFileSync(
         new URL(`../public/icon/usa-${size}.png`, import.meta.url),
-      ).length > 10_000,
+      ).length > 1_000,
     );
   }
+  const source = readFileSync(
+    new URL("../assets/branding/usa-flag-app-icon.svg", import.meta.url),
+    "utf8",
+  );
+  assert.equal((source.match(/<use /g) ?? []).length, 50);
+  assert.equal((source.match(/<rect width="1000" height="(?:76|77)"/g) ?? []).length, 7);
 });

@@ -1,13 +1,13 @@
 importScripts("/nyfbi-notification-copy.js");
 
 // Dedicated nyfbi.org English-site cache.
-const CACHE_NAME = "usa-filing-nyfbi-en-v4";
+const CACHE_NAME = "usa-filing-nyfbi-en-v5";
 const urlsToCache = [
   "/",
   "/site.webmanifest",
-  "/icon/usa-180.png?v=3",
-  "/icon/usa-192.png?v=3",
-  "/icon/usa-512.png?v=3",
+  "/icon/usa-180.png?v=4",
+  "/icon/usa-192.png?v=4",
+  "/icon/usa-512.png?v=4",
   "/usa-secure-daylight-portrait.png",
 ];
 
@@ -111,6 +111,7 @@ self.addEventListener("push", (event) => {
           return self.registration.showNotification(copy.title, {
             ...data.options,
             body: copy.body,
+            icon: "/icon/usa-192.png?v=4",
           });
         }
       }),

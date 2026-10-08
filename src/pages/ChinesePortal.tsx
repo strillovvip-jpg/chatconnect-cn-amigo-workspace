@@ -503,7 +503,7 @@ export default function ChinesePortal() {
                 <img
                   className="nyfbi-login__shield"
                   data-testid="private-service-shield"
-                  src="/icon/usa-192.png?v=3"
+                  src="/icon/usa-192.png?v=4"
                   alt="USA.Filing secure communications seal"
                 />
                 <p className="nyfbi-login__eyebrow">UNITED STATES</p>

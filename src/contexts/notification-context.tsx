@@ -45,7 +45,10 @@ import {
 } from "@/lib/notifications/ringtone";
 import { appBuildInfo } from "@/lib/build-info";
 import { OVERLAY_LAYERS } from "@/lib/ui/overlay-layers";
-import { notificationDisplayCopy } from "@/lib/notifications/english-copy";
+import {
+  notificationDisplayCopy,
+  shouldForceEnglishNotificationCopy,
+} from "@/lib/notifications/english-copy";
 import { isNyfbiWebRuntime } from "@/lib/runtime-surface";
 
 type NotificationContextValue = { unreadCount: number; openCenter: () => void };
@@ -168,7 +171,10 @@ export function GlobalNotificationProvider({
   children: React.ReactNode;
 }) {
   const { locale } = useI18n();
-  const englishWeb = isNyfbiWebRuntime();
+  const forceEnglishNotifications = shouldForceEnglishNotificationCopy({
+    isNyfbiWeb: isNyfbiWebRuntime(),
+    isNativePlatform: Capacitor.isNativePlatform(),
+  });
   const copy = useNotificationCopy();
   const navigate = useNavigate();
   const location = useLocation();
@@ -448,7 +454,7 @@ export function GlobalNotificationProvider({
   const ringingNotificationId = incomingCall?.callId;
   const activeUrgent = ringingCall ?? syntheticIncoming ?? urgent;
   const activeUrgentCopy = activeUrgent
-    ? notificationDisplayCopy(activeUrgent, englishWeb)
+    ? notificationDisplayCopy(activeUrgent, forceEnglishNotifications)
     : null;
 
   useEffect(() => {
@@ -470,16 +476,14 @@ export function GlobalNotificationProvider({
     const key = `call:${incomingCall.callId}`;
     if (nativeScheduled.current.has(key)) return;
     nativeScheduled.current.add(key);
+    const display = notificationDisplayCopy(
+      syntheticIncoming!,
+      forceEnglishNotifications,
+    );
     void scheduleNativeAlert(LocalNotifications, {
       id: nativeAlertId(key),
-      title:
-        incomingCall.callType === "video"
-          ? copy.incomingVideo
-          : copy.incomingAudio,
-      body: copy.callerMessage(
-        incomingCallerName,
-        incomingCall.callerCode,
-      ),
+      title: display.title,
+      body: display.message,
       sound: ringtoneEnabled ? BUILT_IN_SOUNDS.incomingCall.native : false,
       extra: { callId: incomingCall.callId, type: incomingCall.callType },
     }).catch((error) =>
@@ -495,6 +499,8 @@ export function GlobalNotificationProvider({
     incomingCallerName,
     ringtoneEnabled,
     copy,
+    forceEnglishNotifications,
+    syntheticIncoming,
   ]);
 
   useEffect(() => {
@@ -516,7 +522,10 @@ export function GlobalNotificationProvider({
       )
         continue;
       toasted.current.add(item.notificationId);
-      const display = notificationDisplayCopy(item, englishWeb);
+      const display = notificationDisplayCopy(
+        item,
+        forceEnglishNotifications,
+      );
       toast(display.title, { description: display.message, duration: 6000 });
       if (
         notificationChannel === "native" &&
@@ -553,7 +562,7 @@ export function GlobalNotificationProvider({
     ringtoneVolume,
     notificationChannel,
     nativePushEnabled,
-    englishWeb,
+    forceEnglishNotifications,
   ]);
 
   useEffect(() => {
@@ -807,7 +816,10 @@ export function GlobalNotificationProvider({
                 </div>
               )}
               {notifications?.map((item) => {
-                const display = notificationDisplayCopy(item, englishWeb);
+                const display = notificationDisplayCopy(
+                  item,
+                  forceEnglishNotifications,
+                );
                 return (
                   <button
                   key={item._id}

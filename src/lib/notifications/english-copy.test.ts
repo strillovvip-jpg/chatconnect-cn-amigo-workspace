@@ -2,9 +2,19 @@ import { describe, expect, it } from "vitest";
 import {
   englishNotificationCopy,
   notificationDisplayCopy,
+  shouldForceEnglishNotificationCopy,
 } from "./english-copy";
 
 describe("englishNotificationCopy", () => {
+  it("forces English system notifications in the USA.Filing iOS app", () => {
+    expect(
+      shouldForceEnglishNotificationCopy({
+        isNyfbiWeb: false,
+        isNativePlatform: true,
+      }),
+    ).toBe(true);
+  });
+
   it("replaces backend-localized contact notifications with English copy", () => {
     expect(
       englishNotificationCopy({

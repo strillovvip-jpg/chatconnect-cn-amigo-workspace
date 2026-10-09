@@ -128,8 +128,8 @@ export const addContact = mutation({
       notificationId,
       userId: targetCode,
       type: "friend_invite",
-      title: "联系人请求",
-      message: `${auth.session.name}（${auth.code}）向您发送了联系人请求`,
+      title: "USA.Filing · Contact request",
+      message: `${auth.session.name} (${auth.code}) sent you a contact request.`,
       data: {
         friendRequestId: requestId,
         requesterUserId: auth.code,
@@ -142,8 +142,8 @@ export const addContact = mutation({
     });
     await ctx.scheduler.runAfter(0, internal.push.send, {
       userId: targetCode,
-      title: "联系人请求",
-      message: `${auth.session.name}（${auth.code}）向您发送了联系人请求`,
+      title: "USA.Filing · Contact request",
+      message: `${auth.session.name} (${auth.code}) sent you a contact request.`,
       url: "/consultation",
       type: "friend_invite",
       data: {

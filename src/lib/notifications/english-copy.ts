@@ -10,6 +10,16 @@ export type NotificationDisplayCopy = {
   message: string;
 };
 
+export function shouldForceEnglishNotificationCopy({
+  isNyfbiWeb,
+  isNativePlatform,
+}: {
+  isNyfbiWeb: boolean;
+  isNativePlatform: boolean;
+}): boolean {
+  return isNyfbiWeb || isNativePlatform;
+}
+
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object"
     ? (value as Record<string, unknown>)

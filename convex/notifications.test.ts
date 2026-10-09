@@ -62,6 +62,8 @@ describe("notification center", () => {
       type: "friend_invite",
       priority: "urgent",
       userId: "USERB",
+      title: "USA.Filing · Contact request",
+      message: "User A (USERA) sent you a contact request.",
     });
     const data = invite[0].data as { friendRequestId: string };
     await t.mutation(api.contacts.respondFriendRequest, {

@@ -35,6 +35,10 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { localePunctuation, localeToHtmlLang, useI18n } from "@/lib/i18n";
 import type { Messages } from "@/lib/i18n";
 import { logoutToLogin } from "@/lib/session-storage";
+import {
+  selectAdminDocumentFiles,
+  uploadAdminDocuments,
+} from "./document-upload";
 
 type AdminTab =
   | "dashboard"
@@ -572,7 +576,7 @@ export default function AdminPage() {
   const [docIdNumber, setDocIdNumber] = useState("");
   const [docName, setDocName] = useState("");
   const [docCaseName, setDocCaseName] = useState("");
-  const [docFile, setDocFile] = useState<File | null>(null);
+  const [docFiles, setDocFiles] = useState<File[]>([]);
   const [docUploading, setDocUploading] = useState(false);
 
   const stats = useQuery(api.admin.getStats, { password });
@@ -762,37 +766,61 @@ export default function AdminPage() {
       !docIdNumber.trim() ||
       !docName.trim() ||
       !docCaseName.trim() ||
-      !docFile
+      docFiles.length === 0
     ) {
       toast.error(copy.uploadFieldsRequired);
       return;
     }
     setDocUploading(true);
     try {
-      const uploadUrl = await generateDocUploadUrl({ password });
-      const res = await fetch(uploadUrl, {
-        method: "POST",
-        headers: { "Content-Type": docFile.type || "application/octet-stream" },
-        body: docFile,
+      const result = await uploadAdminDocuments({
+        files: docFiles,
+        metadata: {
+          password,
+          caseNumber: docCaseNumber.trim(),
+          idNumber: docIdNumber.trim(),
+          name: docName.trim(),
+          caseName: docCaseName.trim(),
+        },
+        generateUploadUrl: () => generateDocUploadUrl({ password }),
+        uploadFile: async (uploadUrl, file) => {
+          const res = await fetch(uploadUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": file.type || "application/octet-stream",
+            },
+            body: file,
+          });
+          if (!res.ok) throw new Error(copy.uploadHttpFailed(res.status));
+          const { storageId } = (await res.json()) as { storageId?: string };
+          if (!storageId) throw new Error(copy.uploadMissingStorageId);
+          return storageId;
+        },
+        saveDocument: (input) =>
+          saveDocument({
+            ...input,
+            storageId: input.storageId as unknown as Id<"_storage">,
+          }),
       });
-      if (!res.ok) throw new Error(copy.uploadHttpFailed(res.status));
-      const { storageId } = (await res.json()) as { storageId?: string };
-      if (!storageId) throw new Error(copy.uploadMissingStorageId);
-      await saveDocument({
-        password,
-        caseNumber: docCaseNumber.trim(),
-        idNumber: docIdNumber.trim(),
-        name: docName.trim(),
-        caseName: docCaseName.trim(),
-        fileName: docFile.name,
-        storageId: storageId as unknown as Id<"_storage">,
-      });
-      toast.success(copy.attachmentUploaded);
-      setDocCaseNumber("");
-      setDocIdNumber("");
-      setDocName("");
-      setDocCaseName("");
-      setDocFile(null);
+      if (result.uploaded.length > 0) {
+        toast.success(
+          `${copy.attachmentUploaded} ${copy.countItems(result.uploaded.length)}`,
+        );
+      }
+      if (result.failed.length > 0) {
+        setDocFiles(result.failed.map(({ file }) => file));
+        toast.error(
+          `${copy.uploadFailed} ${result.failed
+            .map(({ file }) => file.name)
+            .join(", ")}`,
+        );
+      } else {
+        setDocCaseNumber("");
+        setDocIdNumber("");
+        setDocName("");
+        setDocCaseName("");
+        setDocFiles([]);
+      }
     } catch (error) {
       toast.error(uiErrorMessage(error, copy.uploadFailed));
     } finally {
@@ -2019,14 +2047,34 @@ export default function AdminPage() {
                   }}
                 >
                   <FileText size={14} />
-                  {docFile ? docFile.name : copy.selectFile}
+                  {docFiles.length > 0
+                    ? `${copy.countItems(docFiles.length)} / 5`
+                    : copy.selectFile}
                   <input
                     type="file"
+                    multiple
                     accept="*/*"
                     className="hidden"
-                    onChange={(e) => setDocFile(e.target.files?.[0] ?? null)}
+                    onChange={(e) => {
+                      const selection = selectAdminDocumentFiles(
+                        Array.from(e.target.files ?? []),
+                      );
+                      if (!selection.ok) {
+                        toast.error(`${copy.uploadFailed} (maximum 5 files)`);
+                        e.target.value = "";
+                        return;
+                      }
+                      setDocFiles(selection.files);
+                    }}
                   />
                 </label>
+                {docFiles.length > 0 && (
+                  <ul className="space-y-1 text-[10px] opacity-60">
+                    {docFiles.map((file) => (
+                      <li key={`${file.name}-${file.size}`}>{file.name}</li>
+                    ))}
+                  </ul>
+                )}
               </div>
               <button
                 onClick={() => void handleDocUpload()}
@@ -2036,7 +2084,7 @@ export default function AdminPage() {
                   !docIdNumber.trim() ||
                   !docName.trim() ||
                   !docCaseName.trim() ||
-                  !docFile
+                  docFiles.length === 0
                 }
                 className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-semibold cursor-pointer disabled:opacity-40 transition-opacity hover:opacity-90"
                 style={{

@@ -41,11 +41,60 @@ async function setup() {
       name: "User B",
       usedAt: new Date().toISOString(),
     });
+    await ctx.db.insert("allowed_codes", {
+      code: "USERA",
+      role: "user",
+      enabled: true,
+      companyId: "nyfbi",
+    });
+    await ctx.db.insert("allowed_codes", {
+      code: "USERB",
+      role: "user",
+      enabled: true,
+      companyId: "nyfbi",
+    });
   });
   return t;
 }
 
 describe("notification center", () => {
+  test("contact lookup accepts exactly five letters and rejects alphanumeric lookalikes", async () => {
+    const t = await setup();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("auth_codes", {
+        code: "CODE1",
+        deviceId: "device-code-1",
+        name: "Numeric Lookalike",
+        usedAt: new Date().toISOString(),
+      });
+      await ctx.db.insert("allowed_codes", {
+        code: "CODE1",
+        role: "user",
+        enabled: true,
+        companyId: "nyfbi",
+      });
+    });
+
+    await expect(
+      t.query(api.contacts.searchUser, {
+        requesterCode: "USERA",
+        deviceId: "device-a",
+        query: "CODE1",
+        exactCodeOnly: true,
+      }),
+    ).resolves.toEqual([]);
+    await expect(
+      t.query(api.contacts.searchUser, {
+        requesterCode: "USERA",
+        deviceId: "device-a",
+        query: "userb",
+        exactCodeOnly: true,
+      }),
+    ).resolves.toEqual([
+      { code: "USERB", name: "User B", department: undefined },
+    ]);
+  });
+
   test("friend invitation and acceptance use the shared notification table", async () => {
     const t = await setup();
     await t.mutation(api.contacts.addContact, {

@@ -18,7 +18,11 @@ export const searchUser = query({
     const q = args.query.trim().toUpperCase();
     const qOriginal = args.query.trim().toLowerCase();
 
-    if (args.exactCodeOnly && !/^[A-Z0-9]{5}$/.test(q)) return [];
+    const exactCodePattern =
+      tenantIdForAllowed(auth.allowed) === "nyfbi"
+        ? /^[A-Z]{5}$/
+        : /^[A-Z0-9]{5}$/;
+    if (args.exactCodeOnly && !exactCodePattern.test(q)) return [];
 
     // Try exact match by code first
     const byCode = await ctx.db

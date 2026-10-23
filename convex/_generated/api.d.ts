@@ -24,6 +24,7 @@ import type * as groupCallState from "../groupCallState.js";
 import type * as groupCalls from "../groupCalls.js";
 import type * as groupCallsNode from "../groupCallsNode.js";
 import type * as groups from "../groups.js";
+import type * as helperSessions from "../helperSessions.js";
 import type * as http from "../http.js";
 import type * as messages from "../messages.js";
 import type * as notifications from "../notifications.js";
@@ -60,6 +61,7 @@ declare const fullApi: ApiFromModules<{
   groupCalls: typeof groupCalls;
   groupCallsNode: typeof groupCallsNode;
   groups: typeof groups;
+  helperSessions: typeof helperSessions;
   http: typeof http;
   messages: typeof messages;
   notifications: typeof notifications;

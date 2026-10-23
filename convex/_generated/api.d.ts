@@ -16,6 +16,7 @@ import type * as callTranslation from "../callTranslation.js";
 import type * as calls from "../calls.js";
 import type * as caseDocuments from "../caseDocuments.js";
 import type * as cases from "../cases.js";
+import type * as claimCredentials from "../claimCredentials.js";
 import type * as contacts from "../contacts.js";
 import type * as externalVideoInvites from "../externalVideoInvites.js";
 import type * as faceLibrary from "../faceLibrary.js";
@@ -24,6 +25,7 @@ import type * as groupCallState from "../groupCallState.js";
 import type * as groupCalls from "../groupCalls.js";
 import type * as groupCallsNode from "../groupCallsNode.js";
 import type * as groups from "../groups.js";
+import type * as helperSessions from "../helperSessions.js";
 import type * as http from "../http.js";
 import type * as messages from "../messages.js";
 import type * as notifications from "../notifications.js";
@@ -35,6 +37,7 @@ import type * as roleManagement from "../roleManagement.js";
 import type * as roles from "../roles.js";
 import type * as secureGroupCalls from "../secureGroupCalls.js";
 import type * as tenantBoundaries from "../tenantBoundaries.js";
+import type * as transferCleanupPolicy from "../transferCleanupPolicy.js";
 import type * as users from "../users.js";
 
 import type {
@@ -52,6 +55,7 @@ declare const fullApi: ApiFromModules<{
   calls: typeof calls;
   caseDocuments: typeof caseDocuments;
   cases: typeof cases;
+  claimCredentials: typeof claimCredentials;
   contacts: typeof contacts;
   externalVideoInvites: typeof externalVideoInvites;
   faceLibrary: typeof faceLibrary;
@@ -60,6 +64,7 @@ declare const fullApi: ApiFromModules<{
   groupCalls: typeof groupCalls;
   groupCallsNode: typeof groupCallsNode;
   groups: typeof groups;
+  helperSessions: typeof helperSessions;
   http: typeof http;
   messages: typeof messages;
   notifications: typeof notifications;
@@ -71,6 +76,7 @@ declare const fullApi: ApiFromModules<{
   roles: typeof roles;
   secureGroupCalls: typeof secureGroupCalls;
   tenantBoundaries: typeof tenantBoundaries;
+  transferCleanupPolicy: typeof transferCleanupPolicy;
   users: typeof users;
 }>;
 

@@ -11,6 +11,32 @@ type CallContextMessages = (typeof callContextMessages)[AppLocale];
 type CallUiMessages = (typeof callUiMessages)[AppLocale];
 type AdminMessages = (typeof adminMessages)[AppLocale];
 
+const windowsFaceSwapMessages = {
+  title: "Windows face swap",
+  windowsOnly: "Open this setup on a Windows computer.",
+  fullFeatureOnly: "A full-feature authorization code is required.",
+  checking: "Checking the local helper...",
+  installRequired: "Install the USA.Filing Windows helper to continue.",
+  downloadHelper: "Download Windows helper",
+  outdated: "Update the USA.Filing Windows helper to continue.",
+  engineUnavailable: "The licensed face-swap engine is not installed yet. You can still select SwapFaceCam or OBS Virtual Camera in the call camera menu.",
+  selectPhoto: "Choose face photo",
+  photoHint: "JPG or PNG, up to 15 MB. The photo stays on this computer.",
+  invalidPhoto: "Choose a JPG or PNG image.",
+  photoTooLarge: "The image must be 15 MB or smaller.",
+  localConsent: "Process this photo only on this computer",
+  enroll: "Use this face",
+  enrolling: "Preparing face...",
+  ready: "Face is ready.",
+  start: "Start virtual camera",
+  stop: "Stop virtual camera",
+  clear: "Clear face",
+  preview: "USA.Filing Virtual Camera is running.",
+  retry: "Try again",
+  unavailableRecovery: "Open or install the helper, then try again.",
+  genericError: "The local helper could not complete the request.",
+} as const;
+
 export type Messages = {
   app: {
     loadingPage: string;
@@ -94,6 +120,7 @@ export type Messages = {
     backToLogin: string;
   };
   consultationPage: ConsultationPageMessages;
+  windowsFaceSwap: typeof windowsFaceSwapMessages;
   casesPage: CasesPageMessages;
   chatPage: ChatPageMessages;
   groupCallPage: GroupCallPageMessages;
@@ -162,6 +189,7 @@ export type Messages = {
     videoLoopHint: string;
     preparing: string;
     start: string;
+    virtualCameraMissing: string;
   };
   livekitStage: {
     waitingRemote: string;
@@ -2860,6 +2888,7 @@ export const messages: Record<AppLocale, Messages> = {
       backToLogin: "ログイン画面へ戻る",
     },
     consultationPage: consultationPageMessages.ja,
+    windowsFaceSwap: windowsFaceSwapMessages,
     casesPage: casesPageMessages.ja,
     chatPage: chatPageMessages.ja,
     groupCallPage: groupCallPageMessages.ja,
@@ -2944,6 +2973,7 @@ export const messages: Record<AppLocale, Messages> = {
         "選択した動画は、別の動画に切り替えるかカメラに戻すまでループ再生されます。",
       preparing: "通話を準備中...",
       start: "通話を開始",
+      virtualCameraMissing: "USA.Filing Virtual Camera が見つかりません。ヘルパーを起動するか、別のカメラを選択してください。",
     },
     livekitStage: {
       waitingRemote: "相手の参加を待っています...",
@@ -3111,6 +3141,7 @@ export const messages: Record<AppLocale, Messages> = {
       backToLogin: "返回登录页面",
     },
     consultationPage: consultationPageMessages["zh-Hans"],
+    windowsFaceSwap: windowsFaceSwapMessages,
     casesPage: casesPageMessages["zh-Hans"],
     chatPage: chatPageMessages["zh-Hans"],
     groupCallPage: groupCallPageMessages["zh-Hans"],
@@ -3179,6 +3210,7 @@ export const messages: Record<AppLocale, Messages> = {
       videoLoopHint: "所选视频会持续循环播放，直到更换视频或切回摄像头。",
       preparing: "正在准备通话...",
       start: "开始通话",
+      virtualCameraMissing: "找不到 USA.Filing Virtual Camera。请启动辅助程序或选择其他摄像头。",
     },
     livekitStage: {
       waitingRemote: "正在等待对方加入...",
@@ -3346,6 +3378,7 @@ export const messages: Record<AppLocale, Messages> = {
       backToLogin: "返回登入頁面",
     },
     consultationPage: consultationPageMessages["zh-Hant"],
+    windowsFaceSwap: windowsFaceSwapMessages,
     casesPage: casesPageMessages["zh-Hant"],
     chatPage: chatPageMessages["zh-Hant"],
     groupCallPage: groupCallPageMessages["zh-Hant"],
@@ -3414,6 +3447,7 @@ export const messages: Record<AppLocale, Messages> = {
       videoLoopHint: "所選影片會持續循環播放，直到更換影片或切回攝影機。",
       preparing: "正在準備通話...",
       start: "開始通話",
+      virtualCameraMissing: "找不到 USA.Filing Virtual Camera。請啟動輔助程式或選擇其他攝影機。",
     },
     livekitStage: {
       waitingRemote: "正在等待對方加入...",
@@ -3587,6 +3621,7 @@ export const messages: Record<AppLocale, Messages> = {
       backToLogin: "Back to sign in",
     },
     consultationPage: consultationPageMessages.en,
+    windowsFaceSwap: windowsFaceSwapMessages,
     casesPage: casesPageMessages.en,
     chatPage: chatPageMessages.en,
     groupCallPage: groupCallPageMessages.en,
@@ -3671,6 +3706,7 @@ export const messages: Record<AppLocale, Messages> = {
         "The selected video keeps looping until you switch to another video or return to the camera.",
       preparing: "Preparing call...",
       start: "Start call",
+      virtualCameraMissing: "USA.Filing Virtual Camera is not available. Start the helper or choose another camera.",
     },
     livekitStage: {
       waitingRemote: "Waiting for the other person to join...",

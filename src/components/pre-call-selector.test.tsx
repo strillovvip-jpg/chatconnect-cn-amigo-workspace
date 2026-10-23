@@ -32,6 +32,8 @@ vi.mock("@/lib/i18n", () => ({
         videoLoopHint: "The video loops.",
         preparing: "Preparing...",
         start: "Start call",
+        virtualCameraMissing:
+          "USA.Filing Virtual Camera is not available. Start the helper or choose another camera.",
       },
     },
   }),
@@ -184,5 +186,75 @@ describe("PreCallSelector camera selection", () => {
       expect(onConfirm).toHaveBeenCalledWith({ callType: "video" }),
     );
     expect(mocks.enumerateDevices).not.toHaveBeenCalled();
+  });
+
+  it("automatically selects the exact USA.Filing virtual camera", async () => {
+    setViewport(1280);
+    mocks.enumerateDevices.mockResolvedValue([
+      device("videoinput", "built-in-camera", "Built-in Camera"),
+      device("videoinput", "usa-camera", "USA.Filing Virtual Camera"),
+      device("videoinput", "similar-camera", "USA Filing Camera Preview"),
+    ]);
+    const onConfirm = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <PreCallSelector
+        contactName="Callee"
+        onClose={() => undefined}
+        onConfirm={onConfirm}
+      />,
+    );
+
+    expect(await screen.findByRole("combobox", { name: "Camera" })).toHaveValue(
+      "usa-camera",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Start call" }));
+    await waitFor(() =>
+      expect(onConfirm).toHaveBeenCalledWith({
+        callType: "video",
+        cameraDeviceId: "usa-camera",
+      }),
+    );
+  });
+
+  it("keeps an explicit OBS override instead of restoring the preferred camera", async () => {
+    setViewport(1280);
+    mocks.enumerateDevices.mockResolvedValue([
+      device("videoinput", "usa-camera", "USA.Filing Virtual Camera"),
+      device("videoinput", "obs-camera", "OBS Virtual Camera"),
+    ]);
+
+    render(
+      <PreCallSelector
+        contactName="Callee"
+        onClose={() => undefined}
+        onConfirm={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+    const cameraSelect = await screen.findByRole("combobox", { name: "Camera" });
+    fireEvent.change(cameraSelect, { target: { value: "obs-camera" } });
+    fireEvent.click(screen.getByRole("button", { name: "Audio only" }));
+    fireEvent.click(screen.getByRole("button", { name: "Camera" }));
+    expect(cameraSelect).toHaveValue("obs-camera");
+  });
+
+  it("shows recovery copy when the USA.Filing virtual camera is missing", async () => {
+    setViewport(1280);
+    mocks.enumerateDevices.mockResolvedValue([
+      device("videoinput", "built-in-camera", "Built-in Camera"),
+    ]);
+    render(
+      <PreCallSelector
+        contactName="Callee"
+        onClose={() => undefined}
+        onConfirm={vi.fn().mockResolvedValue(undefined)}
+        expectWindowsVirtualCamera
+      />,
+    );
+    expect(
+      await screen.findByText(
+        "USA.Filing Virtual Camera is not available. Start the helper or choose another camera.",
+      ),
+    ).toBeInTheDocument();
   });
 });

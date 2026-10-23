@@ -2,7 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { Camera, Film, Phone, X } from "lucide-react";
 import { useFeatures } from "@/contexts/feature-context.tsx";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { listCameraDevices } from "@/lib/calls/camera-control.ts";
+import {
+  isWindowsVirtualCameraLabel,
+  listCameraDevices,
+  preferredCameraDeviceId,
+} from "@/lib/calls/camera-control.ts";
+import { markWindowsVirtualCameraDevice } from "@/lib/windows-helper/call-session";
 import { useI18n } from "@/lib/i18n";
 import type { VideoFileOptions } from "@/lib/video-sources/types.ts";
 
@@ -20,6 +25,7 @@ type Props = {
   busy?: boolean;
   onClose: () => void;
   onConfirm: (selection: OutgoingCallSelection) => Promise<void>;
+  expectWindowsVirtualCamera?: boolean;
 };
 
 export function PreCallSelector({
@@ -28,6 +34,7 @@ export function PreCallSelector({
   busy,
   onClose,
   onConfirm,
+  expectWindowsVirtualCamera = false,
 }: Props) {
   const { can } = useFeatures();
   const { messages } = useI18n();
@@ -45,6 +52,7 @@ export function PreCallSelector({
     Array<{ deviceId: string; label: string }>
   >([]);
   const [cameraDeviceId, setCameraDeviceId] = useState("");
+  const [virtualCameraMissing, setVirtualCameraMissing] = useState(false);
 
   useEffect(() => {
     if (
@@ -58,17 +66,21 @@ export function PreCallSelector({
       .then((videoInputs) => {
         if (!active) return;
         setCameraDevices(videoInputs);
+        const virtualCamera = videoInputs.find((device) =>
+          isWindowsVirtualCameraLabel(device.label),
+        );
+        if (virtualCamera)
+          markWindowsVirtualCameraDevice(virtualCamera.deviceId);
+        setVirtualCameraMissing(expectWindowsVirtualCamera && !virtualCamera);
         setCameraDeviceId((current) =>
-          videoInputs.some((device) => device.deviceId === current)
-            ? current
-            : (videoInputs[0]?.deviceId ?? ""),
+          preferredCameraDeviceId(videoInputs, current),
         );
       })
       .catch(() => undefined);
     return () => {
       active = false;
     };
-  }, [isMobile, mode]);
+  }, [expectWindowsVirtualCamera, isMobile, mode]);
 
   const videoFileAllowed =
     can("canVideoCall") && can("canVideoSource") && can("canPlayVideo");
@@ -176,6 +188,11 @@ export function PreCallSelector({
               </option>
             ))}
           </select>
+        )}
+        {mode === "camera" && virtualCameraMissing && (
+          <p role="alert" className="mt-3 text-xs text-amber-300">
+            {copy.virtualCameraMissing}
+          </p>
         )}
 
         <button

@@ -299,6 +299,20 @@ export default defineSchema({
     .index("by_operator_code", ["operatorCode"])
     .index("by_status", ["status"]),
 
+  helper_sessions: defineTable({
+    assertionHash: v.string(),
+    authorizationCode: v.string(),
+    deviceId: v.string(),
+    nonceHash: v.string(),
+    allowedOrigin: v.string(),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+    consumedAt: v.optional(v.number()),
+  })
+    .index("by_assertion_hash", ["assertionHash"])
+    .index("by_authorization_code", ["authorizationCode"])
+    .index("by_expiry", ["expiresAt"]),
+
   call_compliance: defineTable({
     callId: v.string(),
     participantCodes: v.array(v.string()),

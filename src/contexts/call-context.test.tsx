@@ -34,6 +34,8 @@ const mocks = vi.hoisted(() => ({
   bridgeSetEnabled: vi.fn(),
   bridgeSetCameraEnabled: vi.fn(),
   setCameraEnabled: vi.fn(),
+  handleProcessedCameraFailure: vi.fn(),
+  stopWindowsHelperForPublisher: vi.fn(),
   endP2PCall: vi.fn(),
   markP2PConnected: vi.fn(),
   successToast: vi.fn(),
@@ -170,6 +172,13 @@ vi.mock("@/lib/amigo/bridge.ts", () => ({
 
 vi.mock("@/lib/calls/camera-control", () => ({
   setParticipantCameraEnabled: mocks.setCameraEnabled,
+  handleProcessedCameraFailure: mocks.handleProcessedCameraFailure,
+}));
+
+vi.mock("@/lib/windows-helper/call-session", () => ({
+  stopWindowsHelperForPublisher: mocks.stopWindowsHelperForPublisher,
+  isWindowsVirtualCameraDevice: (deviceId?: string) =>
+    deviceId === "usa-camera",
 }));
 
 vi.mock("@/components/livekit-stage.tsx", () => ({
@@ -325,6 +334,13 @@ describe("CallProvider native face-swap media mode", () => {
       pipeline: "native-livekit",
     });
     mocks.setCameraEnabled.mockResolvedValue(undefined);
+    mocks.handleProcessedCameraFailure.mockImplementation(
+      async ({ disableCamera, stopHelper }) => {
+        await disableCamera();
+        await stopHelper();
+      },
+    );
+    mocks.stopWindowsHelperForPublisher.mockResolvedValue(false);
     mocks.endP2PCall.mockResolvedValue(undefined);
     mocks.markP2PConnected.mockResolvedValue(undefined);
   });
@@ -478,6 +494,68 @@ describe("CallProvider native face-swap media mode", () => {
     expect(mocks.bridgeDisconnect).toHaveBeenCalledTimes(1);
     expect(browserRoom.disconnect).toHaveBeenCalledTimes(1);
     expect(mocks.endP2PCall).not.toHaveBeenCalled();
+  });
+
+  it("ends Windows helper processing after the virtual-camera publisher ends", async () => {
+    render(
+      <CallProvider>
+        <CaptureCallContext />
+      </CallProvider>,
+    );
+    await act(async () => {
+      await callApi.startCall({
+        ...baseCall,
+        token: "browser-token",
+        cameraDeviceId: "usa-camera",
+      });
+      await callApi.hangUp();
+    });
+    expect(mocks.stopWindowsHelperForPublisher).toHaveBeenCalledWith(
+      "usa-camera",
+    );
+  });
+
+  it("does not alter ordinary camera cleanup", async () => {
+    render(
+      <CallProvider>
+        <CaptureCallContext />
+      </CallProvider>,
+    );
+    await act(async () => {
+      await callApi.startCall({
+        ...baseCall,
+        token: "browser-token",
+        cameraDeviceId: "physical-camera",
+      });
+      await callApi.hangUp();
+    });
+    expect(mocks.stopWindowsHelperForPublisher).toHaveBeenCalledWith(
+      "physical-camera",
+    );
+  });
+
+  it("keeps a failed processed camera private instead of falling back to a physical camera", async () => {
+    render(
+      <CallProvider>
+        <CaptureCallContext />
+      </CallProvider>,
+    );
+    mocks.setCameraEnabled.mockRejectedValueOnce(
+      new Error("virtual camera ended"),
+    );
+    await act(async () => {
+      await callApi.startCall({
+        ...baseCall,
+        token: "browser-token",
+        cameraDeviceId: "usa-camera",
+      });
+    });
+    expect(mocks.handleProcessedCameraFailure).toHaveBeenCalledTimes(1);
+    expect(mocks.setCameraEnabled).not.toHaveBeenCalledWith(
+      expect.anything(),
+      true,
+      "physical-camera",
+    );
   });
 
   it("reconnects only the native processed publisher after room reconnection", async () => {

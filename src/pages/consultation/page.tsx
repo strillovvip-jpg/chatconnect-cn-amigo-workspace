@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   LogOut,
@@ -49,6 +49,7 @@ import {
 } from "@/lib/amigo/contact-face-swap-preflight";
 import { LanguageSelector } from "@/components/language-selector";
 import { useI18n } from "@/lib/i18n";
+import { WindowsFaceSwapSetup } from "@/components/windows-face-swap-setup";
 
 type Tab = "messages" | "cases" | "contacts" | "groupcall" | "docsearch";
 
@@ -616,8 +617,16 @@ export default function ConsultationPage({
   } | null>(null);
   const [faceSwapInviteOpen, setFaceSwapInviteOpen] = useState(false);
   const [faceSettingsOpen, setFaceSettingsOpen] = useState(false);
+  const [windowsFaceSwapOpen, setWindowsFaceSwapOpen] = useState(false);
   const [faceReady, setFaceReady] = useState(false);
   const canCreateFaceSwapInvite = canUseExternalFaceSwapInvite(flags);
+  const createHelperAssertion = useMutation(api.helperSessions.create);
+  const requestHelperAssertion = useCallback(
+    (input: { code: string; deviceId: string; helperNonce: string }) =>
+      createHelperAssertion(input),
+    [createHelperAssertion],
+  );
+  const isWindowsBrowser = /win/i.test(navigator.platform);
 
   useEffect(() => {
     if (!canCreateFaceSwapInvite || !nativeAmigoRoom.isAvailable) {
@@ -908,6 +917,10 @@ export default function ConsultationPage({
                 <button
                   type="button"
                   onClick={() => {
+                    if (isWindowsBrowser) {
+                      setWindowsFaceSwapOpen((open) => !open);
+                      return;
+                    }
                     if (!nativeAmigoRoom.isAvailable) {
                       toast.error(messages.faceSwapInvite.nativeOnly);
                       return;
@@ -919,6 +932,15 @@ export default function ConsultationPage({
                   <UserCheck size={16} />
                   {messages.faceSwapInvite.manageFaces}
                 </button>
+                {windowsFaceSwapOpen && (
+                  <WindowsFaceSwapSetup
+                    authorizationCode={userCode}
+                    deviceId={deviceId}
+                    fullFeature={canCreateFaceSwapInvite}
+                    copy={messages.windowsFaceSwap}
+                    createAssertion={requestHelperAssertion}
+                  />
+                )}
                 <button
                   type="button"
                   disabled={!faceReady}

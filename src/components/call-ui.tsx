@@ -26,9 +26,11 @@ import { useI18n } from "@/lib/i18n";
 import { uiErrorMessage } from "@/lib/utils.ts";
 import { OVERLAY_LAYERS } from "@/lib/ui/overlay-layers";
 import {
+  isWindowsVirtualCameraLabel,
   listCameraDevices,
   type CameraDeviceOption,
 } from "@/lib/calls/camera-control.ts";
+import { markWindowsVirtualCameraDevice } from "@/lib/windows-helper/call-session";
 import {
   shouldHangUpTransferredCall,
   startTransferCompletionRecovery,
@@ -1316,7 +1318,11 @@ export function GlobalTransferNotification() {
               <button
                 key={camera.deviceId}
                 disabled={busy}
-                onClick={() => void acceptTransfer(true, camera.deviceId)}
+                onClick={() => {
+                  if (isWindowsVirtualCameraLabel(camera.label))
+                    markWindowsVirtualCameraDevice(camera.deviceId);
+                  void acceptTransfer(true, camera.deviceId);
+                }}
                 className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-3 text-left text-sm"
               >
                 {camera.label}

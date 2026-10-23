@@ -97,4 +97,27 @@ http.route({
   }),
 });
 
+http.route({
+  path: "/api/helper-sessions/consume",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    try {
+      const body = (await request.json()) as {
+        assertionId?: string;
+        helperNonce?: string;
+      };
+      if (!body.assertionId || !body.helperNonce)
+        return json({ error: "INVALID_REQUEST" }, 400);
+      return json(
+        await ctx.runMutation(api.helperSessions.consume, {
+          assertionId: body.assertionId,
+          helperNonce: body.helperNonce,
+        }),
+      );
+    } catch {
+      return json({ error: "INVALID_ASSERTION" }, 401);
+    }
+  }),
+});
+
 export default http;

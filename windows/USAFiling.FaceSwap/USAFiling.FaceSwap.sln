@@ -13,6 +13,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "USAFiling.FaceSwap.Contract
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "USAFiling.FaceSwap.Helper", "src\USAFiling.FaceSwap.Helper\USAFiling.FaceSwap.Helper.csproj", "{8E6F3AC3-3827-4A1F-8437-680376BEDD23}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "USAFiling.FaceSwap.Helper.Tests", "tests\USAFiling.FaceSwap.Helper.Tests\USAFiling.FaceSwap.Helper.Tests.csproj", "{FD984824-A80A-4B88-8AC1-01110849A276}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -34,10 +36,15 @@ Global
 		{8E6F3AC3-3827-4A1F-8437-680376BEDD23}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{8E6F3AC3-3827-4A1F-8437-680376BEDD23}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{8E6F3AC3-3827-4A1F-8437-680376BEDD23}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FD984824-A80A-4B88-8AC1-01110849A276}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FD984824-A80A-4B88-8AC1-01110849A276}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FD984824-A80A-4B88-8AC1-01110849A276}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FD984824-A80A-4B88-8AC1-01110849A276}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{F47177D3-1C2D-4936-BF4E-61B5F87498E0} = {F559E993-3AFD-4398-B95C-0E057C90FBC4}
 		{373CFEC5-6B59-4AEB-AFD5-74ABC5282DFE} = {52F168E9-523C-40AF-94AF-9E3AFB6CA924}
 		{8E6F3AC3-3827-4A1F-8437-680376BEDD23} = {52F168E9-523C-40AF-94AF-9E3AFB6CA924}
+		{FD984824-A80A-4B88-8AC1-01110849A276} = {F559E993-3AFD-4398-B95C-0E057C90FBC4}
 	EndGlobalSection
 EndGlobal

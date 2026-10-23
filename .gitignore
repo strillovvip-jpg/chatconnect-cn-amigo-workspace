@@ -63,3 +63,6 @@ ios/App/CapApp-SPM/Sources/CapApp-SPM/*.bak-*
 /ios/App/App/public
 !ios/App/App/capacitor.config.json
 !ios/App/App/config.xml
+
+# Local isolated development worktrees
+/.worktrees/

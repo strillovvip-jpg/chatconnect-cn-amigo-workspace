@@ -33,6 +33,7 @@ tsconfig.tsbuildinfo
 *.ntvs*
 *.njsproj
 *.sln
+!windows/USAFiling.FaceSwap/USAFiling.FaceSwap.sln
 *.sw?
 
 # Environment variables
@@ -66,3 +67,7 @@ ios/App/CapApp-SPM/Sources/CapApp-SPM/*.bak-*
 
 # Local isolated development worktrees
 /.worktrees/
+
+# .NET build output
+**/[Bb]in/
+**/[Oo]bj/

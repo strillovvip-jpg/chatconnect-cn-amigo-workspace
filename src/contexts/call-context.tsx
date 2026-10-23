@@ -22,7 +22,14 @@ import type {
 import { useFeatures } from "@/contexts/feature-context.tsx";
 import { CallComplianceAgent } from "@/components/call-compliance-agent.tsx";
 import { useI18n } from "@/lib/i18n";
-import { setParticipantCameraEnabled } from "@/lib/calls/camera-control";
+import {
+  handleProcessedCameraFailure,
+  setParticipantCameraEnabled,
+} from "@/lib/calls/camera-control";
+import {
+  isWindowsVirtualCameraDevice,
+  stopWindowsHelperForPublisher,
+} from "@/lib/windows-helper/call-session";
 import {
   connectNativePublisherBeforeBrowser,
   disconnectNativePublisherWithRetry,
@@ -382,6 +389,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         }
       }
       await stopLocalMedia(activeRoom);
+      await stopWindowsHelperForPublisher(activeInfo?.cameraDeviceId).catch(
+        () => undefined,
+      );
       activeRoom?.removeAllListeners();
       await activeRoom?.disconnect();
       setRoom(null);
@@ -726,6 +736,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
             }
             toast.dismiss("livekit-camera-permission");
           } catch (error) {
+            if (isWindowsVirtualCameraDevice(info.cameraDeviceId)) {
+              await handleProcessedCameraFailure({
+                disableCamera: () =>
+                  setCallCameraEnabled(nextRoom.localParticipant, false),
+                stopHelper: () =>
+                  stopWindowsHelperForPublisher(info.cameraDeviceId),
+              });
+            }
             wantedCamRef.current = false;
             console.error("[P2P_CALL] local camera publish failed", {
               callId: info.callId,
@@ -889,6 +907,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           "[FACE_SWAP_CALL] native publisher restore failed",
           error,
         );
+      } else if (isWindowsVirtualCameraDevice(info.cameraDeviceId)) {
+        await handleProcessedCameraFailure({
+          disableCamera: () =>
+            setCallCameraEnabled(activeRoom.localParticipant, false),
+          stopHelper: () =>
+            stopWindowsHelperForPublisher(info.cameraDeviceId),
+        });
       }
       toast.error(copy.mediaStopped, {
         id: "livekit-media-restore",

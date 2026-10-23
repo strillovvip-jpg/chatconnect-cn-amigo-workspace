@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { WindowsHelperClient } from "@/lib/windows-helper/client";
+import { registerWindowsHelperStop } from "@/lib/windows-helper/call-session";
 
 const MAX_FACE_BYTES = 15 * 1024 * 1024;
 
@@ -177,6 +178,7 @@ export function WindowsFaceSwapSetup({
   const start = async () => {
     try {
       await client.start();
+      registerWindowsHelperStop(() => client.stop());
       setState("preview");
     } catch {
       setOperationError(copy.genericError);

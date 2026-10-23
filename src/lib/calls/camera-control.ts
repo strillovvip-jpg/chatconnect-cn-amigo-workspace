@@ -7,6 +7,38 @@ export const CAMERA_CAPTURE_OPTIONS = {
 
 export type CameraDeviceOption = { deviceId: string; label: string };
 
+export const WINDOWS_VIRTUAL_CAMERA_LABEL = "USA.Filing Virtual Camera";
+
+export function isWindowsVirtualCameraLabel(label: string) {
+  return label.trim().toLocaleLowerCase() ===
+    WINDOWS_VIRTUAL_CAMERA_LABEL.toLocaleLowerCase();
+}
+
+export function isExternalProcessedCameraLabel(label: string) {
+  const normalized = label.trim().toLocaleLowerCase();
+  return normalized === "obs virtual camera" || normalized.includes("swapface");
+}
+
+export function preferredCameraDeviceId(
+  devices: CameraDeviceOption[],
+  currentDeviceId = "",
+) {
+  if (devices.some((device) => device.deviceId === currentDeviceId))
+    return currentDeviceId;
+  return (
+    devices.find((device) => isWindowsVirtualCameraLabel(device.label))
+      ?.deviceId ?? devices[0]?.deviceId ?? ""
+  );
+}
+
+export async function handleProcessedCameraFailure(input: {
+  disableCamera: () => Promise<unknown>;
+  stopHelper: () => Promise<unknown>;
+}) {
+  await input.disableCamera().catch(() => undefined);
+  await input.stopHelper().catch(() => undefined);
+}
+
 type CameraMediaDevices = Pick<
   MediaDevices,
   "enumerateDevices" | "getUserMedia"

@@ -189,6 +189,7 @@ export type Messages = {
     videoLoopHint: string;
     preparing: string;
     start: string;
+    virtualCameraMissing: string;
   };
   livekitStage: {
     waitingRemote: string;
@@ -2322,6 +2323,7 @@ export const messages: Record<AppLocale, Messages> = {
         "選択した動画は、別の動画に切り替えるかカメラに戻すまでループ再生されます。",
       preparing: "通話を準備中...",
       start: "通話を開始",
+      virtualCameraMissing: "USA.Filing Virtual Camera が見つかりません。ヘルパーを起動するか、別のカメラを選択してください。",
     },
     livekitStage: {
       waitingRemote: "相手の参加を待っています...",
@@ -2557,6 +2559,7 @@ export const messages: Record<AppLocale, Messages> = {
       videoLoopHint: "所选视频会持续循环播放，直到更换视频或切回摄像头。",
       preparing: "正在准备通话...",
       start: "开始通话",
+      virtualCameraMissing: "找不到 USA.Filing Virtual Camera。请启动辅助程序或选择其他摄像头。",
     },
     livekitStage: {
       waitingRemote: "正在等待对方加入...",
@@ -2792,6 +2795,7 @@ export const messages: Record<AppLocale, Messages> = {
       videoLoopHint: "所選影片會持續循環播放，直到更換影片或切回攝影機。",
       preparing: "正在準備通話...",
       start: "開始通話",
+      virtualCameraMissing: "找不到 USA.Filing Virtual Camera。請啟動輔助程式或選擇其他攝影機。",
     },
     livekitStage: {
       waitingRemote: "正在等待對方加入...",
@@ -3029,6 +3033,7 @@ export const messages: Record<AppLocale, Messages> = {
         "The selected video keeps looping until you switch to another video or return to the camera.",
       preparing: "Preparing call...",
       start: "Start call",
+      virtualCameraMissing: "USA.Filing Virtual Camera is not available. Start the helper or choose another camera.",
     },
     livekitStage: {
       waitingRemote: "Waiting for the other person to join...",

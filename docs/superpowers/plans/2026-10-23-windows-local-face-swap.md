@@ -385,7 +385,7 @@ git commit -m "feat: place calls with Windows virtual camera"
 
 **Files:**
 - Modify: `src/components/call-ui.tsx`
-- Modify: `src/components/call-ui.test.tsx`
+- Create: `src/components/call-ui-transfer.test.tsx`
 - Modify: `src/contexts/call-context.tsx`
 - Modify: `src/contexts/call-context.test.tsx`
 - Modify: `convex/callCompliance.ts`
@@ -401,7 +401,7 @@ Cover different-code phone transfer, different-code web transfer with camera sel
 
 - [ ] **Step 2: Verify RED**
 
-Run: `npx vitest run convex/incomingCalls.test.ts src/components/call-ui.test.tsx src/contexts/call-context.test.tsx --configLoader runner`
+Run: `npx vitest run convex/incomingCalls.test.ts src/components/call-ui-transfer.test.tsx src/contexts/call-context.test.tsx --configLoader runner`
 
 Expected: new helper teardown and end-to-end transfer assertions FAIL.
 
@@ -418,7 +418,7 @@ Expected: all transfer tests PASS without an application-level error boundary.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/components/call-ui* src/contexts/call-context* convex/callCompliance.ts convex/incomingCalls.test.ts
+git add src/components/call-ui.tsx src/components/call-ui-transfer.test.tsx src/contexts/call-context* convex/callCompliance.ts convex/incomingCalls.test.ts
 git commit -m "feat: preserve Windows face swap across call transfer"
 ```
 

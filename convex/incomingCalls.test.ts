@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "./schema";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 
 const modules = import.meta.glob("./**/*.*s");
 
@@ -661,6 +661,265 @@ describe("global incoming calls", () => {
     ).toMatchObject({ _id: transferId, targetUserId: "CCCCC" });
   });
 
+  test("a transfer receiver is told when the remaining peer publishes face-swap video", async () => {
+    const t = await setup({ callerHasCalleeContact: true });
+    const created = await t.mutation(api.callState.prepareP2P, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      theirCode: "BBBBB",
+      callType: "video",
+      callerMediaMode: "face-swap",
+    });
+    await t.mutation(api.callState.acceptAndAuthorizeIncomingJoin, {
+      code: "BBBBB",
+      deviceId: "device-b",
+      callId: created.callId,
+    });
+    await t.mutation(api.callState.markParticipantConnected, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      callId: created.callId,
+    });
+    await t.mutation(api.callState.markParticipantConnected, {
+      code: "BBBBB",
+      deviceId: "device-b",
+      callId: created.callId,
+    });
+    await t.mutation(internal.callState.recordParticipantIdentities, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      callId: created.callId,
+      identities: ["AAAAA-browser", "AAAAA-face-swap-native"],
+    });
+    const transferId = await t.mutation(api.callState.initiateTransfer, {
+      code: "BBBBB",
+      deviceId: "device-b",
+      callId: created.callId,
+      targetCode: "CCCCC",
+    });
+    await t.mutation(api.callState.respondTransfer, {
+      code: "CCCCC",
+      deviceId: "device-c",
+      transferId,
+      accept: true,
+    });
+
+    await expect(
+      t.mutation(internal.callState.authorizeTransferJoin, {
+        code: "CCCCC",
+        deviceId: "device-c",
+        transferId,
+        targetIdentity: "CCCCC-new-mobile",
+      }),
+    ).resolves.toMatchObject({
+      remoteUserId: "AAAAA",
+      remoteMediaMode: "face-swap",
+      remotePublisherIdentities: ["AAAAA-browser", "AAAAA-face-swap-native"],
+    });
+  });
+
+  test("only the exact joining target device sees refreshed peer publisher identities", async () => {
+    const t = await setup({ callerHasCalleeContact: true });
+    const created = await t.mutation(api.callState.prepareP2P, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      theirCode: "BBBBB",
+      callType: "video",
+    });
+    await t.mutation(api.callState.acceptAndAuthorizeIncomingJoin, {
+      code: "BBBBB",
+      deviceId: "device-b",
+      callId: created.callId,
+    });
+    await t.mutation(api.callState.markParticipantConnected, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      callId: created.callId,
+    });
+    await t.mutation(api.callState.markParticipantConnected, {
+      code: "BBBBB",
+      deviceId: "device-b",
+      callId: created.callId,
+    });
+    await t.mutation(internal.callState.recordParticipantIdentities, {
+      code: "BBBBB",
+      deviceId: "device-b",
+      callId: created.callId,
+      identities: ["BBBBB-old-browser"],
+    });
+    await t.run(async (ctx) => {
+      const target = await ctx.db
+        .query("auth_codes")
+        .withIndex("by_code", (q) => q.eq("code", "CCCCC"))
+        .unique();
+      const profile = await ctx.db.query("license_profiles").first();
+      if (!target || !profile) throw new Error("Expected test accounts");
+      await ctx.db.patch(target._id, { mobileDeviceId: "device-c-other" });
+      await ctx.db.insert("auth_codes", {
+        code: "DDDDD",
+        deviceId: "device-d",
+        name: "Unrelated D",
+        usedAt: new Date().toISOString(),
+      });
+      await ctx.db.insert("allowed_codes", {
+        code: "DDDDD",
+        role: "user",
+        enabled: true,
+        licenseProfileId: profile._id,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+    const transferId = await t.mutation(api.callState.initiateTransfer, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      callId: created.callId,
+      targetCode: "CCCCC",
+    });
+    await t.mutation(api.callState.respondTransfer, {
+      code: "CCCCC",
+      deviceId: "device-c",
+      transferId,
+      accept: true,
+    });
+    await t.mutation(internal.callState.authorizeTransferJoin, {
+      code: "CCCCC",
+      deviceId: "device-c",
+      transferId,
+      targetIdentity: "CCCCC-target-browser",
+    });
+
+    await expect(
+      t.query(api.callState.callStatus, {
+        code: "CCCCC",
+        deviceId: "device-c",
+        callId: created.callId,
+      }),
+    ).resolves.toMatchObject({
+      peerCode: "BBBBB",
+      peerIdentity: "BBBBB-old-browser",
+      peerPublisherIdentities: ["BBBBB-old-browser"],
+    });
+    await expect(
+      t.query(api.callState.callStatus, {
+        code: "CCCCC",
+        deviceId: "device-c-other",
+        callId: created.callId,
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      t.query(api.callState.callStatus, {
+        code: "DDDDD",
+        deviceId: "device-d",
+        callId: created.callId,
+      }),
+    ).resolves.toBeNull();
+
+    await t.mutation(internal.callState.recordParticipantIdentities, {
+      code: "BBBBB",
+      deviceId: "device-b",
+      callId: created.callId,
+      identities: ["BBBBB-new-browser"],
+    });
+    await expect(
+      t.query(api.callState.callStatus, {
+        code: "CCCCC",
+        deviceId: "device-c",
+        callId: created.callId,
+      }),
+    ).resolves.toMatchObject({
+      peerCode: "BBBBB",
+      peerIdentity: "BBBBB-new-browser",
+      peerPublisherIdentities: ["BBBBB-old-browser", "BBBBB-new-browser"],
+    });
+  });
+
+  test("captures a fresh source publisher recorded after transfer completion was prepared", async () => {
+    const t = await setup({ callerHasCalleeContact: true });
+    const created = await t.mutation(api.callState.prepareP2P, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      theirCode: "BBBBB",
+      callType: "video",
+    });
+    await t.mutation(api.callState.acceptAndAuthorizeIncomingJoin, {
+      code: "BBBBB",
+      deviceId: "device-b",
+      callId: created.callId,
+    });
+    await t.mutation(api.callState.markParticipantConnected, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      callId: created.callId,
+    });
+    await t.mutation(api.callState.markParticipantConnected, {
+      code: "BBBBB",
+      deviceId: "device-b",
+      callId: created.callId,
+    });
+    await t.mutation(internal.callState.recordParticipantIdentities, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      callId: created.callId,
+      identities: ["AAAAA-old-browser"],
+    });
+    const transferId = await t.mutation(api.callState.initiateTransfer, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      callId: created.callId,
+      targetCode: "CCCCC",
+    });
+    await t.mutation(api.callState.respondTransfer, {
+      code: "CCCCC",
+      deviceId: "device-c",
+      transferId,
+      accept: true,
+    });
+    await t.mutation(internal.callState.authorizeTransferJoin, {
+      code: "CCCCC",
+      deviceId: "device-c",
+      transferId,
+      targetIdentity: "CCCCC-target-browser",
+    });
+    const prepared = await t.query(
+      internal.callState.authorizeTransferCompletion,
+      {
+        code: "CCCCC",
+        deviceId: "device-c",
+        transferId,
+      },
+    );
+    expect(prepared.sourceIdentities).toEqual(["AAAAA-old-browser"]);
+
+    await t.mutation(internal.callState.recordParticipantIdentities, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      callId: created.callId,
+      identities: ["AAAAA-new-browser"],
+    });
+    const completed = await t.mutation(
+      internal.callState.confirmTransferJoined,
+      {
+        code: "CCCCC",
+        deviceId: "device-c",
+        transferId,
+        sourceIdentities: prepared.sourceIdentities,
+      },
+    );
+
+    expect(completed).toMatchObject({
+      completed: true,
+      sourceIdentities: ["AAAAA-old-browser", "AAAAA-new-browser"],
+    });
+    expect(completed.sourceIdentities).not.toContain("CCCCC-target-browser");
+    await expect(
+      t.run(async (ctx) => ctx.db.get(transferId)),
+    ).resolves.toMatchObject({
+      status: "completed",
+      sourceIdentities: ["AAAAA-old-browser", "AAAAA-new-browser"],
+    });
+  });
+
   test("a transfer target must have the full call-transfer feature", async () => {
     const t = await setup({
       calleeFeatures: { canTransferCall: false },
@@ -756,7 +1015,7 @@ describe("global incoming calls", () => {
     ).toMatchObject({ status: "connected" });
   });
 
-  test("a transfer only replaces the sender after the target confirms joining", async () => {
+  test("an accepted or joining transfer expires so a later handoff is not blocked", async () => {
     const t = await setup();
     const created = await t.mutation(api.callState.prepareP2P, {
       code: "AAAAA",
@@ -791,11 +1050,173 @@ describe("global incoming calls", () => {
       transferId,
       accept: true,
     });
-    await t.mutation(api.callState.authorizeTransferJoin, {
+    await expect(
+      t.query(api.callState.pendingTransfer, {
+        code: "CCCCC",
+        deviceId: "device-c",
+      }),
+    ).resolves.toMatchObject({ _id: transferId, status: "accepted" });
+    await t.run(async (ctx) => {
+      const target = await ctx.db
+        .query("auth_codes")
+        .withIndex("by_code", (q) => q.eq("code", "CCCCC"))
+        .unique();
+      if (!target) throw new Error("Expected transfer target");
+      await ctx.db.patch(target._id, { mobileDeviceId: "device-c-other" });
+    });
+    await expect(
+      t.query(api.callState.pendingTransfer, {
+        code: "CCCCC",
+        deviceId: "device-c-other",
+      }),
+    ).resolves.toBeNull();
+    await t.mutation(internal.callState.authorizeTransferJoin, {
       code: "CCCCC",
       deviceId: "device-c",
       transferId,
+      targetIdentity: "CCCCC-resumed-mobile",
     });
+    await expect(
+      t.query(api.callState.pendingTransfer, {
+        code: "CCCCC",
+        deviceId: "device-c",
+      }),
+    ).resolves.toMatchObject({ _id: transferId, status: "joining" });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(transferId, { expiresAt: Date.now() - 1 });
+    });
+    await t.mutation(internal.callState.expireTransfer, { transferId });
+
+    await expect(
+      t.run(async (ctx) => ctx.db.get(transferId)),
+    ).resolves.toMatchObject({
+      status: "failed",
+      failureReason: "接收端加入超时",
+    });
+    await expect(
+      t.mutation(api.callState.initiateTransfer, {
+        code: "AAAAA",
+        deviceId: "device-a",
+        callId: created.callId,
+        targetCode: "CCCCC",
+      }),
+    ).resolves.toBeDefined();
+  });
+
+  test("a device cannot accept a transfer while it owns another active call", async () => {
+    const t = await setup();
+    const created = await t.mutation(api.callState.prepareP2P, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      theirCode: "BBBBB",
+      callType: "video",
+    });
+    await t.mutation(api.callState.acceptAndAuthorizeIncomingJoin, {
+      code: "BBBBB",
+      deviceId: "device-b",
+      callId: created.callId,
+    });
+    await t.mutation(api.callState.markParticipantConnected, {
+      code: "BBBBB",
+      deviceId: "device-b",
+      callId: created.callId,
+    });
+    await t.mutation(api.callState.markParticipantConnected, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      callId: created.callId,
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("live_calls", {
+        callId: "other-call",
+        roomName: "other-room",
+        type: "video",
+        status: "connected",
+        participantCodes: ["CCCCC", "DDDDD"],
+        createdByCode: "CCCCC",
+        callerUserId: "CCCCC",
+        callerDeviceId: "device-c",
+        callerCode: "CCCCC",
+        calleeUserId: "DDDDD",
+        calleeDeviceId: "device-d",
+        calleeCode: "DDDDD",
+        createdAt: Date.now(),
+      });
+    });
+    const transferId = await t.mutation(api.callState.initiateTransfer, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      callId: created.callId,
+      targetCode: "CCCCC",
+    });
+
+    await expect(
+      t.mutation(api.callState.respondTransfer, {
+        code: "CCCCC",
+        deviceId: "device-c",
+        transferId,
+        accept: true,
+      }),
+    ).rejects.toThrow("正在另一通话");
+  });
+
+  test("a transfer only replaces the sender after the target confirms joining", async () => {
+    const t = await setup();
+    const created = await t.mutation(api.callState.prepareP2P, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      theirCode: "BBBBB",
+      callType: "video",
+    });
+    await t.mutation(api.callState.acceptAndAuthorizeIncomingJoin, {
+      code: "BBBBB",
+      deviceId: "device-b",
+      callId: created.callId,
+    });
+    await t.mutation(api.callState.markParticipantConnected, {
+      code: "BBBBB",
+      deviceId: "device-b",
+      callId: created.callId,
+    });
+    await t.mutation(api.callState.markParticipantConnected, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      callId: created.callId,
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("call_compliance", {
+        callId: created.callId,
+        participantCodes: ["AAAAA", "BBBBB"],
+        consentedCodes: ["AAAAA", "BBBBB"],
+        declinedCodes: [],
+        status: "active",
+        requestedBy: "ADMIN",
+        requestedAt: Date.now() - 1_000,
+        activatedAt: Date.now() - 500,
+        translationEnabled: true,
+      });
+    });
+    const transferId = await t.mutation(api.callState.initiateTransfer, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      callId: created.callId,
+      targetCode: "CCCCC",
+    });
+    await t.mutation(api.callState.respondTransfer, {
+      code: "CCCCC",
+      deviceId: "device-c",
+      transferId,
+      accept: true,
+    });
+    const transferJoin = await t.mutation(
+      internal.callState.authorizeTransferJoin,
+      {
+        code: "CCCCC",
+        deviceId: "device-c",
+        transferId,
+      },
+    );
+    expect(transferJoin).toMatchObject({ remoteUserId: "BBBBB" });
     await expect(
       t.query(api.callCompliance.status, {
         code: "CCCCC",
@@ -803,6 +1224,14 @@ describe("global incoming calls", () => {
         callId: created.callId,
       }),
     ).resolves.toBeNull();
+    await expect(
+      t.mutation(api.callCompliance.respond, {
+        code: "CCCCC",
+        deviceId: "device-c",
+        callId: created.callId,
+        consent: true,
+      }),
+    ).rejects.toThrow("录音同意请求已失效");
     expect(
       await t.query(api.callState.callStatus, {
         code: "AAAAA",
@@ -810,10 +1239,11 @@ describe("global incoming calls", () => {
         callId: created.callId,
       }),
     ).toMatchObject({ peerCode: "BBBBB" });
-    await t.mutation(api.callState.confirmTransferJoined, {
+    await t.mutation(internal.callState.confirmTransferJoined, {
       code: "CCCCC",
       deviceId: "device-c",
       transferId,
+      sourceIdentities: ["AAAAA-old-browser"],
     });
     expect(
       await t.query(api.callState.callStatus, {
@@ -822,6 +1252,13 @@ describe("global incoming calls", () => {
         callId: created.callId,
       }),
     ).toBeNull();
+    await expect(
+      t.query(api.callCompliance.status, {
+        code: "AAAAA",
+        deviceId: "device-a",
+        callId: created.callId,
+      }),
+    ).resolves.toBeNull();
     expect(
       await t.query(api.callState.callStatus, {
         code: "BBBBB",
@@ -844,6 +1281,37 @@ describe("global incoming calls", () => {
       peerCode: "BBBBB",
       peerName: "Callee B",
     });
+    await expect(
+      t.query(api.callCompliance.status, {
+        code: "CCCCC",
+        deviceId: "device-c",
+        callId: created.callId,
+      }),
+    ).resolves.toMatchObject({
+      consentedCodes: [],
+      status: "requested",
+      translationEnabled: false,
+      myConsent: false,
+    });
+    await t.mutation(api.callCompliance.respond, {
+      code: "BBBBB",
+      deviceId: "device-b",
+      callId: created.callId,
+      consent: true,
+    });
+    await t.mutation(api.callCompliance.respond, {
+      code: "CCCCC",
+      deviceId: "device-c",
+      callId: created.callId,
+      consent: true,
+    });
+    await expect(
+      t.query(api.callCompliance.status, {
+        code: "CCCCC",
+        deviceId: "device-c",
+        callId: created.callId,
+      }),
+    ).resolves.toMatchObject({ status: "active", myConsent: true });
   });
 
   test("a call can be handed off to another device using the same authorization code", async () => {
@@ -869,6 +1337,19 @@ describe("global incoming calls", () => {
       deviceId: "device-a",
       callId: created.callId,
     });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("call_compliance", {
+        callId: created.callId,
+        participantCodes: ["AAAAA", "BBBBB"],
+        consentedCodes: ["AAAAA", "BBBBB"],
+        declinedCodes: [],
+        status: "active",
+        requestedBy: "ADMIN",
+        requestedAt: Date.now() - 1_000,
+        activatedAt: Date.now() - 500,
+        translationEnabled: true,
+      });
+    });
 
     const transferId = await t.mutation(api.callState.initiateTransfer, {
       code: "AAAAA",
@@ -883,12 +1364,15 @@ describe("global incoming calls", () => {
         deviceId: "device-a",
       }),
     ).toBeNull();
-    expect(
-      await t.query(api.callState.pendingTransfer, {
-        code: "AAAAA",
-        deviceId: "device-a-mobile",
-      }),
-    ).toMatchObject({ _id: transferId, targetUserId: "AAAAA" });
+    const pendingForTarget = await t.query(api.callState.pendingTransfer, {
+      code: "AAAAA",
+      deviceId: "device-a-mobile",
+    });
+    expect(pendingForTarget).toMatchObject({
+      _id: transferId,
+      targetUserId: "AAAAA",
+    });
+    expect(pendingForTarget).not.toHaveProperty("fromDeviceId");
     await expect(
       t.mutation(api.callState.respondTransfer, {
         code: "AAAAA",
@@ -905,6 +1389,112 @@ describe("global incoming calls", () => {
         accept: true,
       }),
     ).resolves.toMatchObject({ callId: created.callId });
+    const outgoingForSource = await t.query(api.callState.myOutgoingTransfer, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      callId: created.callId,
+    });
+    expect(outgoingForSource).not.toBeNull();
+    expect(outgoingForSource).not.toHaveProperty("targetDeviceId");
+
+    await t.mutation(internal.callState.authorizeTransferJoin, {
+      code: "AAAAA",
+      deviceId: "device-a-mobile",
+      transferId,
+      targetIdentity: "AAAAA-new-mobile",
+    });
+    await expect(
+      t.query(api.callState.callStatus, {
+        code: "BBBBB",
+        deviceId: "device-b",
+        callId: created.callId,
+      }),
+    ).resolves.toMatchObject({
+      peerCode: "AAAAA",
+      peerIdentity: "AAAAA-new-mobile",
+      peerPublisherIdentities: ["AAAAA-new-mobile"],
+    });
+    await t.mutation(internal.callState.confirmTransferJoined, {
+      code: "AAAAA",
+      deviceId: "device-a-mobile",
+      transferId,
+      sourceIdentities: ["AAAAA-old-browser"],
+    });
+    await expect(
+      t.query(api.callState.callStatus, {
+        code: "AAAAA",
+        deviceId: "device-a",
+        callId: created.callId,
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      t.mutation(api.callState.markParticipantConnected, {
+        code: "AAAAA",
+        deviceId: "device-a",
+        callId: created.callId,
+      }),
+    ).rejects.toThrow("已由另一台设备接手");
+    await expect(
+      t.mutation(api.callState.markParticipantConnected, {
+        code: "AAAAA",
+        deviceId: "device-a-mobile",
+        callId: created.callId,
+      }),
+    ).resolves.toBeNull();
+
+    // The old desktop is disconnected as part of the handoff. Its teardown
+    // must not end the call that the same authorization code just continued
+    // on the mobile device.
+    await t.mutation(api.callState.endP2PCall, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      callId: created.callId,
+    });
+    await expect(
+      t.query(api.callState.callStatus, {
+        code: "AAAAA",
+        deviceId: "device-a-mobile",
+        callId: created.callId,
+      }),
+    ).resolves.toMatchObject({ status: "connected", peerCode: "BBBBB" });
+    await expect(
+      t.query(api.callState.callStatus, {
+        code: "BBBBB",
+        deviceId: "device-b",
+        callId: created.callId,
+      }),
+    ).resolves.toMatchObject({
+      status: "connected",
+      peerCode: "AAAAA",
+      peerIdentity: "AAAAA-new-mobile",
+    });
+    await expect(
+      t.query(api.callCompliance.status, {
+        code: "AAAAA",
+        deviceId: "device-a-mobile",
+        callId: created.callId,
+      }),
+    ).resolves.toMatchObject({
+      consentedCodes: ["AAAAA", "BBBBB"],
+      status: "active",
+      translationEnabled: true,
+      myConsent: true,
+    });
+
+    // The newly bound mobile endpoint still owns its side of the call and can
+    // end it normally.
+    await t.mutation(api.callState.endP2PCall, {
+      code: "AAAAA",
+      deviceId: "device-a-mobile",
+      callId: created.callId,
+    });
+    await expect(
+      t.query(api.callState.callStatus, {
+        code: "BBBBB",
+        deviceId: "device-b",
+        callId: created.callId,
+      }),
+    ).resolves.toMatchObject({ status: "ended" });
   });
 
   test("a recently backgrounded mobile target can still receive a transfer", async () => {

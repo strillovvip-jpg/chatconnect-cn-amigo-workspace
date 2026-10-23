@@ -4,6 +4,7 @@ import schema from "./schema";
 import { api } from "./_generated/api";
 
 const modules = import.meta.glob("./**/*.*s");
+const claimSecretHash = "a".repeat(64);
 
 const fullFeatures = {
   canVideoCall: true,
@@ -77,6 +78,7 @@ describe("administrator authorization-code permissions", () => {
       t.mutation(api.features.createAuthorizationCode, {
         password: "ADMIN:admin-device",
         targetCode: "LIMIT",
+        claimSecretHash,
         profileId: limited,
       }),
     ).resolves.toBe("LIMIT");
@@ -84,9 +86,98 @@ describe("administrator authorization-code permissions", () => {
       t.mutation(api.features.createAuthorizationCode, {
         password: "ADMIN:admin-device",
         targetCode: "FULL1",
+        claimSecretHash,
         profileId: full,
       }),
     ).rejects.toThrow("普通管理员只能新增受限授权码");
+    expect(
+      await t.run(
+        async (ctx) =>
+          (
+            await ctx.db
+              .query("allowed_codes")
+              .withIndex("by_code", (q) => q.eq("code", "LIMIT"))
+              .unique()
+          )?.claimSecretHash,
+      ),
+    ).toBe(claimSecretHash);
+  });
+
+  test("an administrator can rotate only a customer activation credential in their tenant", async () => {
+    const { t, limited } = await setup();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("allowed_codes", {
+        code: "LIMIT",
+        role: "user",
+        companyId: "nyfbi",
+        enabled: true,
+        licenseProfileId: limited,
+      });
+      await ctx.db.insert("allowed_codes", {
+        code: "OTHER",
+        role: "user",
+        companyId: "other-company",
+        enabled: true,
+      });
+    });
+
+    await expect(
+      t.mutation(api.roleManagement.rotateClaimSecret, {
+        password: "ADMIN:admin-device",
+        targetCode: "LIMIT",
+        claimSecretHash,
+      }),
+    ).resolves.toMatchObject({ code: "LIMIT" });
+    await expect(
+      t.mutation(api.roleManagement.rotateClaimSecret, {
+        password: "ADMIN:admin-device",
+        targetCode: "OTHER",
+        claimSecretHash,
+      }),
+    ).rejects.toThrow();
+  });
+
+  test("resetting a used customer atomically revokes the session and rotates its activation credential", async () => {
+    const { t, limited } = await setup();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("allowed_codes", {
+        code: "LIMIT",
+        role: "user",
+        companyId: "nyfbi",
+        enabled: true,
+        licenseProfileId: limited,
+        claimSecretHash: "b".repeat(64),
+      });
+      await ctx.db.insert("auth_codes", {
+        code: "LIMIT",
+        deviceId: "customer-device",
+        name: "Customer",
+        usedAt: new Date().toISOString(),
+      });
+    });
+
+    await t.mutation(api.admin.resetCode, {
+      password: "ADMIN:admin-device",
+      code: "LIMIT",
+      claimSecretHash,
+    });
+
+    await t.run(async (ctx) => {
+      expect(
+        await ctx.db
+          .query("auth_codes")
+          .withIndex("by_code", (q) => q.eq("code", "LIMIT"))
+          .first(),
+      ).toBeNull();
+      expect(
+        (
+          await ctx.db
+            .query("allowed_codes")
+            .withIndex("by_code", (q) => q.eq("code", "LIMIT"))
+            .unique()
+        )?.claimSecretHash,
+      ).toBe(claimSecretHash);
+    });
   });
 
   test("an administrator can revoke used customer codes and invalidate their sessions", async () => {

@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import {
   Participant,
   Room,
@@ -7,6 +14,7 @@ import {
   type TrackPublication,
 } from "livekit-client";
 import { useI18n } from "@/lib/i18n";
+import { participantIdentityMatchesCode } from "@/lib/calls/participant-identity";
 
 function MediaTrack({
   publication,
@@ -237,6 +245,9 @@ export function LiveKitStage({
   draggableSelfPreview = false,
   localPublisherIdentity,
   remoteVideoIdentityPrefix,
+  remoteParticipantCode,
+  remoteParticipantIdentity,
+  remoteParticipantIdentities,
 }: {
   room: Room;
   compact?: boolean;
@@ -245,14 +256,23 @@ export function LiveKitStage({
   draggableSelfPreview?: boolean;
   localPublisherIdentity?: string;
   remoteVideoIdentityPrefix?: string;
+  remoteParticipantCode?: string;
+  remoteParticipantIdentity?: string;
+  remoteParticipantIdentities?: string[];
 }) {
   const { messages } = useI18n();
   const [, refresh] = useReducer((value) => value + 1, 0);
   const [pinnedIdentity, setPinnedIdentity] = useState<string | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
+  const resumeAudio = useCallback(async () => {
+    await room.startAudio().catch(() => undefined);
+    refresh();
+  }, [room]);
   useEffect(() => {
-    const resumeAudio = () => void room.startAudio().catch(() => undefined);
-    document.addEventListener("pointerdown", resumeAudio, { once: true });
+    const resumeAudioOnGesture = () => void resumeAudio();
+    document.addEventListener("pointerdown", resumeAudioOnGesture, {
+      once: true,
+    });
     const events = [
       RoomEvent.ParticipantConnected,
       RoomEvent.ParticipantDisconnected,
@@ -267,6 +287,7 @@ export function LiveKitStage({
       RoomEvent.TrackUnmuted,
       RoomEvent.ActiveSpeakersChanged,
       RoomEvent.ConnectionQualityChanged,
+      RoomEvent.AudioPlaybackStatusChanged,
     ] as const;
     events.forEach((event) => room.on(event, refresh));
     // Re-read participants and already-subscribed tracks once after listeners
@@ -274,17 +295,30 @@ export function LiveKitStage({
     // in which case no later LiveKit event would otherwise trigger a render.
     refresh();
     return () => {
-      document.removeEventListener("pointerdown", resumeAudio);
+      document.removeEventListener("pointerdown", resumeAudioOnGesture);
       events.forEach((event) => room.off(event, refresh));
     };
-  }, [room]);
+  }, [room, resumeAudio]);
 
   const allRemotes = Array.from(room.remoteParticipants.values());
   const localPublisher = localPublisherIdentity
     ? room.remoteParticipants.get(localPublisherIdentity)
     : undefined;
+  const exactRemoteIdentities = remoteParticipantIdentities?.length
+    ? new Set(remoteParticipantIdentities)
+    : remoteParticipantIdentity
+      ? new Set([remoteParticipantIdentity])
+      : undefined;
   const remotes = allRemotes.filter(
-    (participant) => participant.identity !== localPublisherIdentity,
+    (participant) =>
+      participant.identity !== localPublisherIdentity &&
+      (mode !== "p2p" ||
+        (exactRemoteIdentities
+          ? exactRemoteIdentities.has(participant.identity)
+          : participantIdentityMatchesCode(
+              participant.identity,
+              remoteParticipantCode,
+            ))),
   );
   useEffect(() => {
     if (pinnedIdentity && !room.remoteParticipants.has(pinnedIdentity))
@@ -374,7 +408,10 @@ export function LiveKitStage({
   }
 
   return (
-    <div ref={stageRef} className="relative h-full w-full overflow-hidden bg-black">
+    <div
+      ref={stageRef}
+      className="relative h-full w-full overflow-hidden bg-black"
+    >
       {content}
       {showSelfPreview && mode === "p2p" && draggableSelfPreview && (
         <DraggableSelfPreview
@@ -400,6 +437,16 @@ export function LiveKitStage({
       {remoteAudio.map((publication) => (
         <MediaTrack key={publication.trackSid} publication={publication} />
       ))}
+      {room.canPlaybackAudio === false && (
+        <button
+          type="button"
+          className="absolute left-1/2 top-4 z-50 -translate-x-1/2 rounded-full bg-blue-600 px-5 py-3 text-sm font-bold text-white shadow-2xl ring-1 ring-white/30"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={() => void resumeAudio()}
+        >
+          {messages.livekitStage.tapToHearCall}
+        </button>
+      )}
     </div>
   );
 }

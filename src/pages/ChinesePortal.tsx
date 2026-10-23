@@ -252,7 +252,7 @@ export default function ChinesePortal() {
         );
         localStorage.setItem(
           "ksc_session_code",
-          loginCode.trim().toUpperCase(),
+          result.code,
         );
         localStorage.setItem(
           "ksc_session_name",
@@ -445,7 +445,7 @@ export default function ChinesePortal() {
                     setCode(
                       event.target.value
                         .toUpperCase()
-                        .replace(/[^A-Z0-9]/g, ""),
+                        .replace(/[^A-Z0-9.]/g, ""),
                     )
                   }
                   placeholder="英字5文字"

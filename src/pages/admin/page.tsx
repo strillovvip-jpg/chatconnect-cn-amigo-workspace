@@ -39,6 +39,7 @@ import {
   selectAdminDocumentFiles,
   uploadAdminDocuments,
 } from "./document-upload";
+import { createClaimCredential } from "@/lib/claim-credential";
 
 type AdminTab =
   | "dashboard"
@@ -89,6 +90,21 @@ const LEGACY_LIMITED_PROFILE_NAMES = [
   LIMITED_PROFILE_NAME,
   "高级授权码-无9及11",
 ];
+export function isLimitedLicenseProfile(profile: {
+  name: string;
+  features: {
+    canScreenShare: boolean;
+    canTransferCall: boolean;
+    canPlayVideo: boolean;
+  };
+}) {
+  return (
+    LEGACY_LIMITED_PROFILE_NAMES.includes(profile.name) ||
+    (!profile.features.canScreenShare &&
+      !profile.features.canTransferCall &&
+      !profile.features.canPlayVideo)
+  );
+}
 const ADVANCED_LICENSE_FLAGS: LicenseFlags = {
   canVideoCall: true,
   canVoiceCall: true,
@@ -558,6 +574,10 @@ export default function AdminPage() {
   const [userSearch, setUserSearch] = useState("");
   const [msgSearch, setMsgSearch] = useState("");
   const [newCode, setNewCode] = useState("");
+  const [createdCredential, setCreatedCredential] = useState<{
+    code: string;
+    credential: string;
+  } | null>(null);
   const [newCodeTier, setNewCodeTier] = useState<"standard" | "advanced">(
     "standard",
   );
@@ -617,6 +637,7 @@ export default function AdminPage() {
   const createOrPromoteAdmin = useMutation(
     api.roleManagement.createOrPromoteAdmin,
   );
+  const rotateClaimSecret = useMutation(api.roleManagement.rotateClaimSecret);
   const setSystemRole = useMutation(api.roleManagement.setRole);
   const setCodeEnabled = useMutation(api.roleManagement.setEnabled);
   const deleteAuthCode = useMutation(api.roleManagement.deleteCode);
@@ -627,10 +648,12 @@ export default function AdminPage() {
 
   const handleCreateCode = async () => {
     try {
+      const activation = await createClaimCredential(newCode);
       if (activeTab === "managers") {
         const result = await createOrPromoteAdmin({
           password,
-          targetCode: newCode,
+          targetCode: activation.code,
+          claimSecretHash: activation.claimSecretHash,
         });
         toast.success(copy.createManagerSuccess(result.created));
       } else {
@@ -658,7 +681,8 @@ export default function AdminPage() {
           }
           await createLicensedCode({
             password,
-            targetCode: newCode,
+            targetCode: activation.code,
+            claimSecretHash: activation.claimSecretHash,
             profileId: requestedProfile,
           });
         } else {
@@ -667,7 +691,8 @@ export default function AdminPage() {
           }
           await createLicensedCode({
             password,
-            targetCode: newCode,
+            targetCode: activation.code,
+            claimSecretHash: activation.claimSecretHash,
             profileId: limitedProfileId,
           });
         }
@@ -677,6 +702,10 @@ export default function AdminPage() {
             : copy.limitedCodeCreated,
         );
       }
+      setCreatedCredential({
+        code: activation.code,
+        credential: activation.credential,
+      });
       setNewCode("");
     } catch (error) {
       toast.error(uiErrorMessage(error, copy.createAdminFailed));
@@ -685,10 +714,37 @@ export default function AdminPage() {
 
   const handleReset = async (code: string) => {
     try {
-      await resetCode({ password, code });
+      const activation = await createClaimCredential(code);
+      await resetCode({
+        password,
+        code: activation.code,
+        claimSecretHash: activation.claimSecretHash,
+      });
+      setCreatedCredential({
+        code: activation.code,
+        credential: activation.credential,
+      });
       toast.success(copy.codeResetSuccess(code));
     } catch (err) {
       toast.error(uiErrorMessage(err, copy.updateFailed));
+    }
+  };
+
+  const handleRotateCredential = async (code: string) => {
+    try {
+      const activation = await createClaimCredential(code);
+      await rotateClaimSecret({
+        password,
+        targetCode: activation.code,
+        claimSecretHash: activation.claimSecretHash,
+      });
+      setCreatedCredential({
+        code: activation.code,
+        credential: activation.credential,
+      });
+      toast.success(`New device activation credential created for ${code}.`);
+    } catch (error) {
+      toast.error(uiErrorMessage(error, copy.updateFailed));
     }
   };
 
@@ -886,9 +942,7 @@ export default function AdminPage() {
   const fullProfileId = licenseProfiles?.find(
     (profile) => profile.name === FULL_PROFILE_NAME,
   )?._id;
-  const limitedProfileId = licenseProfiles?.find((profile) =>
-    LEGACY_LIMITED_PROFILE_NAMES.includes(profile.name),
-  )?._id;
+  const limitedProfileId = licenseProfiles?.find(isLimitedLicenseProfile)?._id;
   const selectedProfileId = !isSuperAdmin
     ? limitedProfileId
     : newCodeTier === "advanced"
@@ -1227,6 +1281,50 @@ export default function AdminPage() {
                 {copy.applyDefaultProfiles}
               </button>
             )}
+            {createdCredential && (
+              <div
+                role="status"
+                className="rounded-xl border border-amber-400/40 bg-amber-500/10 p-4 text-amber-50"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-bold">
+                      Device activation credential — shown once
+                    </p>
+                    <p className="mt-1 text-xs text-amber-100/70">
+                      Give this complete value to the authorized user through a
+                      secure channel. Only the public five-character code is
+                      saved after sign-in.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label="Hide activation credential"
+                    onClick={() => setCreatedCredential(null)}
+                    className="rounded-lg p-1 text-amber-100/70 hover:bg-white/10"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+                <code className="mt-3 block break-all rounded-lg bg-black/30 p-3 text-xs font-bold tracking-wide text-white">
+                  {createdCredential.credential}
+                </code>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void navigator.clipboard
+                      .writeText(createdCredential.credential)
+                      .then(() =>
+                        toast.success("Activation credential copied."),
+                      )
+                      .catch(() => toast.error(copy.updateFailed))
+                  }
+                  className="mt-3 rounded-lg bg-amber-400 px-3 py-2 text-xs font-bold text-black"
+                >
+                  Copy credential
+                </button>
+              </div>
+            )}
             {/* Used codes */}
             {(codes ?? [])
               .filter(
@@ -1482,13 +1580,23 @@ export default function AdminPage() {
                       >
                         {code}
                         {role === "user" && (
-                          <button
-                            aria-label={copy.deleteCodeAria(code)}
-                            onClick={() => void handleDelete(code)}
-                            className="text-red-400 hover:text-red-300"
-                          >
-                            <X size={12} />
-                          </button>
+                          <>
+                            <button
+                              aria-label={`Generate device activation credential for ${code}`}
+                              title="Generate device activation credential"
+                              onClick={() => void handleRotateCredential(code)}
+                              className="text-amber-300 hover:text-amber-200"
+                            >
+                              <Key size={12} />
+                            </button>
+                            <button
+                              aria-label={copy.deleteCodeAria(code)}
+                              onClick={() => void handleDelete(code)}
+                              className="text-red-400 hover:text-red-300"
+                            >
+                              <X size={12} />
+                            </button>
+                          </>
                         )}
                       </span>
                     ))}

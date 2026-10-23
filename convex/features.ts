@@ -12,6 +12,7 @@ import {
   requireSuperAdmin,
   tenantIdForAllowed,
 } from "./roles";
+import { isClaimSecretHash } from "./claimCredentials";
 
 export const featureKeys = [
   "canVideoCall",
@@ -355,6 +356,7 @@ export const createAuthorizationCode = mutation({
   args: {
     ...credentialArgs,
     targetCode: v.string(),
+    claimSecretHash: v.string(),
     profileId: v.optional(v.id("license_profiles")),
     expiresAt: v.optional(v.number()),
   },
@@ -366,6 +368,11 @@ export const createAuthorizationCode = mutation({
       throw new ConvexError({
         code: "BAD_REQUEST",
         message: "授权码必须为 4 至 20 位英文字母或数字。",
+      });
+    if (!isClaimSecretHash(args.claimSecretHash))
+      throw new ConvexError({
+        code: "BAD_REQUEST",
+        message: "设备启用密钥摘要无效。",
       });
     if (
       await ctx.db
@@ -418,6 +425,7 @@ export const createAuthorizationCode = mutation({
       role: "user",
       companyId: auth.allowed?.companyId,
       enabled: true,
+      claimSecretHash: args.claimSecretHash,
       licenseProfileId: profileId,
       expiresAt: args.expiresAt,
       createdAt: Date.now(),

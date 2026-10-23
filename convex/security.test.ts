@@ -243,6 +243,7 @@ describe("session and private-data boundaries", () => {
       t.mutation(api.roleManagement.createCode, {
         password: "ADM01:admin-device",
         targetCode: "BLOCK",
+        claimSecretHash: "a".repeat(64),
         role: "user",
       }),
     ).rejects.toThrow();
@@ -250,11 +251,13 @@ describe("session and private-data boundaries", () => {
       t.mutation(api.features.createAuthorizationCode, {
         password: "ADM01:admin-device",
         targetCode: "BLOCK2",
+        claimSecretHash: "a".repeat(64),
       }),
     ).rejects.toThrow();
     await t.mutation(api.roleManagement.createCode, {
       password: "ROOT1:super-device",
       targetCode: "ALLOW",
+      claimSecretHash: "a".repeat(64),
       role: "user",
     });
     expect(

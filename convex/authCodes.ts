@@ -4,6 +4,13 @@ import { ConvexError } from "convex/values";
 import { assertSurfaceAccess, requireSession } from "./roles";
 import { effectiveFeatures } from "./features";
 import type { MutationCtx } from "./_generated/server";
+import {
+  constantTimeHashEqual,
+  DUMMY_CLAIM_SECRET_HASH,
+  hashClaimSecret,
+  isClaimSecretHash,
+  splitClaimCredential,
+} from "./claimCredentials";
 
 const authorizationCodePattern = /^[A-Z0-9]{4,20}$/;
 const profileFeatureKeys = [
@@ -71,6 +78,34 @@ function validateTierCodes(
       message: `${label}授权码不得重复。`,
     });
   return codes;
+}
+
+const claimSecretHashValidator = v.object({
+  code: v.string(),
+  hash: v.string(),
+});
+
+function validateClaimSecretHashes(
+  codes: string[],
+  values: Array<{ code: string; hash: string }>,
+) {
+  const normalizedCodes = codes.map(normalizeAuthorizationCode);
+  const hashes = new Map(
+    values.map(({ code, hash }) => [normalizeAuthorizationCode(code), hash]),
+  );
+  if (
+    values.length !== normalizedCodes.length ||
+    hashes.size !== normalizedCodes.length ||
+    normalizedCodes.some(
+      (code) => !isClaimSecretHash(hashes.get(code) ?? ""),
+    ) ||
+    [...hashes.keys()].some((code) => !normalizedCodes.includes(code))
+  )
+    throw new ConvexError({
+      code: "BAD_REQUEST",
+      message: "每个授权码都必须有唯一且有效的设备启用密钥摘要。",
+    });
+  return hashes;
 }
 
 function isFullProfile(features: ProfileFeatures) {
@@ -175,6 +210,7 @@ export const replaceAuthorizationCodes = internalMutation({
     fullCodes: v.array(v.string()),
     limitedCodes: v.array(v.string()),
     administrators: v.array(administratorValidator),
+    claimSecretHashes: v.array(claimSecretHashValidator),
   },
   handler: async (ctx, args) => {
     const importSecret = process.env.AUTH_CODE_IMPORT_SECRET;
@@ -267,6 +303,10 @@ export const replaceAuthorizationCodes = internalMutation({
         code: "PRECONDITION_FAILED",
         message: "替换后必须保留至少一个总管理员授权码，以免系统被锁死。",
       });
+    const claimSecretHashes = validateClaimSecretHashes(
+      [...userCodes, ...administrators.keys()],
+      args.claimSecretHashes,
+    );
 
     const profiles = await ctx.db.query("license_profiles").collect();
     const profileOwner = [...administrators.values()].find(
@@ -317,6 +357,7 @@ export const replaceAuthorizationCodes = internalMutation({
         role: "user",
         companyId,
         enabled: true,
+        claimSecretHash: claimSecretHashes.get(code),
         licenseProfileId: fullProfileId,
         createdAt: now,
         updatedAt: now,
@@ -327,6 +368,7 @@ export const replaceAuthorizationCodes = internalMutation({
         role: "user",
         companyId,
         enabled: true,
+        claimSecretHash: claimSecretHashes.get(code),
         licenseProfileId: limitedProfileId,
         createdAt: now,
         updatedAt: now,
@@ -338,6 +380,7 @@ export const replaceAuthorizationCodes = internalMutation({
         companyId: administrator.companyId,
         enabled: true,
         unlimitedDevices: administrator.unlimitedDevices,
+        claimSecretHash: claimSecretHashes.get(administrator.code),
         createdAt: now,
         updatedAt: now,
       });
@@ -362,6 +405,7 @@ export const importAllowedCodes = internalMutation({
           v.literal("admin"),
           v.literal("user"),
         ),
+        claimSecretHash: v.string(),
       }),
     ),
   },
@@ -373,22 +417,38 @@ export const importAllowedCodes = internalMutation({
         message: "需要管理员权限。",
       });
     }
+    const records = args.codes.map((item) => ({
+      ...item,
+      code: normalizeAuthorizationCode(item.code),
+    }));
     if (
-      args.codes.length !== 50 ||
-      new Set(args.codes.map((item) => item.code)).size !== 50
+      records.length !== 50 ||
+      new Set(records.map((item) => item.code)).size !== 50
     ) {
       throw new ConvexError({
         code: "BAD_REQUEST",
         message: "授权码必须为 50 个且不得重复。",
       });
     }
+    if (
+      records.some(
+        (item) =>
+          !authorizationCodePattern.test(item.code) ||
+          !isClaimSecretHash(item.claimSecretHash),
+      )
+    )
+      throw new ConvexError({
+        code: "BAD_REQUEST",
+        message: "每个授权码都必须有有效的设备启用密钥摘要。",
+      });
     const existing = await ctx.db.query("allowed_codes").collect();
     for (const record of existing) await ctx.db.delete(record._id);
-    for (const item of args.codes) {
+    for (const item of records) {
       await ctx.db.insert("allowed_codes", {
-        code: item.code.trim().toUpperCase(),
+        code: item.code,
         role: item.role,
         enabled: true,
+        claimSecretHash: item.claimSecretHash,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       });
@@ -483,7 +543,7 @@ export const claimCode = mutation({
     department: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const code = args.code.trim().toUpperCase();
+    const { code, claimSecret } = splitClaimCredential(args.code);
     const name = args.name.trim();
     if (!name || name.length > 100)
       throw new ConvexError({
@@ -500,10 +560,49 @@ export const claimCode = mutation({
       .query("allowed_codes")
       .withIndex("by_code", (q) => q.eq("code", code))
       .unique();
+    const existing = await ctx.db
+      .query("auth_codes")
+      .withIndex("by_code", (q) => q.eq("code", code))
+      .first();
+    const boundDevices = existing
+      ? Array.from(
+          new Set(
+            (existing.deviceIds?.length
+              ? existing.deviceIds
+              : [
+                  existing.deviceId,
+                  existing.mobileDeviceId,
+                  existing.mobileAppDeviceId,
+                  existing.desktopDeviceId,
+                ]
+            ).filter((deviceId): deviceId is string => Boolean(deviceId)),
+          ),
+        )
+      : [];
+    const alreadyBound = boundDevices.includes(args.deviceId);
+
+    // Device ids are supplied by the client and therefore are not a safe
+    // brute-force key. Only a device whose exact high-entropy id is already
+    // bound may use the five-letter public code by itself. Every first/new
+    // device must present CODE.<high-entropy-secret>.
+    if (!alreadyBound) {
+      const candidateHash = await hashClaimSecret(code, claimSecret ?? "");
+      const expectedHash = allowed?.claimSecretHash ?? DUMMY_CLAIM_SECRET_HASH;
+      if (
+        !claimSecret ||
+        !allowed?.claimSecretHash ||
+        !constantTimeHashEqual(candidateHash, expectedHash)
+      )
+        throw new ConvexError({
+          code: "UNAUTHENTICATED",
+          message: "授权凭证无效。",
+        });
+    }
+
     if (!allowed) {
       throw new ConvexError({
-        code: "BAD_REQUEST",
-        message: "授权码无效，请输入正确的授权码。",
+        code: "UNAUTHENTICATED",
+        message: "授权凭证无效。",
       });
     }
     assertSurfaceAccess(allowed, args.surface);
@@ -523,12 +622,6 @@ export const claimCode = mutation({
       Math.max(1, allowed.maxDevices ?? (supportsComputerAndPhone ? 2 : 1)),
     );
 
-    // Check if this code is already claimed
-    const existing = await ctx.db
-      .query("auth_codes")
-      .withIndex("by_code", (q) => q.eq("code", code))
-      .first();
-
     if (existing) {
       if (allowed.enabled === false)
         throw new ConvexError({
@@ -536,41 +629,35 @@ export const claimCode = mutation({
           message: "此授权码已停用。",
         });
       if (allowed.unlimitedDevices === true) {
-        await ctx.db.patch(existing._id, { name, lastLoginAt: Date.now() });
-        return { success: true, role: allowed.role, name };
+        const deviceIds = alreadyBound
+          ? boundDevices
+          : [...boundDevices, args.deviceId];
+        await ctx.db.patch(existing._id, {
+          name,
+          deviceIds,
+          lastLoginAt: Date.now(),
+        });
+        return { success: true, role: allowed.role, name, code };
       }
-      const boundDevices = Array.from(
-        new Set(
-          (existing.deviceIds?.length
-            ? existing.deviceIds
-            : [
-                existing.deviceId,
-                existing.mobileDeviceId,
-                existing.mobileAppDeviceId,
-                existing.desktopDeviceId,
-              ]
-          ).filter((deviceId): deviceId is string => Boolean(deviceId)),
-        ),
-      ).slice(0, deviceLimit);
-      const alreadyBound = boundDevices.includes(args.deviceId);
+      const limitedBoundDevices = boundDevices.slice(0, deviceLimit);
       if (!alreadyBound && deviceLimit === 1) {
         throw new ConvexError({
           code: "CONFLICT",
           message: "此授权码仅允许绑定一台设备。",
         });
       }
-      if (!alreadyBound && boundDevices.length >= deviceLimit) {
+      if (!alreadyBound && limitedBoundDevices.length >= deviceLimit) {
         throw new ConvexError({
           code: "CONFLICT",
           message: "此全功能授权码最多同时登录两台设备。",
         });
       }
       const deviceIds = alreadyBound
-        ? boundDevices
-        : [...boundDevices, args.deviceId];
+        ? limitedBoundDevices
+        : [...limitedBoundDevices, args.deviceId];
       const patch = { name, deviceIds, lastLoginAt: Date.now() };
       await ctx.db.patch(existing._id, patch);
-      return { success: true, role: allowed.role, name };
+      return { success: true, role: allowed.role, name, code };
     }
 
     // Claim the code
@@ -595,6 +682,6 @@ export const claimCode = mutation({
       lastLoginAt: Date.now(),
     });
 
-    return { success: true, role: allowed.role, name };
+    return { success: true, role: allowed.role, name, code };
   },
 });

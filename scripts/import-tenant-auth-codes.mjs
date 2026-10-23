@@ -2,6 +2,10 @@ import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import {
+  buildActivationBundle,
+  persistPrivateJson,
+} from "./activation-credentials.mjs";
 
 const CODE_PATTERN = /^[A-Z0-9]{4,20}$/;
 
@@ -66,6 +70,29 @@ export function normalizeTenantImportPayload(input) {
   return { companyId, fullCodes, limitedCodes, administrators };
 }
 
+export function buildTenantCredentialImport(input, randomCharacter) {
+  const normalized = normalizeTenantImportPayload(input);
+  const codes = [
+    ...normalized.fullCodes,
+    ...normalized.limitedCodes,
+    ...normalized.administrators.map(({ code }) => code),
+  ];
+  const bundle = buildActivationBundle(codes, randomCharacter);
+  return {
+    request: {
+      ...normalized,
+      claimSecretHashes: bundle.claimSecretHashes,
+    },
+    artifact: {
+      companyId: normalized.companyId,
+      credentials: codes.map((code) => ({
+        code,
+        credential: bundle.credentials[code],
+      })),
+    },
+  };
+}
+
 function main() {
   const secret = process.env.AUTH_CODE_IMPORT_SECRET;
   const sourcePath = process.env.TENANT_AUTH_CODES_FILE ?? process.argv[2];
@@ -75,14 +102,22 @@ function main() {
   if (!deployment) throw new Error("CONVEX_DEPLOYMENT_NAME is required.");
 
   const input = JSON.parse(readFileSync(resolve(sourcePath), "utf8"));
-  const payload = normalizeTenantImportPayload(input);
+  const bundle = buildTenantCredentialImport(input);
+  const outputPath = resolve(
+    process.env.TENANT_AUTH_CODES_OUTPUT ??
+      `${sourcePath}.activation-credentials.json`,
+  );
+  persistPrivateJson(outputPath, {
+    createdAt: new Date().toISOString(),
+    ...bundle.artifact,
+  });
   const result = spawnSync(
     "npx",
     [
       "convex",
       "run",
       "authCodes:replaceAuthorizationCodes",
-      JSON.stringify({ password: secret, ...payload }),
+      JSON.stringify({ password: secret, ...bundle.request }),
       "--deployment",
       deployment,
     ],

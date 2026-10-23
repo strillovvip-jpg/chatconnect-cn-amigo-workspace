@@ -26,7 +26,12 @@ export function assertSurfaceAccess(
   surface: AuthSurface | undefined,
 ) {
   if (!surface || surface === "app") return;
-  if (tenantIdForAllowed(allowed) !== surface)
+  const companyId = tenantIdForAllowed(allowed);
+  const permitted =
+    surface === "aichijp"
+      ? companyId === AICHIJP_TENANT_ID
+      : companyId !== AICHIJP_TENANT_ID;
+  if (!permitted)
     throw new ConvexError({
       code: "FORBIDDEN",
       message: "此授权码不能使用这个网站。",
@@ -70,8 +75,7 @@ export async function requireSession(
     .unique();
   const validDevice =
     session &&
-    (allowed?.unlimitedDevices === true ||
-      session.deviceIds?.includes(deviceId) ||
+    (session.deviceIds?.includes(deviceId) ||
       session.deviceId === deviceId ||
       session.mobileDeviceId === deviceId ||
       session.mobileAppDeviceId === deviceId ||
@@ -140,9 +144,11 @@ export function getAdminCompanyScope(auth: {
   allowed?: { companyId?: string } | null;
 }) {
   if (auth.role !== "admin" && auth.role !== "super_admin") return null;
-  return auth.allowed?.companyId?.trim()
-    ? tenantIdForAllowed(auth.allowed)
-    : null;
+  if (auth.allowed?.companyId?.trim()) return tenantIdForAllowed(auth.allowed);
+  // Only an explicitly unscoped super administrator has global visibility.
+  // Legacy ordinary administrators without a stored companyId stay inside the
+  // default tenant instead of silently receiving system-wide access.
+  return auth.role === "super_admin" ? null : DEFAULT_TENANT_ID;
 }
 
 export async function listVisibleAllowedCodes(

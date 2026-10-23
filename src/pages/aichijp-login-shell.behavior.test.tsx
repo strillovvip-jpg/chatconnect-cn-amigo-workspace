@@ -93,7 +93,11 @@ describe("aichijp dedicated login shell", () => {
       configurable: true,
       value: vi.fn(() => ({ matches: false })),
     });
-    mocks.claimCode.mockResolvedValue({ name: "山田 太郎", role: "user" });
+    mocks.claimCode.mockResolvedValue({
+      code: "IGIDM",
+      name: "山田 太郎",
+      role: "user",
+    });
     window.history.replaceState({}, "", "/");
     vi.clearAllMocks();
   });

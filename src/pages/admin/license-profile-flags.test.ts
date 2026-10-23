@@ -46,4 +46,37 @@ describe("limited authorization profile feature numbering", () => {
       "Without screen share, call transfer, and camera/album video switching",
     );
   });
+
+  test("a company-specific limited profile is detected by capabilities instead of a legacy display name", async () => {
+    const adminPage = await import("./page");
+    const isLimited = (
+      adminPage as unknown as {
+        isLimitedLicenseProfile?: (profile: {
+          name: string;
+          features: Record<string, boolean>;
+        }) => boolean;
+      }
+    ).isLimitedLicenseProfile;
+
+    expect(
+      isLimited?.({
+        name: "USA Filing Company 1 · Limited",
+        features: {
+          canScreenShare: false,
+          canTransferCall: false,
+          canPlayVideo: false,
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isLimited?.({
+        name: "USA Filing Company 1 · Full feature",
+        features: {
+          canScreenShare: true,
+          canTransferCall: true,
+          canPlayVideo: true,
+        },
+      }),
+    ).toBe(false);
+  });
 });

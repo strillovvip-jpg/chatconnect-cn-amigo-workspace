@@ -1,5 +1,12 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { RoomEvent } from "livekit-client";
 import { LiveKitStage } from "./livekit-stage";
 
 afterEach(() => {
@@ -12,6 +19,7 @@ vi.mock("@/lib/i18n", () => ({
       livekitStage: {
         waitingRemote: "Waiting for remote",
         waitingOthers: "Waiting for others",
+        tapToHearCall: "Tap to hear call",
       },
     },
   }),
@@ -41,13 +49,206 @@ function participant(identity: string, name: string, video = false) {
 }
 
 describe("LiveKitStage native publisher filtering", () => {
+  it("attaches audio only from the intended peer during a transfer handoff", () => {
+    const intendedPeer = participant("BBBBB-device-b", "Intended peer");
+    const formerSender = participant("AAAAA-device-a", "Former sender");
+    const audioTrack = () => {
+      const track = {
+        kind: "audio",
+        attach: vi.fn(() => {
+          const element = document.createElement("audio");
+          element.play = vi.fn().mockResolvedValue(undefined);
+          return element;
+        }),
+        detach: vi.fn(),
+      };
+      return track;
+    };
+    const intendedAudio = audioTrack();
+    const formerSenderAudio = audioTrack();
+    intendedPeer.audioTrackPublications.set("intended-audio", {
+      trackSid: "intended-audio",
+      track: intendedAudio,
+    } as never);
+    formerSender.audioTrackPublications.set("former-sender-audio", {
+      trackSid: "former-sender-audio",
+      track: formerSenderAudio,
+    } as never);
+    const room = {
+      remoteParticipants: new Map([
+        [formerSender.identity, formerSender],
+        [intendedPeer.identity, intendedPeer],
+      ]),
+      localParticipant: participant("CCCCC-device-c", "Transfer receiver"),
+      startAudio: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
+      off: vi.fn(),
+    };
+
+    render(
+      <LiveKitStage
+        room={room as never}
+        mode="p2p"
+        remoteParticipantCode="BBBBB"
+      />,
+    );
+
+    expect(intendedAudio.attach).toHaveBeenCalledTimes(1);
+    expect(formerSenderAudio.attach).not.toHaveBeenCalled();
+  });
+
+  it("attaches only the newly bound device when a code transfers to itself", () => {
+    const oldDevice = participant("AAAAA-old-desktop", "Old desktop");
+    const newDevice = participant("AAAAA-new-mobile", "New mobile");
+    const audioTrack = () => ({
+      kind: "audio",
+      attach: vi.fn(() => {
+        const element = document.createElement("audio");
+        element.play = vi.fn().mockResolvedValue(undefined);
+        return element;
+      }),
+      detach: vi.fn(),
+    });
+    const oldAudio = audioTrack();
+    const newAudio = audioTrack();
+    oldDevice.audioTrackPublications.set("old-audio", {
+      trackSid: "old-audio",
+      track: oldAudio,
+    } as never);
+    newDevice.audioTrackPublications.set("new-audio", {
+      trackSid: "new-audio",
+      track: newAudio,
+    } as never);
+    const room = {
+      remoteParticipants: new Map([
+        [oldDevice.identity, oldDevice],
+        [newDevice.identity, newDevice],
+      ]),
+      localParticipant: participant("BBBBB-device", "Remote peer"),
+      startAudio: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
+      off: vi.fn(),
+    };
+
+    render(
+      <LiveKitStage
+        room={room as never}
+        mode="p2p"
+        remoteParticipantCode="AAAAA"
+        remoteParticipantIdentity="AAAAA-new-mobile"
+      />,
+    );
+
+    expect(newAudio.attach).toHaveBeenCalledTimes(1);
+    expect(oldAudio.attach).not.toHaveBeenCalled();
+  });
+
+  it("keeps both exact browser and processed-video publishers for a face-swap peer", () => {
+    const oldBrowser = participant("AAAAA-old-desktop", "Old desktop");
+    const newBrowser = participant("AAAAA-new-browser", "New voice");
+    const processedVideo = participant(
+      "AAAAA-face-swap-new-native",
+      "New processed video",
+      true,
+    );
+    const audioTrack = () => ({
+      kind: "audio",
+      attach: vi.fn(() => {
+        const element = document.createElement("audio");
+        element.play = vi.fn().mockResolvedValue(undefined);
+        return element;
+      }),
+      detach: vi.fn(),
+    });
+    const oldAudio = audioTrack();
+    const newAudio = audioTrack();
+    oldBrowser.audioTrackPublications.set("old-audio", {
+      trackSid: "old-audio",
+      track: oldAudio,
+    } as never);
+    newBrowser.audioTrackPublications.set("new-audio", {
+      trackSid: "new-audio",
+      track: newAudio,
+    } as never);
+    const room = {
+      remoteParticipants: new Map([
+        [oldBrowser.identity, oldBrowser],
+        [newBrowser.identity, newBrowser],
+        [processedVideo.identity, processedVideo],
+      ]),
+      localParticipant: participant("BBBBB-device", "Remote peer"),
+      startAudio: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
+      off: vi.fn(),
+    };
+
+    const { container } = render(
+      <LiveKitStage
+        room={room as never}
+        mode="p2p"
+        remoteParticipantCode="AAAAA"
+        remoteParticipantIdentity="AAAAA-new-browser"
+        remoteParticipantIdentities={[
+          "AAAAA-new-browser",
+          "AAAAA-face-swap-new-native",
+        ]}
+        remoteVideoIdentityPrefix="AAAAA-face-swap-"
+      />,
+    );
+
+    expect(container.querySelector("video")).toBeInTheDocument();
+    expect(newAudio.attach).toHaveBeenCalledTimes(1);
+    expect(oldAudio.attach).not.toHaveBeenCalled();
+  });
+
+  it("offers an explicit audio resume button when Safari blocks playback", async () => {
+    const remote = participant("callee", "Callee");
+    const handlers = new Map<string, () => void>();
+    const room = {
+      canPlaybackAudio: true,
+      remoteParticipants: new Map([[remote.identity, remote]]),
+      localParticipant: participant("caller", "Caller"),
+      startAudio: vi.fn(async () => {
+        room.canPlaybackAudio = true;
+      }),
+      on: vi.fn((event: string, handler: () => void) => {
+        handlers.set(event, handler);
+      }),
+      off: vi.fn(),
+    };
+
+    render(<LiveKitStage room={room as never} mode="p2p" />);
+    expect(
+      screen.queryByRole("button", { name: "Tap to hear call" }),
+    ).toBeNull();
+
+    act(() => {
+      room.canPlaybackAudio = false;
+      handlers.get(RoomEvent.AudioPlaybackStatusChanged)?.();
+    });
+    const resumeButton = screen.getByRole("button", {
+      name: "Tap to hear call",
+    });
+    fireEvent.click(resumeButton);
+
+    await waitFor(() => expect(room.startAudio).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Tap to hear call" }),
+      ).toBeNull(),
+    );
+  });
+
   it("refreshes once after subscribing so tracks that arrived before the effect are rendered", () => {
     const processedVideo = participant(
       "host-publisher-native",
       "Processed host video",
       true,
     );
-    const remoteParticipants = new Map<string, ReturnType<typeof participant>>();
+    const remoteParticipants = new Map<
+      string,
+      ReturnType<typeof participant>
+    >();
     let populated = false;
     const room = {
       remoteParticipants,
@@ -178,7 +379,11 @@ describe("LiveKitStage native publisher filtering", () => {
       }),
     });
 
-    fireEvent.pointerDown(preview, { pointerId: 7, clientX: 250, clientY: 400 });
+    fireEvent.pointerDown(preview, {
+      pointerId: 7,
+      clientX: 250,
+      clientY: 400,
+    });
     fireEvent.pointerMove(preview, {
       pointerId: 7,
       clientX: -100,
@@ -398,7 +603,11 @@ describe("LiveKitStage native publisher filtering", () => {
       }),
     });
 
-    fireEvent.pointerDown(preview, { pointerId: 23, clientX: 250, clientY: 400 });
+    fireEvent.pointerDown(preview, {
+      pointerId: 23,
+      clientX: 250,
+      clientY: 400,
+    });
     fireEvent.pointerUp(preview, { pointerId: 23 });
     stageSize.width = 180;
     stageSize.height = 200;
@@ -450,8 +659,16 @@ describe("LiveKitStage native publisher filtering", () => {
       }),
     });
 
-    fireEvent.pointerDown(preview, { pointerId: 24, clientX: 250, clientY: 400 });
-    fireEvent.pointerDown(preview, { pointerId: 25, clientX: 250, clientY: 400 });
+    fireEvent.pointerDown(preview, {
+      pointerId: 24,
+      clientX: 250,
+      clientY: 400,
+    });
+    fireEvent.pointerDown(preview, {
+      pointerId: 25,
+      clientX: 250,
+      clientY: 400,
+    });
     fireEvent.pointerMove(preview, {
       pointerId: 24,
       clientX: -100,

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "./schema";
 import { api, internal } from "./_generated/api";
+import { hashClaimSecret } from "./claimCredentials";
 
 const modules = import.meta.glob("./**/*.*s");
 
@@ -223,17 +224,20 @@ describe("tenant-safe authorization import", () => {
       return limited;
     });
 
+    const fullCodes = Array.from(
+      { length: 20 },
+      (_, index) => `AF${index.toString().padStart(3, "0")}`,
+    );
+    const limitedCodes = Array.from(
+      { length: 50 },
+      (_, index) => `AL${index.toString().padStart(3, "0")}`,
+    );
+    const importedCodes = [...fullCodes, ...limitedCodes, "RAVE1"];
     await t.mutation(internal.authCodes.replaceAuthorizationCodes, {
       password: "tenant-profile-secret",
       companyId: "aichijp",
-      fullCodes: Array.from(
-        { length: 20 },
-        (_, index) => `AF${index.toString().padStart(3, "0")}`,
-      ),
-      limitedCodes: Array.from(
-        { length: 50 },
-        (_, index) => `AL${index.toString().padStart(3, "0")}`,
-      ),
+      fullCodes,
+      limitedCodes,
       administrators: [
         {
           code: "RAVE1",
@@ -242,6 +246,12 @@ describe("tenant-safe authorization import", () => {
           unlimitedDevices: true,
         },
       ],
+      claimSecretHashes: await Promise.all(
+        importedCodes.map(async (code) => ({
+          code,
+          hash: await hashClaimSecret(code, "A".repeat(32)),
+        })),
+      ),
     });
 
     await t.run(async (ctx) => {

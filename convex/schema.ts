@@ -55,6 +55,10 @@ export default defineSchema({
     enabled: v.optional(v.boolean()),
     unlimitedDevices: v.optional(v.boolean()),
     maxDevices: v.optional(v.number()),
+    // The five-letter code is a public identifier. A new device must also
+    // prove possession of the high-entropy claim secret; only its digest is
+    // retained server-side.
+    claimSecretHash: v.optional(v.string()),
     licenseProfileId: v.optional(v.id("license_profiles")),
     expiresAt: v.optional(v.number()),
     createdAt: v.optional(v.number()),
@@ -221,6 +225,9 @@ export default defineSchema({
     callerMediaMode: v.optional(
       v.union(v.literal("camera"), v.literal("face-swap")),
     ),
+    calleeMediaMode: v.optional(
+      v.union(v.literal("camera"), v.literal("face-swap")),
+    ),
     status: v.union(
       v.literal("ringing"),
       v.literal("accepted"),
@@ -238,6 +245,12 @@ export default defineSchema({
     createdByCode: v.string(),
     callerUserId: v.optional(v.string()),
     calleeUserId: v.optional(v.string()),
+    callerDeviceId: v.optional(v.string()),
+    calleeDeviceId: v.optional(v.string()),
+    callerIdentity: v.optional(v.string()),
+    calleeIdentity: v.optional(v.string()),
+    callerPublisherIdentities: v.optional(v.array(v.string())),
+    calleePublisherIdentities: v.optional(v.array(v.string())),
     callerCode: v.optional(v.string()),
     calleeCode: v.optional(v.string()),
     callerName: v.optional(v.string()),
@@ -290,6 +303,7 @@ export default defineSchema({
     callId: v.string(),
     participantCodes: v.array(v.string()),
     consentedCodes: v.array(v.string()),
+    consentEpoch: v.optional(v.number()),
     declinedCodes: v.array(v.string()),
     status: v.union(
       v.literal("requested"),
@@ -305,6 +319,36 @@ export default defineSchema({
   })
     .index("by_call", ["callId"])
     .index("by_status", ["status"]),
+
+  call_recording_segments: defineTable({
+    callId: v.string(),
+    participantCode: v.string(),
+    deviceId: v.string(),
+    consentEpoch: v.number(),
+    clientNonce: v.string(),
+    startedAt: v.number(),
+    expiresAt: v.number(),
+    uploadUrl: v.optional(v.string()),
+    uploadAuthorizedAt: v.optional(v.number()),
+    storageId: v.optional(v.id("_storage")),
+    consumedAt: v.optional(v.number()),
+  })
+    .index("by_call_participant_device_epoch_nonce", [
+      "callId",
+      "participantCode",
+      "deviceId",
+      "consentEpoch",
+      "clientNonce",
+    ])
+    .index("by_call_participant_device_epoch_started", [
+      "callId",
+      "participantCode",
+      "deviceId",
+      "consentEpoch",
+      "startedAt",
+    ])
+    .index("by_storage_id", ["storageId"])
+    .index("by_call", ["callId"]),
 
   call_transcripts: defineTable({
     callId: v.string(),
@@ -324,7 +368,9 @@ export default defineSchema({
     storageId: v.id("_storage"),
     mimeType: v.string(),
     createdAt: v.number(),
-  }).index("by_call", ["callId"]),
+  })
+    .index("by_call", ["callId"])
+    .index("by_storage_id", ["storageId"]),
 
   call_transfers: defineTable({
     callId: v.string(),
@@ -333,6 +379,19 @@ export default defineSchema({
     fromDeviceId: v.optional(v.string()),
     remoteUserId: v.string(),
     targetUserId: v.string(),
+    targetIdentity: v.optional(v.string()),
+    sourceIdentities: v.optional(v.array(v.string())),
+    targetDeviceId: v.optional(v.string()),
+    cleanupStatus: v.optional(
+      v.union(
+        v.literal("pending"),
+        v.literal("completed"),
+        v.literal("failed"),
+      ),
+    ),
+    cleanupAttempts: v.optional(v.number()),
+    cleanupError: v.optional(v.string()),
+    cleanupUpdatedAt: v.optional(v.number()),
     status: v.union(
       v.literal("pending"),
       v.literal("accepted"),

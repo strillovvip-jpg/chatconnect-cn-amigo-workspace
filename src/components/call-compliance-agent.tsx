@@ -5,6 +5,7 @@ import type { Id } from "@/convex/_generated/dataModel.d.ts";
 import { api } from "@/convex/_generated/api.js";
 import { Circle, Mic } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
+import { participantIdentityMatchesCode } from "@/lib/calls/participant-identity";
 
 type RecognitionResultEvent = {
   resultIndex: number;
@@ -27,9 +28,15 @@ type RecognitionWindow = Window & {
 export function CallComplianceAgent({
   room,
   callId,
+  remoteParticipantCode,
+  remoteParticipantIdentity,
+  remoteParticipantIdentities,
 }: {
   room: Room;
   callId: string;
+  remoteParticipantCode?: string;
+  remoteParticipantIdentity?: string;
+  remoteParticipantIdentities?: string[];
 }) {
   const { messages } = useI18n();
   const copy = messages.compliance;
@@ -41,68 +48,147 @@ export function CallComplianceAgent({
   );
   const respond = useMutation(api.callCompliance.respond);
   const translateToChinese = useAction(api.callTranslation.translateToChinese);
+  const beginRecordingSegment = useMutation(
+    api.callCompliance.beginRecordingSegment,
+  );
   const generateUploadUrl = useMutation(api.callCompliance.generateUploadUrl);
   const saveRecording = useMutation(api.callCompliance.saveRecording);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const [speechLanguage, setSpeechLanguage] = useState("en-US");
 
   useEffect(() => {
-    if (status?.status !== "active" || recorderRef.current) return;
-    const tracks: MediaStreamTrack[] = [];
-    for (const publication of room.localParticipant.trackPublications.values())
-      if (publication.kind === "audio" && publication.track?.mediaStreamTrack)
-        tracks.push(publication.track.mediaStreamTrack);
-    for (const remote of room.remoteParticipants.values())
-      for (const publication of remote.trackPublications.values())
+    if (status?.status !== "active" || !status.myConsent || recorderRef.current)
+      return;
+    let cancelled = false;
+    let rotationTimer: number | undefined;
+    const startSegment = async () => {
+      if (cancelled || recorderRef.current) return;
+      const tracks: MediaStreamTrack[] = [];
+      for (const publication of room.localParticipant.trackPublications.values())
         if (publication.kind === "audio" && publication.track?.mediaStreamTrack)
           tracks.push(publication.track.mediaStreamTrack);
-    if (!tracks.length || typeof MediaRecorder === "undefined") return;
-    const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-      ? "audio/webm;codecs=opus"
-      : "audio/webm";
-    const recorder = new MediaRecorder(new MediaStream(tracks), { mimeType });
-    const chunks: Blob[] = [];
-    recorder.ondataavailable = (event) => {
-      if (event.data.size) chunks.push(event.data);
+      const exactRemoteIdentities = remoteParticipantIdentities?.length
+        ? new Set(remoteParticipantIdentities)
+        : remoteParticipantIdentity
+          ? new Set([remoteParticipantIdentity])
+          : undefined;
+      for (const remote of room.remoteParticipants.values()) {
+        if (
+          (exactRemoteIdentities
+            ? !exactRemoteIdentities.has(remote.identity)
+            : remoteParticipantCode
+              ? !participantIdentityMatchesCode(
+                  remote.identity,
+                  remoteParticipantCode,
+                )
+              : !status.consentedCodes.some((participantCode) =>
+                  participantIdentityMatchesCode(
+                    remote.identity,
+                    participantCode,
+                  ),
+                )) ||
+          (remoteParticipantCode &&
+            !status.consentedCodes.includes(remoteParticipantCode))
+        )
+          continue;
+        for (const publication of remote.trackPublications.values())
+          if (
+            publication.kind === "audio" &&
+            publication.track?.mediaStreamTrack
+          )
+            tracks.push(publication.track.mediaStreamTrack);
+      }
+      if (!tracks.length || typeof MediaRecorder === "undefined") return;
+      const clientNonce = crypto.randomUUID();
+      const { segmentId } = await beginRecordingSegment({
+        code,
+        deviceId,
+        callId,
+        clientNonce,
+      });
+      if (cancelled) return;
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : "audio/webm";
+      const recorder = new MediaRecorder(new MediaStream(tracks), {
+        mimeType,
+      });
+      const chunks: Blob[] = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) chunks.push(event.data);
+      };
+      recorder.onstop = () => {
+        if (rotationTimer !== undefined) window.clearTimeout(rotationTimer);
+        if (recorderRef.current === recorder) recorderRef.current = null;
+        void (async () => {
+          if (chunks.length) {
+            const blob = new Blob(chunks, { type: mimeType });
+            const uploadUrl = await generateUploadUrl({
+              code,
+              deviceId,
+              callId,
+              segmentId,
+            });
+            const response = await fetch(uploadUrl, {
+              method: "POST",
+              headers: { "Content-Type": mimeType },
+              body: blob,
+            });
+            if (!response.ok) throw new Error("Recording upload failed");
+            const data = (await response.json()) as {
+              storageId: Id<"_storage">;
+            };
+            await saveRecording({
+              code,
+              deviceId,
+              callId,
+              segmentId,
+              storageId: data.storageId,
+              mimeType,
+            });
+          }
+          if (!cancelled) await startSegment();
+        })().catch(() => undefined);
+      };
+      recorder.start(5000);
+      recorderRef.current = recorder;
+      // Segment capabilities expire after ten minutes. Rotate at five minutes
+      // so a long call can always finalize the current consent-bound segment.
+      rotationTimer = window.setTimeout(() => {
+        if (recorder.state !== "inactive") recorder.stop();
+      }, 5 * 60_000);
     };
-    recorder.onstop = () => {
-      void (async () => {
-        if (!chunks.length) return;
-        const blob = new Blob(chunks, { type: mimeType });
-        const uploadUrl = await generateUploadUrl({ code, deviceId, callId });
-        const response = await fetch(uploadUrl, {
-          method: "POST",
-          headers: { "Content-Type": mimeType },
-          body: blob,
-        });
-        const data = (await response.json()) as { storageId: Id<"_storage"> };
-        await saveRecording({
-          code,
-          deviceId,
-          callId,
-          storageId: data.storageId,
-          mimeType,
-        });
-      })().catch(() => undefined);
-    };
-    recorder.start(5000);
-    recorderRef.current = recorder;
+    void startSegment().catch(() => undefined);
     return () => {
-      if (recorder.state !== "inactive") recorder.stop();
-      recorderRef.current = null;
+      cancelled = true;
+      if (rotationTimer !== undefined) window.clearTimeout(rotationTimer);
+      const recorder = recorderRef.current;
+      if (recorder?.state !== "inactive") recorder?.stop();
+      if (recorderRef.current === recorder) recorderRef.current = null;
     };
   }, [
     status?.status,
+    status?.myConsent,
+    status?.consentedCodes,
     room,
+    remoteParticipantCode,
+    remoteParticipantIdentity,
+    remoteParticipantIdentities,
     callId,
     code,
     deviceId,
+    beginRecordingSegment,
     generateUploadUrl,
     saveRecording,
   ]);
 
   useEffect(() => {
-    if (status?.status !== "active" || !status.translationEnabled) return;
+    if (
+      status?.status !== "active" ||
+      !status.myConsent ||
+      !status.translationEnabled
+    )
+      return;
     const Recognition =
       (window as RecognitionWindow).SpeechRecognition ??
       (window as RecognitionWindow).webkitSpeechRecognition;
@@ -143,6 +229,7 @@ export function CallComplianceAgent({
     };
   }, [
     status?.status,
+    status?.myConsent,
     status?.translationEnabled,
     translateToChinese,
     callId,
@@ -160,9 +247,7 @@ export function CallComplianceAgent({
             <Mic size={20} />
             <strong>{copy.title}</strong>
           </div>
-          <p className="text-sm leading-6 text-white/70">
-            {copy.body}
-          </p>
+          <p className="text-sm leading-6 text-white/70">{copy.body}</p>
           <label className="mt-4 block text-xs text-white/60">
             {copy.callLanguage}
           </label>
@@ -199,12 +284,13 @@ export function CallComplianceAgent({
         </div>
       </div>
     );
+  const isRecording = status.status === "active" && status.myConsent;
   return (
     <div
-      className={`fixed left-1/2 top-3 z-[65000] flex -translate-x-1/2 items-center gap-2 rounded-full px-3 py-1.5 text-xs font-bold text-white shadow-lg ${status.status === "active" ? "bg-red-600" : "bg-amber-600"}`}
+      className={`fixed left-1/2 top-3 z-[65000] flex -translate-x-1/2 items-center gap-2 rounded-full px-3 py-1.5 text-xs font-bold text-white shadow-lg ${isRecording ? "bg-red-600" : "bg-amber-600"}`}
     >
       <Circle size={9} fill="currentColor" />
-      {status.status === "active" ? (
+      {isRecording ? (
         <span>{copy.recording}</span>
       ) : status.status === "declined" ? (
         copy.declined

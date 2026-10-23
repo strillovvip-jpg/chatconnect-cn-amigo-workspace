@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { normalizeTenantImportPayload } from "./import-tenant-auth-codes.mjs";
+import {
+  buildTenantCredentialImport,
+  normalizeTenantImportPayload,
+} from "./import-tenant-auth-codes.mjs";
 
 const codes = (prefix, count) =>
   Array.from(
@@ -81,5 +84,38 @@ test("rejects invalid counts and cross-tenant administrators before running Conv
         ],
       }),
     /Exactly one tenant administrator/,
+  );
+});
+
+test("builds a hash-only tenant request and a separate one-time credential artifact", () => {
+  const bundle = buildTenantCredentialImport(
+    {
+      companyId: "aichijp",
+      fullCodes: codes("AF", 20),
+      limitedCodes: codes("AL", 50),
+      administrators: [
+        {
+          code: "ROOT1",
+          role: "super_admin",
+          companyId: "aichijp",
+          unlimitedDevices: true,
+        },
+      ],
+    },
+    () => "A",
+  );
+  const rawSecret = "A".repeat(32);
+
+  assert.equal(bundle.request.claimSecretHashes.length, 71);
+  assert.ok(
+    bundle.request.claimSecretHashes.every(({ hash }) =>
+      /^[a-f0-9]{64}$/.test(hash),
+    ),
+  );
+  assert.equal(JSON.stringify(bundle.request).includes(rawSecret), false);
+  assert.equal(bundle.artifact.credentials.length, 71);
+  assert.match(
+    bundle.artifact.credentials[0].credential,
+    new RegExp(`^[A-Z0-9]{4,20}\\.${rawSecret}$`),
   );
 });

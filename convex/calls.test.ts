@@ -3,7 +3,8 @@ import { convexTest } from "convex-test";
 import { RoomServiceClient, TrackSource } from "livekit-server-sdk";
 import { makeFunctionReference } from "convex/server";
 import schema from "./schema";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
+import { TRANSFER_CLEANUP_RETRY_OFFSETS_MS } from "./transferCleanupPolicy";
 
 const modules = import.meta.glob("./**/*.*s");
 
@@ -87,6 +88,22 @@ async function setupFaceSwapCall() {
   return { t, created };
 }
 
+async function scheduledTransferCleanupAttempts(
+  t: ReturnType<typeof convexTest>,
+) {
+  return t.run(async (ctx) => {
+    const jobs = await ctx.db.system.query("_scheduled_functions").collect();
+    return jobs
+      .filter(
+        (job) =>
+          job.name === "calls:retryTransferCleanup" &&
+          job.state.kind === "pending",
+      )
+      .map((job) => (job.args[0] as { attempt: number }).attempt)
+      .sort((left, right) => left - right);
+  });
+}
+
 describe("P2P face-swap LiveKit credentials", () => {
   beforeEach(() => {
     process.env.LIVEKIT_URL = "https://livekit.example.test";
@@ -155,6 +172,433 @@ describe("P2P face-swap LiveKit credentials", () => {
     const token = jwtPayload(joined.token);
     expect(token.video.canSubscribe).toBe(true);
     expect(token.video.canPublishSources).toBeUndefined();
+  });
+});
+
+describe("transferred P2P LiveKit handoff", () => {
+  beforeEach(() => {
+    process.env.LIVEKIT_URL = "https://livekit.example.test";
+    process.env.LIVEKIT_API_KEY = "test-key";
+    process.env.LIVEKIT_API_SECRET = "test-secret-with-enough-entropy";
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete process.env.LIVEKIT_URL;
+    delete process.env.LIVEKIT_API_KEY;
+    delete process.env.LIVEKIT_API_SECRET;
+  });
+
+  test("keeps evicting replaced publishers for the full LiveKit token lifetime", () => {
+    expect(
+      TRANSFER_CLEANUP_RETRY_OFFSETS_MS[
+        TRANSFER_CLEANUP_RETRY_OFFSETS_MS.length - 1
+      ],
+    ).toBe(15 * 60_000);
+    expect(
+      TRANSFER_CLEANUP_RETRY_OFFSETS_MS.every(
+        (offset, index, offsets) => index === 0 || offset > offsets[index - 1],
+      ),
+    ).toBe(true);
+  });
+
+  test("refuses a legacy handoff when an offline source has no exact publisher identity", async () => {
+    const { t, created } = await setupFaceSwapCall();
+    await t.run(async (ctx) => {
+      const profile = await ctx.db.query("license_profiles").first();
+      if (!profile) throw new Error("Expected a license profile");
+      await ctx.db.insert("auth_codes", {
+        code: "CCCCC",
+        deviceId: "device-c",
+        name: "Transfer C",
+        usedAt: new Date().toISOString(),
+      });
+      await ctx.db.insert("allowed_codes", {
+        code: "CCCCC",
+        role: "user",
+        enabled: true,
+        licenseProfileId: profile._id,
+      });
+      await ctx.db.insert("user_presence", {
+        userId: "CCCCC",
+        lastSeenAt: Date.now(),
+        online: true,
+        lastOnlineAt: Date.now(),
+      });
+      const call = await ctx.db
+        .query("live_calls")
+        .withIndex("by_call_id", (q) => q.eq("callId", created.callId))
+        .unique();
+      if (!call) throw new Error("Expected an active call");
+      await ctx.db.patch(call._id, {
+        callerIdentity: undefined,
+        callerPublisherIdentities: undefined,
+      });
+    });
+    await t.mutation(api.callState.markParticipantConnected, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      callId: created.callId,
+    });
+    await t.mutation(api.callState.markParticipantConnected, {
+      code: "BBBBB",
+      deviceId: "device-b",
+      callId: created.callId,
+    });
+    const transferId = await t.mutation(api.callState.initiateTransfer, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      callId: created.callId,
+      targetCode: "CCCCC",
+    });
+    await t.mutation(api.callState.respondTransfer, {
+      code: "CCCCC",
+      deviceId: "device-c",
+      transferId,
+      accept: true,
+    });
+    const joined = await t.action(api.calls.joinTransferredRoom, {
+      code: "CCCCC",
+      deviceId: "device-c",
+      transferId,
+    });
+    const joinedIdentity = jwtPayload(joined.token).sub;
+    vi.spyOn(RoomServiceClient.prototype, "listParticipants").mockResolvedValue(
+      [
+        { identity: "BBBBB-remote-browser" },
+        { identity: joinedIdentity },
+      ] as never,
+    );
+    const removeParticipant = vi
+      .spyOn(RoomServiceClient.prototype, "removeParticipant")
+      .mockResolvedValue(undefined as never);
+
+    await expect(
+      t.action(api.calls.completeTransferredRoom, {
+        code: "CCCCC",
+        deviceId: "device-c",
+        transferId,
+      }),
+    ).rejects.toThrow("无法确认原转接端");
+    await expect(
+      t.run(async (ctx) => ctx.db.get(transferId)),
+    ).resolves.toMatchObject({ status: "joining" });
+    await expect(
+      t.query(api.callState.callStatus, {
+        code: "AAAAA",
+        deviceId: "device-a",
+        callId: created.callId,
+      }),
+    ).resolves.toMatchObject({ status: "connected", peerCode: "BBBBB" });
+    expect(removeParticipant).not.toHaveBeenCalled();
+  });
+
+  test("completes the database handoff and evicts every old sender publisher", async () => {
+    const { t, created } = await setupFaceSwapCall();
+    await t.run(async (ctx) => {
+      const profile = await ctx.db.query("license_profiles").first();
+      if (!profile) throw new Error("Expected a license profile");
+      await ctx.db.insert("auth_codes", {
+        code: "CCCCC",
+        deviceId: "device-c",
+        name: "Transfer C",
+        usedAt: new Date().toISOString(),
+      });
+      await ctx.db.insert("allowed_codes", {
+        code: "CCCCC",
+        role: "user",
+        enabled: true,
+        licenseProfileId: profile._id,
+      });
+      await ctx.db.insert("user_presence", {
+        userId: "CCCCC",
+        lastSeenAt: Date.now(),
+        online: true,
+        lastOnlineAt: Date.now(),
+      });
+    });
+    await t.mutation(api.callState.markParticipantConnected, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      callId: created.callId,
+    });
+    await t.mutation(api.callState.markParticipantConnected, {
+      code: "BBBBB",
+      deviceId: "device-b",
+      callId: created.callId,
+    });
+    const transferId = await t.mutation(api.callState.initiateTransfer, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      callId: created.callId,
+      targetCode: "CCCCC",
+    });
+    await t.mutation(api.callState.respondTransfer, {
+      code: "CCCCC",
+      deviceId: "device-c",
+      transferId,
+      accept: true,
+    });
+    const joined = await t.action(api.calls.joinTransferredRoom, {
+      code: "CCCCC",
+      deviceId: "device-c",
+      transferId,
+    });
+    expect(joined.remoteCode).toBe("BBBBB");
+    const joinedIdentity = jwtPayload(joined.token).sub;
+    const retriedJoin = await t.action(api.calls.joinTransferredRoom, {
+      code: "CCCCC",
+      deviceId: "device-c",
+      transferId,
+    });
+    expect(jwtPayload(retriedJoin.token).sub).toBe(joinedIdentity);
+    const listParticipants = vi
+      .spyOn(RoomServiceClient.prototype, "listParticipants")
+      .mockResolvedValueOnce([
+        { identity: "AAAAA-old-browser" },
+        { identity: "BBBBB-remote-browser" },
+      ] as never)
+      .mockResolvedValue([
+        { identity: "AAAAA-old-browser" },
+        { identity: "AAAAA-face-swap-old-native" },
+        { identity: "BBBBB-remote-browser" },
+        { identity: joinedIdentity },
+      ] as never);
+    const removeParticipant = vi
+      .spyOn(RoomServiceClient.prototype, "removeParticipant")
+      .mockResolvedValue(undefined as never);
+
+    await expect(
+      t.action(api.calls.completeTransferredRoom, {
+        code: "CCCCC",
+        deviceId: "device-c",
+        transferId,
+      }),
+    ).rejects.toThrow("尚未进入通话房间");
+    await expect(
+      t.query(api.callState.callStatus, {
+        code: "AAAAA",
+        deviceId: "device-a",
+        callId: created.callId,
+      }),
+    ).resolves.toMatchObject({ status: "connected", peerCode: "BBBBB" });
+
+    await expect(
+      t.action(api.calls.completeTransferredRoom, {
+        code: "CCCCC",
+        deviceId: "device-c",
+        transferId,
+      }),
+    ).resolves.toMatchObject({ completed: true });
+    expect(listParticipants).toHaveBeenCalledWith(created.roomName);
+    expect(removeParticipant.mock.calls).toEqual([
+      [
+        created.roomName,
+        "AAAAA-old-browser",
+        { revokeTokenTs: expect.any(BigInt) },
+      ],
+      [
+        created.roomName,
+        "AAAAA-face-swap-old-native",
+        { revokeTokenTs: expect.any(BigInt) },
+      ],
+    ]);
+    const expectedAttempts = TRANSFER_CLEANUP_RETRY_OFFSETS_MS.map(
+      (_, attempt) => attempt,
+    );
+    expect(await scheduledTransferCleanupAttempts(t)).toEqual(
+      expectedAttempts,
+    );
+
+    removeParticipant.mockClear();
+    delete process.env.LIVEKIT_URL;
+    await expect(
+      t.action(internal.calls.retryTransferCleanup, {
+        transferId,
+        attempt: 0,
+      }),
+    ).rejects.toThrow("LIVEKIT_URL");
+    expect(await scheduledTransferCleanupAttempts(t)).toEqual(
+      expectedAttempts,
+    );
+    process.env.LIVEKIT_URL = "https://livekit.example.test";
+    await t.action(internal.calls.retryTransferCleanup, {
+      transferId,
+      attempt: 1,
+    });
+    expect(removeParticipant.mock.calls).toEqual([
+      [
+        created.roomName,
+        "AAAAA-old-browser",
+        { revokeTokenTs: expect.any(BigInt) },
+      ],
+      [
+        created.roomName,
+        "AAAAA-face-swap-old-native",
+        { revokeTokenTs: expect.any(BigInt) },
+      ],
+    ]);
+    removeParticipant.mockClear();
+    removeParticipant.mockRejectedValueOnce(
+      new Error("temporary LiveKit failure"),
+    );
+    await expect(
+      t.action(api.calls.completeTransferredRoom, {
+        code: "CCCCC",
+        deviceId: "device-c",
+        transferId,
+      }),
+    ).resolves.toEqual({ completed: true });
+    expect(removeParticipant.mock.calls).toEqual([
+      [
+        created.roomName,
+        "AAAAA-old-browser",
+        { revokeTokenTs: expect.any(BigInt) },
+      ],
+      [
+        created.roomName,
+        "AAAAA-face-swap-old-native",
+        { revokeTokenTs: expect.any(BigInt) },
+      ],
+    ]);
+    await expect(
+      t.run(async (ctx) => ctx.db.get(transferId)),
+    ).resolves.toMatchObject({
+      status: "completed",
+      cleanupStatus: "completed",
+    });
+    removeParticipant.mockClear();
+    await expect(
+      t.action(api.calls.completeTransferredRoom, {
+        code: "CCCCC",
+        deviceId: "device-c",
+        transferId,
+      }),
+    ).resolves.toEqual({ completed: true });
+    await expect(
+      t.run(async (ctx) => ctx.db.get(transferId)),
+    ).resolves.toMatchObject({
+      status: "completed",
+      cleanupStatus: "completed",
+    });
+    removeParticipant.mockClear();
+    listParticipants.mockResolvedValueOnce([
+      { identity: "AAAAA-future-legitimate-device" },
+      { identity: "BBBBB-remote-browser" },
+      { identity: joinedIdentity },
+    ] as never);
+    await t.action(internal.calls.retryTransferCleanup, {
+      transferId,
+      attempt: TRANSFER_CLEANUP_RETRY_OFFSETS_MS.length - 1,
+    });
+    expect(removeParticipant.mock.calls).toEqual([
+      [
+        created.roomName,
+        "AAAAA-old-browser",
+        { revokeTokenTs: expect.any(BigInt) },
+      ],
+      [
+        created.roomName,
+        "AAAAA-face-swap-old-native",
+        { revokeTokenTs: expect.any(BigInt) },
+      ],
+    ]);
+    expect(removeParticipant).not.toHaveBeenCalledWith(
+      created.roomName,
+      "AAAAA-future-legitimate-device",
+      expect.anything(),
+    );
+    await expect(
+      t.action(api.calls.joinTransferredRoom, {
+        code: "CCCCC",
+        deviceId: "device-c",
+        transferId,
+      }),
+    ).rejects.toThrow("不允许加入此转接通话");
+    await expect(
+      t.query(api.callState.callStatus, {
+        code: "CCCCC",
+        deviceId: "device-c",
+        callId: created.callId,
+      }),
+    ).resolves.toMatchObject({ peerCode: "BBBBB" });
+  });
+
+  test("preserves the new receiver while evicting the old publishers for a same-code device handoff", async () => {
+    const { t, created } = await setupFaceSwapCall();
+    await t.run(async (ctx) => {
+      const account = await ctx.db
+        .query("auth_codes")
+        .withIndex("by_code", (q) => q.eq("code", "AAAAA"))
+        .unique();
+      if (!account) throw new Error("Expected the caller account");
+      await ctx.db.patch(account._id, { mobileDeviceId: "device-a-mobile" });
+      await ctx.db.insert("user_presence", {
+        userId: "AAAAA",
+        lastSeenAt: Date.now(),
+        online: true,
+        lastOnlineAt: Date.now(),
+      });
+    });
+    await t.mutation(api.callState.markParticipantConnected, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      callId: created.callId,
+    });
+    await t.mutation(api.callState.markParticipantConnected, {
+      code: "BBBBB",
+      deviceId: "device-b",
+      callId: created.callId,
+    });
+    const transferId = await t.mutation(api.callState.initiateTransfer, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      callId: created.callId,
+      targetCode: "AAAAA",
+    });
+    await t.mutation(api.callState.respondTransfer, {
+      code: "AAAAA",
+      deviceId: "device-a-mobile",
+      transferId,
+      accept: true,
+    });
+    const joined = await t.action(api.calls.joinTransferredRoom, {
+      code: "AAAAA",
+      deviceId: "device-a-mobile",
+      transferId,
+    });
+    const joinedIdentity = jwtPayload(joined.token).sub;
+    vi.spyOn(RoomServiceClient.prototype, "listParticipants").mockResolvedValue(
+      [
+        { identity: "AAAAA-old-browser" },
+        { identity: "AAAAA-face-swap-old-native" },
+        { identity: joinedIdentity },
+        { identity: "BBBBB-remote-browser" },
+      ] as never,
+    );
+    const removeParticipant = vi
+      .spyOn(RoomServiceClient.prototype, "removeParticipant")
+      .mockResolvedValue(undefined as never);
+
+    await expect(
+      t.action(api.calls.completeTransferredRoom, {
+        code: "AAAAA",
+        deviceId: "device-a-mobile",
+        transferId,
+      }),
+    ).resolves.toEqual({ completed: true });
+    expect(removeParticipant.mock.calls).toEqual([
+      [
+        created.roomName,
+        "AAAAA-old-browser",
+        { revokeTokenTs: expect.any(BigInt) },
+      ],
+      [
+        created.roomName,
+        "AAAAA-face-swap-old-native",
+        { revokeTokenTs: expect.any(BigInt) },
+      ],
+    ]);
   });
 });
 

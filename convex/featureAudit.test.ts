@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "./schema";
 import { api } from "./_generated/api";
+import { hashClaimSecret } from "./claimCredentials";
 
 const modules = import.meta.glob("./**/*.*s");
 async function setup() {
@@ -139,6 +140,8 @@ describe("presence and browser notification subscriptions", () => {
 
   test("one full-feature authorization code allows exactly two devices of any type", async () => {
     const t = convexTest({ schema, modules });
+    const secret = "A".repeat(32);
+    const claimSecretHash = await hashClaimSecret("LIMIT1", secret);
     await t.run(async (ctx) => {
       const profileId = await ctx.db.insert("license_profiles", {
         name: "Full feature",
@@ -164,18 +167,19 @@ describe("presence and browser notification subscriptions", () => {
         code: "LIMIT1",
         role: "user",
         enabled: true,
+        claimSecretHash,
         licenseProfileId: profileId,
       });
     });
     await t.mutation(api.authCodes.claimCode, {
-      code: "LIMIT1",
+      code: `LIMIT1.${secret}`,
       deviceId: "phone-1",
       deviceType: "mobile",
       deviceContext: "browser",
       name: "Device Test",
     });
     await t.mutation(api.authCodes.claimCode, {
-      code: "LIMIT1",
+      code: `LIMIT1.${secret}`,
       deviceId: "desktop-1",
       deviceType: "desktop",
       name: "Device Test",
@@ -194,7 +198,7 @@ describe("presence and browser notification subscriptions", () => {
     ).toMatchObject({ role: "user" });
     await expect(
       t.mutation(api.authCodes.claimCode, {
-        code: "LIMIT1",
+        code: `LIMIT1.${secret}`,
         deviceId: "phone-app-1",
         deviceType: "mobile",
         deviceContext: "standalone",
@@ -222,28 +226,31 @@ describe("presence and browser notification subscriptions", () => {
 
   test("an unlimited authorization code accepts additional devices", async () => {
     const t = convexTest({ schema, modules });
+    const secret = "A".repeat(32);
+    const claimSecretHash = await hashClaimSecret("MULTI1", secret);
     await t.run(async (ctx) => {
       await ctx.db.insert("allowed_codes", {
         code: "MULTI1",
         role: "user",
         enabled: true,
+        claimSecretHash,
         unlimitedDevices: true,
       });
     });
     await t.mutation(api.authCodes.claimCode, {
-      code: "MULTI1",
+      code: `MULTI1.${secret}`,
       deviceId: "phone-1",
       deviceType: "mobile",
       name: "Multi Device",
     });
     await t.mutation(api.authCodes.claimCode, {
-      code: "MULTI1",
+      code: `MULTI1.${secret}`,
       deviceId: "phone-2",
       deviceType: "mobile",
       name: "Multi Device",
     });
     await t.mutation(api.authCodes.claimCode, {
-      code: "MULTI1",
+      code: `MULTI1.${secret}`,
       deviceId: "desktop-2",
       deviceType: "desktop",
       name: "Multi Device",

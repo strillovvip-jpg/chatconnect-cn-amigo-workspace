@@ -92,6 +92,10 @@ describe("nyfbi private login shell", () => {
         setItem: (key: string, value: string) => values.set(key, value),
       },
     });
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false })),
+    });
     mocks.native = false;
     mocks.nyfbi = true;
     mocks.portalTitle = "Private Communications Access Portal";
@@ -119,7 +123,9 @@ describe("nyfbi private login shell", () => {
       "/icon/usa-192.png?v=4",
     );
     expect(screen.queryByText("SC")).not.toBeInTheDocument();
-    expect(screen.getByPlaceholderText("Enter authorization code")).toBeVisible();
+    expect(
+      screen.getByPlaceholderText("Enter authorization code"),
+    ).toBeVisible();
     expect(screen.getByPlaceholderText("Enter your full name")).toBeVisible();
     expect(
       screen.getByRole("button", { name: "Sign in with QR code" }),
@@ -150,7 +156,11 @@ describe("nyfbi private login shell", () => {
   it("claims a native mobile app session in the standalone device slot", async () => {
     mocks.nyfbi = false;
     mocks.native = true;
-    mocks.claimCode.mockResolvedValue({ name: "IGIDM user", role: "user" });
+    mocks.claimCode.mockResolvedValue({
+      code: "IGIDM",
+      name: "IGIDM user",
+      role: "user",
+    });
 
     render(<ChinesePortal />);
     fireEvent.change(screen.getByPlaceholderText("Enter authorization code"), {
@@ -170,6 +180,31 @@ describe("nyfbi private login shell", () => {
         surface: "app",
       }),
     );
+  });
+
+  it("stores only the normalized public code after using a compound device-activation credential", async () => {
+    const rawSecret = "JBSWY3DPEHPK3PXPJBSWY3DPEH";
+    mocks.claimCode.mockResolvedValue({
+      code: "IGIDM",
+      name: "Secure user",
+      role: "user",
+    });
+    window.localStorage.setItem("ksc_device_id", "existing-device-id");
+
+    render(<ChinesePortal />);
+    fireEvent.change(screen.getByPlaceholderText("Enter authorization code"), {
+      target: { value: `IGIDM.${rawSecret}` },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Log In" }));
+
+    await waitFor(() => expect(mocks.navigate).toHaveBeenCalled());
+    expect(window.localStorage.getItem("ksc_session_code")).toBe("IGIDM");
+    const persistedValues = Array.from(
+      { length: window.localStorage.length },
+      (_, index) =>
+        window.localStorage.getItem(window.localStorage.key(index) ?? "") ?? "",
+    );
+    expect(persistedValues.join("\n")).not.toContain(rawSecret);
   });
 
   it("leaves non-nyfbi browser login on its existing shell", () => {

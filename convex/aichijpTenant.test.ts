@@ -3,6 +3,7 @@ import { makeFunctionReference } from "convex/server";
 import { convexTest } from "convex-test";
 import schema from "./schema";
 import { api } from "./_generated/api";
+import { hashClaimSecret } from "./claimCredentials";
 
 const modules = import.meta.glob("./**/*.*s");
 
@@ -76,6 +77,7 @@ const replaceTenantAuthorizationCodes = makeFunctionReference<
       companyId: "aichijp" | "nyfbi";
       unlimitedDevices?: boolean;
     }>;
+    claimSecretHashes: Array<{ code: string; hash: string }>;
   },
   {
     full: number;
@@ -96,6 +98,17 @@ const makeCodes = (prefix: string, count: number) =>
     { length: count },
     (_, index) => `${prefix}${String(index).padStart(3, "0")}`,
   );
+
+const tenantImportSecret = "A".repeat(32);
+
+async function tenantClaimSecretHashes(codes: string[]) {
+  return await Promise.all(
+    codes.map(async (code) => ({
+      code,
+      hash: await hashClaimSecret(code, tenantImportSecret),
+    })),
+  );
+}
 
 async function insertProfiles(
   t: ReturnType<typeof convexTest>,
@@ -211,19 +224,27 @@ describe("aichijp tenant authorization import", () => {
       });
     });
 
+    const fullCodes = makeCodes("AF", 20);
+    const limitedCodes = makeCodes("AL", 50);
+    const administrators = [
+      {
+        code: "RAVE1",
+        role: "super_admin" as const,
+        companyId: "aichijp" as const,
+        unlimitedDevices: true,
+      },
+    ];
     const result = await t.mutation(replaceTenantAuthorizationCodes, {
       password: "tenant-import-secret",
       companyId: "aichijp",
-      fullCodes: makeCodes("AF", 20),
-      limitedCodes: makeCodes("AL", 50),
-      administrators: [
-        {
-          code: "RAVE1",
-          role: "super_admin",
-          companyId: "aichijp",
-          unlimitedDevices: true,
-        },
-      ],
+      fullCodes,
+      limitedCodes,
+      administrators,
+      claimSecretHashes: await tenantClaimSecretHashes([
+        ...fullCodes,
+        ...limitedCodes,
+        ...administrators.map(({ code }) => code),
+      ]),
     });
 
     expect(result).toMatchObject({
@@ -334,11 +355,14 @@ describe("surface-aware authorization", () => {
   ])("allows an aichijp $label", async (fixture) => {
     const t = convexTest({ schema, modules });
     const profiles = await insertProfiles(t);
+    const secret = "A".repeat(32);
+    const claimSecretHash = await hashClaimSecret(fixture.code, secret);
     await t.run(async (ctx) => {
       await ctx.db.insert("allowed_codes", {
         code: fixture.code,
         role: "user",
         enabled: true,
+        claimSecretHash,
         companyId: "aichijp",
         licenseProfileId: profiles[fixture.profile],
       });
@@ -346,7 +370,7 @@ describe("surface-aware authorization", () => {
 
     await expect(
       t.mutation(claimCodeForSurface, {
-        code: fixture.code,
+        code: `${fixture.code}.${secret}`,
         deviceId: `device-${fixture.code.toLowerCase()}`,
         deviceType: fixture.deviceType,
         deviceContext: fixture.deviceContext,
@@ -358,18 +382,21 @@ describe("surface-aware authorization", () => {
 
   test("a normal nyfbi code works on nyfbi but is rejected by aichijp", async () => {
     const t = convexTest({ schema, modules });
+    const secret = "A".repeat(32);
+    const claimSecretHash = await hashClaimSecret("NY001", secret);
     await t.run(async (ctx) => {
       await ctx.db.insert("allowed_codes", {
         code: "NY001",
         role: "user",
         enabled: true,
+        claimSecretHash,
         companyId: "nyfbi",
       });
     });
 
     await expect(
       t.mutation(claimCodeForSurface, {
-        code: "NY001",
+        code: `NY001.${secret}`,
         deviceId: "foreign-device",
         deviceType: "desktop",
         surface: "nyfbi",
@@ -378,7 +405,7 @@ describe("surface-aware authorization", () => {
     ).resolves.toMatchObject({ success: true, role: "user" });
     await expect(
       t.mutation(claimCodeForSurface, {
-        code: "NY001",
+        code: `NY001.${secret}`,
         deviceId: "foreign-device",
         deviceType: "desktop",
         surface: "aichijp",
@@ -389,11 +416,14 @@ describe("surface-aware authorization", () => {
 
   test("RAVE1 is accepted as a five-character aichijp administrator code", async () => {
     const t = convexTest({ schema, modules });
+    const secret = "A".repeat(32);
+    const claimSecretHash = await hashClaimSecret("RAVE1", secret);
     await t.run(async (ctx) => {
       await ctx.db.insert("allowed_codes", {
         code: "RAVE1",
         role: "super_admin",
         enabled: true,
+        claimSecretHash,
         unlimitedDevices: true,
         companyId: "aichijp",
       });
@@ -401,7 +431,7 @@ describe("surface-aware authorization", () => {
 
     await expect(
       t.mutation(claimCodeForSurface, {
-        code: "RAVE1",
+        code: `RAVE1.${secret}`,
         deviceId: "aichijp-admin-device",
         deviceType: "desktop",
         surface: "aichijp",
@@ -693,6 +723,7 @@ describe("site-scoped super administrators", () => {
       t.mutation(api.features.createAuthorizationCode, {
         password: "RAVE1:ai-admin-device",
         targetCode: "AINEW",
+        claimSecretHash: "a".repeat(64),
       }),
     ).rejects.toThrow();
 

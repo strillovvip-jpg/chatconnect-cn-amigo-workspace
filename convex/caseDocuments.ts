@@ -56,6 +56,7 @@ export const saveDocument = mutation({
       .query("cases")
       .withIndex("by_case_number", (q) => q.eq("caseNumber", caseNumber))
       .unique();
+    if (record) await assertAdminCanAccessCode(ctx, auth, record.assignedCode);
     const idNumberHash = await secureHash(args.idNumber);
     if (record?.idNumberHash && record.idNumberHash !== idNumberHash)
       throw new Error("案件编号或证件号码不正确。");

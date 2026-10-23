@@ -1,8 +1,16 @@
 import { ConvexError, v } from "convex/values";
-import { internalMutation, mutation, query } from "./_generated/server";
+import {
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+} from "./_generated/server";
+import type { MutationCtx } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
 import { assertSameTenant, requireSession, tenantIdForAllowed } from "./roles";
 import { effectiveFeatures, requireFeature } from "./features";
 import { internal } from "./_generated/api";
+import { TRANSFER_CLEANUP_RETRY_OFFSETS_MS } from "./transferCleanupPolicy";
 import { canCreateExternalInvite } from "./externalVideoInvites";
 import { codeIsInTenant } from "./tenantBoundaries";
 
@@ -16,15 +24,129 @@ type CallerMediaMode = "camera" | "face-swap";
 function storedCallerMediaMode(call: { callerMediaMode?: CallerMediaMode }) {
   return call.callerMediaMode ?? "camera";
 }
-const activeCallStatuses = new Set([
+
+function storedParticipantMediaMode(
+  call: {
+    callerUserId?: string;
+    calleeUserId?: string;
+    callerMediaMode?: CallerMediaMode;
+    calleeMediaMode?: CallerMediaMode;
+  },
+  code: string,
+) {
+  if (call.callerUserId === code) return storedCallerMediaMode(call);
+  if (call.calleeUserId === code) return call.calleeMediaMode ?? "camera";
+  return "camera";
+}
+
+function storedParticipantPublisherIdentities(
+  call: {
+    callerUserId?: string;
+    calleeUserId?: string;
+    callerIdentity?: string;
+    calleeIdentity?: string;
+    callerPublisherIdentities?: string[];
+    calleePublisherIdentities?: string[];
+  },
+  code: string,
+) {
+  if (call.callerUserId === code)
+    return Array.from(
+      new Set(
+        [...(call.callerPublisherIdentities ?? []), call.callerIdentity].filter(
+          (identity): identity is string => Boolean(identity),
+        ),
+      ),
+    );
+  if (call.calleeUserId === code)
+    return Array.from(
+      new Set(
+        [...(call.calleePublisherIdentities ?? []), call.calleeIdentity].filter(
+          (identity): identity is string => Boolean(identity),
+        ),
+      ),
+    );
+  return [];
+}
+
+function participantIdentityMatchesCode(identity: string, code: string) {
+  const normalizedIdentity = identity.trim().toUpperCase();
+  const normalizedCode = code.trim().toUpperCase();
+  return (
+    normalizedIdentity === normalizedCode ||
+    normalizedIdentity.startsWith(`${normalizedCode}-`)
+  );
+}
+
+type DeviceBoundCall = {
+  callerUserId?: string;
+  calleeUserId?: string;
+  callerDeviceId?: string;
+  calleeDeviceId?: string;
+};
+
+function participantDeviceMatches(
+  call: DeviceBoundCall,
+  code: string,
+  deviceId: string,
+) {
+  const boundDeviceIds = [
+    call.callerUserId === code ? call.callerDeviceId : undefined,
+    call.calleeUserId === code ? call.calleeDeviceId : undefined,
+  ].filter((value): value is string => Boolean(value));
+  return boundDeviceIds.length === 0 || boundDeviceIds.includes(deviceId);
+}
+
+function requireParticipantDevice(
+  call: DeviceBoundCall,
+  code: string,
+  deviceId: string,
+) {
+  if (participantDeviceMatches(call, code, deviceId)) return;
+  throw new ConvexError({
+    code: "FORBIDDEN",
+    message: "此通话已由另一台设备接手。",
+  });
+}
+const activeCallStatusValues = [
   "ringing",
   "accepted",
   "connecting",
   "connected",
   "active",
-]);
+] as const;
+const activeCallStatuses = new Set<string>(activeCallStatusValues);
+const TRANSFER_JOIN_TIMEOUT_MS = 90_000;
 function activeStatusesForBusyCheck(status: string) {
   return activeCallStatuses.has(status);
+}
+
+async function scheduleAbandonedReceiverCleanup(
+  ctx: MutationCtx,
+  transfer: Doc<"call_transfers">,
+) {
+  if (!transfer.targetIdentity) return;
+  await scheduleTransferCleanupRetries(ctx, transfer._id);
+}
+
+async function scheduleTransferCleanupRetries(
+  ctx: MutationCtx,
+  transferId: Doc<"call_transfers">["_id"],
+) {
+  const now = Date.now();
+  await ctx.db.patch(transferId, {
+    cleanupStatus: "pending",
+    cleanupAttempts: 0,
+    cleanupError: undefined,
+    cleanupUpdatedAt: now,
+  });
+  for (const [attempt, offsetMs] of
+    TRANSFER_CLEANUP_RETRY_OFFSETS_MS.entries())
+    await ctx.scheduler.runAt(
+      now + offsetMs,
+      internal.calls.retryTransferCleanup,
+      { transferId, attempt },
+    );
 }
 
 type DbCtx = Parameters<typeof requireSession>[0];
@@ -275,6 +397,7 @@ export const prepareP2P = mutation({
       createdByCode: auth.code,
       callerUserId: auth.code,
       calleeUserId: peerCode,
+      callerDeviceId: args.deviceId,
       callerCode: auth.code,
       calleeCode: peerCode,
       callerName: auth.session.name,
@@ -427,9 +550,83 @@ export const callStatus = query({
       .query("live_calls")
       .withIndex("by_call_id", (q) => q.eq("callId", args.callId!))
       .unique();
-    if (!call || !call.participantCodes.includes(auth.code)) return null;
+    if (!call) return null;
+    const joiningTransfer = (
+      await ctx.db
+        .query("call_transfers")
+        .withIndex("by_call", (q) => q.eq("callId", call.callId))
+        .order("desc")
+        .collect()
+    ).find(
+      (transfer) =>
+        transfer.status === "joining" &&
+        transfer.expiresAt > Date.now() &&
+        transfer.targetUserId === auth.code &&
+        transfer.targetDeviceId === args.deviceId &&
+        call.roomName === transfer.roomName &&
+        call.participantCodes.includes(transfer.remoteUserId),
+    );
+    if (
+      joiningTransfer &&
+      ["connected", "active"].includes(call.status) &&
+      (await transferMatchesAuthTenant(ctx, auth, joiningTransfer)) &&
+      (await callMatchesAuthTenant(ctx, auth, call))
+    ) {
+      const peerCode = joiningTransfer.remoteUserId;
+      const peer = await ctx.db
+        .query("auth_codes")
+        .withIndex("by_code", (q) => q.eq("code", peerCode))
+        .unique();
+      return {
+        status: call.status,
+        endedAt: call.endedAt,
+        peerCode,
+        peerName: peer?.name ?? peerCode,
+        peerIdentity:
+          call.callerUserId === peerCode
+            ? call.callerIdentity
+            : call.calleeUserId === peerCode
+              ? call.calleeIdentity
+              : undefined,
+        peerPublisherIdentities: storedParticipantPublisherIdentities(
+          call,
+          peerCode,
+        ),
+      };
+    }
+    if (!call.participantCodes.includes(auth.code)) return null;
     if (!(await callMatchesAuthTenant(ctx, auth, call))) return null;
+    if (!participantDeviceMatches(call, auth.code, args.deviceId)) return null;
     const peerCode = call.participantCodes.find((code) => code !== auth.code);
+    let peerIdentity =
+      call.callerUserId === auth.code
+        ? call.calleeIdentity
+        : call.calleeUserId === auth.code
+          ? call.callerIdentity
+          : undefined;
+    let peerPublisherIdentities = peerCode
+      ? storedParticipantPublisherIdentities(call, peerCode)
+      : [];
+    if (peerCode) {
+      const sameCodeHandoff = (
+        await ctx.db
+          .query("call_transfers")
+          .withIndex("by_call", (q) => q.eq("callId", call.callId))
+          .order("desc")
+          .collect()
+      ).find(
+        (transfer) =>
+          transfer.status === "joining" &&
+          transfer.fromUserId === transfer.targetUserId &&
+          transfer.remoteUserId === auth.code &&
+          transfer.targetUserId === peerCode &&
+          Boolean(transfer.targetIdentity),
+      );
+      if (sameCodeHandoff?.targetIdentity) {
+        peerIdentity = sameCodeHandoff.targetIdentity;
+        peerPublisherIdentities = [sameCodeHandoff.targetIdentity];
+      }
+    }
     const peer = peerCode
       ? await ctx.db
           .query("auth_codes")
@@ -441,6 +638,8 @@ export const callStatus = query({
       endedAt: call.endedAt,
       peerCode,
       peerName: peer?.name ?? peerCode,
+      peerIdentity,
+      peerPublisherIdentities,
     };
   },
 });
@@ -459,6 +658,7 @@ export const markParticipantConnected = mutation({
         message: "您无法加入此通话。",
       });
     await requireCallInAuthTenant(ctx, auth, call);
+    requireParticipantDevice(call, auth.code, args.deviceId);
     if (!["accepted", "connecting", "connected"].includes(call.status))
       throw new ConvexError({
         code: "CONFLICT",
@@ -469,10 +669,20 @@ export const markParticipantConnected = mutation({
       call.callerUserId === auth.code ? now : call.callerConnectedAt;
     const calleeConnectedAt =
       call.calleeUserId === auth.code ? now : call.calleeConnectedAt;
+    const callerDeviceId =
+      call.callerUserId === auth.code
+        ? (call.callerDeviceId ?? args.deviceId)
+        : call.callerDeviceId;
+    const calleeDeviceId =
+      call.calleeUserId === auth.code
+        ? (call.calleeDeviceId ?? args.deviceId)
+        : call.calleeDeviceId;
     const connected = Boolean(callerConnectedAt && calleeConnectedAt);
     await ctx.db.patch(call._id, {
       callerConnectedAt,
       calleeConnectedAt,
+      callerDeviceId,
+      calleeDeviceId,
       status: connected ? "connected" : "connecting",
       connectedAt: connected ? (call.connectedAt ?? now) : call.connectedAt,
       lastActivityAt: now,
@@ -481,6 +691,64 @@ export const markParticipantConnected = mutation({
       callId: call.callId,
       participantCode: auth.code,
       connected,
+    });
+  },
+});
+
+export const recordParticipantIdentities = internalMutation({
+  args: {
+    ...authArgs,
+    callId: v.string(),
+    identities: v.array(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const auth = await requireSession(ctx, args.code, args.deviceId);
+    const call = await ctx.db
+      .query("live_calls")
+      .withIndex("by_call_id", (q) => q.eq("callId", args.callId))
+      .unique();
+    if (!call || !call.participantCodes.includes(auth.code))
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "您无法登记此通话身份。",
+      });
+    await requireCallInAuthTenant(ctx, auth, call);
+    requireParticipantDevice(call, auth.code, args.deviceId);
+    const identities = args.identities
+      .map((identity) => identity.trim())
+      .filter(
+        (identity) =>
+          identity &&
+          identity.toUpperCase().startsWith(`${auth.code.toUpperCase()}-`),
+      );
+    if (!identities.length)
+      throw new ConvexError({
+        code: "BAD_REQUEST",
+        message: "通话身份无效。",
+      });
+    if (call.callerUserId === auth.code) {
+      const publisherIdentities = Array.from(
+        new Set([...(call.callerPublisherIdentities ?? []), ...identities]),
+      );
+      await ctx.db.patch(call._id, {
+        callerIdentity: identities[0],
+        callerPublisherIdentities: publisherIdentities,
+      });
+      return;
+    }
+    if (call.calleeUserId === auth.code) {
+      const publisherIdentities = Array.from(
+        new Set([...(call.calleePublisherIdentities ?? []), ...identities]),
+      );
+      await ctx.db.patch(call._id, {
+        calleeIdentity: identities[0],
+        calleePublisherIdentities: publisherIdentities,
+      });
+      return;
+    }
+    throw new ConvexError({
+      code: "FORBIDDEN",
+      message: "您无法登记此通话身份。",
     });
   },
 });
@@ -499,6 +767,7 @@ export const heartbeatCall = mutation({
         message: "您无法加入此通话。",
       });
     await requireCallInAuthTenant(ctx, auth, call);
+    requireParticipantDevice(call, auth.code, args.deviceId);
     if (
       !["accepted", "connecting", "connected", "active"].includes(call.status)
     )
@@ -684,10 +953,14 @@ export const authorizeOutgoingJoin = mutation({
         message: "您无法加入此通话。",
       });
     await requireCallInAuthTenant(ctx, auth, call);
+    requireParticipantDevice(call, auth.code, args.deviceId);
     if (!["accepted", "connecting", "connected"].includes(call.status))
       throw new ConvexError({ code: "CONFLICT", message: "对方尚未接听。" });
-    if (call.status === "accepted")
-      await ctx.db.patch(call._id, { status: "connecting" });
+    if (call.status === "accepted" || !call.callerDeviceId)
+      await ctx.db.patch(call._id, {
+        status: call.status === "accepted" ? "connecting" : call.status,
+        callerDeviceId: call.callerDeviceId ?? args.deviceId,
+      });
     return {
       roomName: call.roomName,
       callId: call.callId,
@@ -726,8 +999,12 @@ export const authorizeIncomingJoin = mutation({
         message: "不允许接听此来电。",
       });
     await requireCallInAuthTenant(ctx, auth, call);
-    if (call.status === "accepted")
-      await ctx.db.patch(call._id, { status: "connecting" });
+    requireParticipantDevice(call, auth.code, args.deviceId);
+    if (call.status === "accepted" || !call.calleeDeviceId)
+      await ctx.db.patch(call._id, {
+        status: call.status === "accepted" ? "connecting" : call.status,
+        calleeDeviceId: call.calleeDeviceId ?? args.deviceId,
+      });
     return {
       roomName: call.roomName,
       callId: call.callId,
@@ -762,6 +1039,7 @@ export const acceptAndAuthorizeIncomingJoin = mutation({
         message: "此来电不属于当前用户。",
       });
     await requireCallInAuthTenant(ctx, auth, call);
+    requireParticipantDevice(call, auth.code, args.deviceId);
     if (
       call.status === "ringing" &&
       (!call.expiresAt || call.expiresAt <= Date.now())
@@ -776,7 +1054,10 @@ export const acceptAndAuthorizeIncomingJoin = mutation({
       await ctx.db.patch(call._id, {
         status: "accepted",
         acceptedAt: call.acceptedAt ?? now,
+        calleeDeviceId: call.calleeDeviceId ?? args.deviceId,
       });
+    else if (!call.calleeDeviceId)
+      await ctx.db.patch(call._id, { calleeDeviceId: args.deviceId });
     if (call.notificationId) {
       const notification = await ctx.db
         .query("notifications")
@@ -814,6 +1095,14 @@ export const endP2PCall = mutation({
         message: "没有权限执行此操作。",
       });
     await requireCallInAuthTenant(ctx, auth, call);
+    if (!participantDeviceMatches(call, auth.code, args.deviceId)) {
+      console.info("[P2P_CALL] ignored teardown from replaced device", {
+        callId: call.callId,
+        participantCode: auth.code,
+        deviceId: args.deviceId,
+      });
+      return;
+    }
     if (
       [
         "ended",
@@ -872,6 +1161,7 @@ export const initiateTransfer = mutation({
         message: "不能转接您未参与的通话。",
       });
     await requireCallInAuthTenant(ctx, auth, call);
+    requireParticipantDevice(call, auth.code, args.deviceId);
     const remote = call.participantCodes.find((code) => code !== auth.code);
     if (!remote)
       throw new ConvexError({
@@ -1012,11 +1302,18 @@ export const expireTransfer = internalMutation({
   args: { transferId: v.id("call_transfers") },
   handler: async (ctx, args) => {
     const transfer = await ctx.db.get(args.transferId);
-    if (transfer?.status === "pending" && transfer.expiresAt <= Date.now()) {
+    if (
+      transfer &&
+      ["pending", "accepted", "joining"].includes(transfer.status) &&
+      transfer.expiresAt <= Date.now()
+    ) {
+      const waitingForResponse = transfer.status === "pending";
       await ctx.db.patch(transfer._id, {
-        status: "expired",
-        failureReason: "对方未响应",
+        status: waitingForResponse ? "expired" : "failed",
+        completedAt: waitingForResponse ? undefined : Date.now(),
+        failureReason: waitingForResponse ? "对方未响应" : "接收端加入超时",
       });
+      await scheduleAbandonedReceiverCleanup(ctx, transfer);
       if (transfer.notificationId) {
         const notification = await ctx.db
           .query("notifications")
@@ -1025,7 +1322,10 @@ export const expireTransfer = internalMutation({
           )
           .unique();
         if (notification?.status === "unread")
-          await ctx.db.patch(notification._id, { status: "expired" });
+          await ctx.db.patch(notification._id, {
+            status: waitingForResponse ? "expired" : "dismissed",
+            readAt: waitingForResponse ? undefined : Date.now(),
+          });
       }
     }
   },
@@ -1035,16 +1335,28 @@ export const pendingTransfer = query({
   args: authArgs,
   handler: async (ctx, args) => {
     const auth = await requireSession(ctx, args.code, args.deviceId);
-    const transfers = await ctx.db
-      .query("call_transfers")
-      .withIndex("by_target_status", (q) =>
-        q.eq("targetUserId", auth.code).eq("status", "pending"),
+    const transfers = (
+      await Promise.all(
+        (["pending", "accepted", "joining"] as const).map((status) =>
+          ctx.db
+            .query("call_transfers")
+            .withIndex("by_target_status", (q) =>
+              q.eq("targetUserId", auth.code).eq("status", status),
+            )
+            .collect(),
+        ),
       )
-      .order("desc")
-      .collect();
+    )
+      .flat()
+      .sort((a, b) => b.createdAt - a.createdAt);
     let transfer = null;
     for (const candidate of transfers) {
       if (candidate.expiresAt <= Date.now()) continue;
+      if (
+        candidate.status !== "pending" &&
+        candidate.targetDeviceId !== args.deviceId
+      )
+        continue;
       if (
         candidate.targetUserId === candidate.fromUserId &&
         candidate.fromDeviceId === args.deviceId
@@ -1069,7 +1381,15 @@ export const pendingTransfer = query({
       .withIndex("by_call_id", (q) => q.eq("callId", transfer.callId))
       .unique();
     return {
-      ...transfer,
+      _id: transfer._id,
+      _creationTime: transfer._creationTime,
+      callId: transfer.callId,
+      fromUserId: transfer.fromUserId,
+      remoteUserId: transfer.remoteUserId,
+      targetUserId: transfer.targetUserId,
+      status: transfer.status,
+      createdAt: transfer.createdAt,
+      expiresAt: transfer.expiresAt,
       fromName: from?.name ?? transfer.fromUserId,
       remoteName: remote?.name ?? transfer.remoteUserId,
       callType: call?.type ?? ("video" as const),
@@ -1093,7 +1413,20 @@ export const myOutgoingTransfer = query({
         (!transfer.fromDeviceId || transfer.fromDeviceId === args.deviceId) &&
         (await transferMatchesAuthTenant(ctx, auth, transfer))
       )
-        return transfer;
+        return {
+          _id: transfer._id,
+          _creationTime: transfer._creationTime,
+          callId: transfer.callId,
+          fromUserId: transfer.fromUserId,
+          remoteUserId: transfer.remoteUserId,
+          targetUserId: transfer.targetUserId,
+          status: transfer.status,
+          createdAt: transfer.createdAt,
+          expiresAt: transfer.expiresAt,
+          acceptedAt: transfer.acceptedAt,
+          completedAt: transfer.completedAt,
+          failureReason: transfer.failureReason,
+        };
     }
     return null;
   },
@@ -1132,12 +1465,57 @@ export const respondTransfer = mutation({
         code: "CONFLICT",
         message: "此通话转接请求已过期。",
       });
+    if (args.accept) {
+      const callerCalls = await ctx.db
+        .query("live_calls")
+        .withIndex("by_caller", (q) => q.eq("callerUserId", auth.code))
+        .collect();
+      const calleeCalls = (
+        await Promise.all(
+          activeCallStatusValues.map((status) =>
+            ctx.db
+              .query("live_calls")
+              .withIndex("by_callee_status", (q) =>
+                q.eq("calleeUserId", auth.code).eq("status", status),
+              )
+              .collect(),
+          ),
+        )
+      ).flat();
+      const otherCall = [...callerCalls, ...calleeCalls].find(
+        (call) =>
+          call.callId !== transfer.callId &&
+          activeCallStatuses.has(call.status) &&
+          ((call.callerUserId === auth.code &&
+            (!call.callerDeviceId || call.callerDeviceId === args.deviceId)) ||
+            (call.calleeUserId === auth.code &&
+              (!call.calleeDeviceId || call.calleeDeviceId === args.deviceId))),
+      );
+      if (otherCall)
+        throw new ConvexError({
+          code: "CONFLICT",
+          message: "此设备正在另一通话中，请先结束后再接收转接。",
+        });
+    }
+    const now = Date.now();
+    const joinDeadline = now + TRANSFER_JOIN_TIMEOUT_MS;
     await ctx.db.patch(
       transfer._id,
       args.accept
-        ? { status: "accepted", acceptedAt: Date.now() }
-        : { status: "rejected", completedAt: Date.now() },
+        ? {
+            status: "accepted",
+            acceptedAt: now,
+            targetDeviceId: args.deviceId,
+            expiresAt: joinDeadline,
+          }
+        : { status: "rejected", completedAt: now },
     );
+    if (args.accept)
+      await ctx.scheduler.runAfter(
+        TRANSFER_JOIN_TIMEOUT_MS,
+        internal.callState.expireTransfer,
+        { transferId: transfer._id },
+      );
     console.info("[CALL_TRANSFER] response", {
       transferId: transfer._id,
       targetUserId: auth.code,
@@ -1164,8 +1542,12 @@ export const respondTransfer = mutation({
   },
 });
 
-export const authorizeTransferJoin = mutation({
-  args: { ...authArgs, transferId: v.id("call_transfers") },
+export const authorizeTransferJoin = internalMutation({
+  args: {
+    ...authArgs,
+    transferId: v.id("call_transfers"),
+    targetIdentity: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
     const auth = await requireFeature(
       ctx,
@@ -1177,7 +1559,8 @@ export const authorizeTransferJoin = mutation({
     if (
       !transfer ||
       transfer.targetUserId !== auth.code ||
-      !["accepted", "joining"].includes(transfer.status)
+      !["accepted", "joining"].includes(transfer.status) ||
+      transfer.expiresAt <= Date.now()
     )
       throw new ConvexError({
         code: "FORBIDDEN",
@@ -1191,27 +1574,124 @@ export const authorizeTransferJoin = mutation({
         code: "FORBIDDEN",
         message: "不能在发起转移的设备上接收，请使用另一台设备。",
       });
+    if (
+      args.targetIdentity &&
+      !args.targetIdentity.trim().toUpperCase().startsWith(`${auth.code}-`)
+    )
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "转接接收端身份无效。",
+      });
+    if (transfer.targetDeviceId && transfer.targetDeviceId !== args.deviceId)
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "此通话转接已由另一台设备接收。",
+      });
     await requireTransferInAuthTenant(ctx, auth, transfer);
-    await ctx.db.patch(transfer._id, { status: "joining" });
+    const call = await ctx.db
+      .query("live_calls")
+      .withIndex("by_call_id", (q) => q.eq("callId", transfer.callId))
+      .unique();
+    if (
+      !call ||
+      !["connected", "active"].includes(call.status) ||
+      !call.participantCodes.includes(transfer.remoteUserId)
+    )
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "原通话已结束，无法加入转接。",
+      });
+    await ctx.db.patch(transfer._id, {
+      status: "joining",
+      targetIdentity: transfer.targetIdentity ?? args.targetIdentity,
+      targetDeviceId: transfer.targetDeviceId ?? args.deviceId,
+    });
     console.info("[CALL_TRANSFER] target joining", {
       transferId: transfer._id,
       targetUserId: auth.code,
       roomName: transfer.roomName,
     });
-    const call = await ctx.db
-      .query("live_calls")
-      .withIndex("by_call_id", (q) => q.eq("callId", transfer.callId))
-      .unique();
     return {
       roomName: transfer.roomName,
       callId: transfer.callId,
       name: auth.session.name,
       callType: call?.type ?? ("video" as const),
+      remoteUserId: transfer.remoteUserId,
+      remoteMediaMode: call
+        ? storedParticipantMediaMode(call, transfer.remoteUserId)
+        : ("camera" as const),
+      remotePublisherIdentities: call
+        ? storedParticipantPublisherIdentities(call, transfer.remoteUserId)
+        : [],
+      targetIdentity: transfer.targetIdentity ?? args.targetIdentity,
+      transferStatus: "joining" as const,
     };
   },
 });
 
-export const confirmTransferJoined = mutation({
+export const authorizeTransferCompletion = internalQuery({
+  args: { ...authArgs, transferId: v.id("call_transfers") },
+  handler: async (ctx, args) => {
+    const auth = await requireFeature(
+      ctx,
+      args.code,
+      args.deviceId,
+      "canTransferCall",
+    );
+    const transfer = await ctx.db.get(args.transferId);
+    if (
+      !transfer ||
+      transfer.targetUserId !== auth.code ||
+      !["joining", "completed"].includes(transfer.status) ||
+      (transfer.status === "joining" && transfer.expiresAt <= Date.now())
+    )
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "不允许完成此转接通话。",
+      });
+    if (transfer.targetDeviceId && transfer.targetDeviceId !== args.deviceId)
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "此通话转接已由另一台设备接收。",
+      });
+    if (!transfer.targetIdentity)
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "转接接收端尚未取得通话身份。",
+      });
+    await requireTransferInAuthTenant(ctx, auth, transfer);
+    const call = await ctx.db
+      .query("live_calls")
+      .withIndex("by_call_id", (q) => q.eq("callId", transfer.callId))
+      .unique();
+    const expectedParticipant =
+      transfer.status === "completed"
+        ? transfer.targetUserId
+        : transfer.remoteUserId;
+    if (
+      !call ||
+      !["connected", "active"].includes(call.status) ||
+      !call.participantCodes.includes(expectedParticipant)
+    )
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "原通话已结束，无法完成转接。",
+      });
+    return {
+      roomName: transfer.roomName,
+      callId: transfer.callId,
+      remoteUserId: transfer.remoteUserId,
+      transferSourceCode: transfer.fromUserId,
+      targetIdentity: transfer.targetIdentity,
+      sourceIdentities:
+        transfer.sourceIdentities ??
+        storedParticipantPublisherIdentities(call, transfer.fromUserId),
+      transferStatus: transfer.status,
+    };
+  },
+});
+
+export const targetTransferStatus = query({
   args: { ...authArgs, transferId: v.id("call_transfers") },
   handler: async (ctx, args) => {
     const auth = await requireSession(ctx, args.code, args.deviceId);
@@ -1219,13 +1699,46 @@ export const confirmTransferJoined = mutation({
     if (
       !transfer ||
       transfer.targetUserId !== auth.code ||
-      transfer.status !== "joining"
+      (transfer.targetDeviceId && transfer.targetDeviceId !== args.deviceId)
     )
+      return null;
+    await requireTransferInAuthTenant(ctx, auth, transfer);
+    return { status: transfer.status };
+  },
+});
+
+export const confirmTransferJoined = internalMutation({
+  args: {
+    ...authArgs,
+    transferId: v.id("call_transfers"),
+    sourceIdentities: v.array(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const auth = await requireSession(ctx, args.code, args.deviceId);
+    const transfer = await ctx.db.get(args.transferId);
+    if (!transfer || transfer.targetUserId !== auth.code)
       throw new ConvexError({
         code: "CONFLICT",
         message: "通话转接状态无效。",
       });
     await requireTransferInAuthTenant(ctx, auth, transfer);
+    if (
+      transfer.status === "completed" &&
+      (!transfer.targetDeviceId || transfer.targetDeviceId === args.deviceId)
+    )
+      return {
+        completed: true as const,
+        roomName: transfer.roomName,
+        fromUserId: transfer.fromUserId,
+        targetUserId: transfer.targetUserId,
+        targetIdentity: transfer.targetIdentity,
+        sourceIdentities: transfer.sourceIdentities ?? args.sourceIdentities,
+      };
+    if (transfer.status !== "joining")
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "通话转接状态无效。",
+      });
     const now = Date.now();
     const call = await ctx.db
       .query("live_calls")
@@ -1241,12 +1754,29 @@ export const confirmTransferJoined = mutation({
         completedAt: now,
         failureReason: "原通话已结束",
       });
-      throw new ConvexError({
-        code: "CONFLICT",
-        message: "原通话已结束，无法完成转接。",
-      });
+      await scheduleAbandonedReceiverCleanup(ctx, transfer);
+      return {
+        completed: false as const,
+        failureReason: "原通话已结束，无法完成转接。",
+      };
     }
     await requireCallInAuthTenant(ctx, auth, call);
+    const sourceIdentities = Array.from(
+      new Set([
+        ...args.sourceIdentities,
+        ...storedParticipantPublisherIdentities(call, transfer.fromUserId),
+      ]),
+    ).filter(
+      (identity) =>
+        identity !== transfer.targetIdentity &&
+        participantIdentityMatchesCode(identity, transfer.fromUserId),
+    );
+    if (!sourceIdentities.length)
+      return {
+        completed: false as const,
+        failureReason:
+          "无法确认原转接端的通话身份，请等待来源装置重新连线后重试。",
+      };
     const remote = await ctx.db
       .query("auth_codes")
       .withIndex("by_code", (q) => q.eq("code", transfer.remoteUserId))
@@ -1255,24 +1785,135 @@ export const confirmTransferJoined = mutation({
       .query("auth_codes")
       .withIndex("by_code", (q) => q.eq("code", transfer.targetUserId))
       .unique();
+    const remoteDeviceId =
+      call.callerUserId === transfer.remoteUserId
+        ? call.callerDeviceId
+        : call.calleeUserId === transfer.remoteUserId
+          ? call.calleeDeviceId
+          : undefined;
+    const remoteMediaMode = storedParticipantMediaMode(
+      call,
+      transfer.remoteUserId,
+    );
+    const remotePublisherIdentities = storedParticipantPublisherIdentities(
+      call,
+      transfer.remoteUserId,
+    );
     await ctx.db.patch(call._id, {
       participantCodes: [transfer.remoteUserId, transfer.targetUserId],
       callerUserId: transfer.remoteUserId,
+      callerDeviceId: remoteDeviceId,
+      callerIdentity:
+        call.callerUserId === transfer.remoteUserId
+          ? call.callerIdentity
+          : call.calleeUserId === transfer.remoteUserId
+            ? call.calleeIdentity
+            : undefined,
+      callerPublisherIdentities: remotePublisherIdentities,
       callerCode: transfer.remoteUserId,
       callerName: remote?.name ?? transfer.remoteUserId,
+      callerMediaMode: remoteMediaMode,
       calleeUserId: transfer.targetUserId,
+      calleeDeviceId: transfer.targetDeviceId ?? args.deviceId,
+      calleeIdentity: transfer.targetIdentity,
+      calleePublisherIdentities: transfer.targetIdentity
+        ? [transfer.targetIdentity]
+        : [],
       calleeCode: transfer.targetUserId,
       calleeName: target?.name ?? transfer.targetUserId,
+      calleeMediaMode: "camera",
       callerConnectedAt: now,
       calleeConnectedAt: now,
       lastActivityAt: now,
     });
-    await ctx.db.patch(transfer._id, { status: "completed", completedAt: now });
+    if (transfer.targetUserId !== transfer.fromUserId) {
+      const compliance = await ctx.db
+        .query("call_compliance")
+        .withIndex("by_call", (q) => q.eq("callId", transfer.callId))
+        .unique();
+      if (compliance && compliance.status !== "stopped") {
+        const declinedCodes = compliance.declinedCodes.filter(
+          (code) => code === transfer.remoteUserId,
+        );
+        await ctx.db.patch(compliance._id, {
+          participantCodes: [transfer.remoteUserId, transfer.targetUserId],
+          consentedCodes: [],
+          consentEpoch:
+            (compliance.consentEpoch ??
+              compliance.activatedAt ??
+              compliance.requestedAt) + 1,
+          declinedCodes,
+          status: declinedCodes.length ? "declined" : "requested",
+          requestedAt: now,
+          activatedAt: undefined,
+          stoppedAt: undefined,
+          translationEnabled: false,
+        });
+      }
+    }
+    await ctx.db.patch(transfer._id, {
+      status: "completed",
+      completedAt: now,
+      sourceIdentities,
+    });
+    await scheduleTransferCleanupRetries(ctx, transfer._id);
     console.info("[CALL_TRANSFER] completed", {
       transferId: transfer._id,
       fromUserId: transfer.fromUserId,
       remoteUserId: transfer.remoteUserId,
       targetUserId: transfer.targetUserId,
+    });
+    return {
+      completed: true as const,
+      roomName: transfer.roomName,
+      fromUserId: transfer.fromUserId,
+      targetUserId: transfer.targetUserId,
+      targetIdentity: transfer.targetIdentity,
+      sourceIdentities,
+    };
+  },
+});
+
+export const transferCleanupDetails = internalQuery({
+  args: { transferId: v.id("call_transfers") },
+  handler: async (ctx, args) => {
+    const transfer = await ctx.db.get(args.transferId);
+    if (!transfer) return null;
+    const participantIdentities =
+      transfer.status === "completed"
+        ? (transfer.sourceIdentities ?? [])
+        : ["failed", "cancelled", "expired"].includes(transfer.status) &&
+            transfer.targetIdentity
+          ? [transfer.targetIdentity]
+          : [];
+    if (!participantIdentities.length) return null;
+    return {
+      roomName: transfer.roomName,
+      fromUserId: transfer.fromUserId,
+      remoteUserId: transfer.remoteUserId,
+      targetUserId: transfer.targetUserId,
+      targetIdentity: transfer.targetIdentity,
+      participantIdentities,
+      cleanupAttempts: transfer.cleanupAttempts ?? 0,
+    };
+  },
+});
+
+export const recordTransferCleanup = internalMutation({
+  args: {
+    transferId: v.id("call_transfers"),
+    success: v.boolean(),
+    error: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const transfer = await ctx.db.get(args.transferId);
+    if (!transfer || !transfer.cleanupStatus) return;
+    const completed = args.success || transfer.cleanupStatus === "completed";
+    await ctx.db.patch(transfer._id, {
+      cleanupStatus: completed ? "completed" : "failed",
+      cleanupAttempts: (transfer.cleanupAttempts ?? 0) + 1,
+      cleanupError: completed ? undefined : args.error?.slice(0, 500),
+      cleanupUpdatedAt: Date.now(),
     });
   },
 });
@@ -1282,7 +1923,11 @@ export const cancelTransfer = mutation({
   handler: async (ctx, args) => {
     const auth = await requireSession(ctx, args.code, args.deviceId);
     const transfer = await ctx.db.get(args.transferId);
-    if (!transfer || transfer.fromUserId !== auth.code)
+    if (
+      !transfer ||
+      transfer.fromUserId !== auth.code ||
+      (transfer.fromDeviceId && transfer.fromDeviceId !== args.deviceId)
+    )
       throw new ConvexError({
         code: "FORBIDDEN",
         message: "没有权限执行此操作。",
@@ -1297,6 +1942,7 @@ export const cancelTransfer = mutation({
       status: "cancelled",
       completedAt: Date.now(),
     });
+    await scheduleAbandonedReceiverCleanup(ctx, transfer);
     if (transfer.notificationId) {
       const notification = await ctx.db
         .query("notifications")
@@ -1322,7 +1968,11 @@ export const failTransferJoin = mutation({
   handler: async (ctx, args) => {
     const auth = await requireSession(ctx, args.code, args.deviceId);
     const transfer = await ctx.db.get(args.transferId);
-    if (!transfer || transfer.targetUserId !== auth.code)
+    if (
+      !transfer ||
+      transfer.targetUserId !== auth.code ||
+      (transfer.targetDeviceId && transfer.targetDeviceId !== args.deviceId)
+    )
       throw new ConvexError({
         code: "FORBIDDEN",
         message: "没有权限执行此操作。",
@@ -1334,6 +1984,7 @@ export const failTransferJoin = mutation({
       completedAt: Date.now(),
       failureReason: args.reason?.slice(0, 200) || "目标用户加入失败",
     });
+    await scheduleAbandonedReceiverCleanup(ctx, transfer);
     if (transfer.notificationId) {
       const notification = await ctx.db
         .query("notifications")

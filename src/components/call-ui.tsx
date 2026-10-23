@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useAction, useConvex, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api.js";
 import { toast } from "sonner";
 import { PIP_HEIGHT, PIP_WIDTH, useCall } from "@/contexts/call-context.tsx";
@@ -29,6 +29,10 @@ import {
   listCameraDevices,
   type CameraDeviceOption,
 } from "@/lib/calls/camera-control.ts";
+import {
+  shouldHangUpTransferredCall,
+  startTransferCompletionRecovery,
+} from "@/lib/calls/transfer-completion";
 
 function formatDuration(s: number) {
   const m = Math.floor(s / 60)
@@ -72,8 +76,7 @@ export function transferTargetOptions({
       name: "This authorization code (other device)",
     },
     ...contacts.filter(
-      (contact) =>
-        contact.code !== currentCode && contact.code !== remoteCode,
+      (contact) => contact.code !== currentCode && contact.code !== remoteCode,
     ),
   ];
 }
@@ -1016,22 +1019,20 @@ function TransferButton({ compact }: { compact: boolean }) {
                 {transferTargets.length > 0 && (
                   <div className="mb-3 max-h-36 space-y-1 overflow-auto">
                     {transferTargets.map((contact) => (
-                        <button
-                          key={contact.code}
-                          onClick={() => setTargetCode(contact.code)}
-                          className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs ${targetCode === contact.code ? "bg-blue-600" : "bg-white/5"}`}
-                        >
-                          <span
-                            className={`h-2 w-2 rounded-full ${contact.code === creds.code ? "bg-blue-400" : contact.online ? "bg-green-400" : "bg-white/25"}`}
-                          />
-                          <span className="min-w-0 flex-1 truncate">
-                            {contact.name}
-                          </span>
-                          <span className="text-white/45">
-                            {contact.code}
-                          </span>
-                        </button>
-                      ))}
+                      <button
+                        key={contact.code}
+                        onClick={() => setTargetCode(contact.code)}
+                        className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs ${targetCode === contact.code ? "bg-blue-600" : "bg-white/5"}`}
+                      >
+                        <span
+                          className={`h-2 w-2 rounded-full ${contact.code === creds.code ? "bg-blue-400" : contact.online ? "bg-green-400" : "bg-white/25"}`}
+                        />
+                        <span className="min-w-0 flex-1 truncate">
+                          {contact.name}
+                        </span>
+                        <span className="text-white/45">{contact.code}</span>
+                      </button>
+                    ))}
                   </div>
                 )}
                 <input
@@ -1111,6 +1112,7 @@ function TransferButton({ compact }: { compact: boolean }) {
 export function GlobalTransferNotification() {
   const copy = useCallUiCopy();
   const creds = credentials();
+  const convex = useConvex();
   const { callInfo, startCall, hangUp, waitForTransferReady } = useCall();
   const pending = useQuery(
     api.callState.pendingTransfer,
@@ -1123,7 +1125,7 @@ export function GlobalTransferNotification() {
       : "skip",
   );
   const respond = useMutation(api.callState.respondTransfer);
-  const confirm = useMutation(api.callState.confirmTransferJoined);
+  const confirm = useAction(api.calls.completeTransferredRoom);
   const failJoin = useMutation(api.callState.failTransferJoin);
   const join = useAction(api.calls.joinTransferredRoom);
   const [busy, setBusy] = useState(false);
@@ -1131,28 +1133,57 @@ export function GlobalTransferNotification() {
   const [cameraDevices, setCameraDevices] = useState<CameraDeviceOption[]>([]);
   const [loadingCameras, setLoadingCameras] = useState(false);
   const handledStatus = useRef<string | null>(null);
+  const activeCallIdRef = useRef(callInfo?.callId);
+
+  useEffect(() => {
+    activeCallIdRef.current = callInfo?.callId;
+  }, [callInfo?.callId]);
+
+  useEffect(() => {
+    setChoosingMedia(Boolean(pending?.status && pending.status !== "pending"));
+  }, [pending?.status]);
 
   const acceptTransfer = async (
     initialCameraEnabled: boolean,
     cameraDeviceId?: string,
   ) => {
+    const transfer = pending!;
+    const terminateUncompletedTransfer = async (error: unknown) => {
+      await failJoin({
+        ...creds,
+        transferId: transfer._id,
+        reason: uiErrorMessage(error, copy.connectTransferredFailed),
+      }).catch(() => undefined);
+      if (
+        shouldHangUpTransferredCall(
+          activeCallIdRef.current,
+          transfer.callId,
+        )
+      )
+        await hangUp({ preserveBackendCall: true });
+      toast.error(copy.joinTransferredFailed);
+    };
     setBusy(true);
     try {
-      await respond({ ...creds, transferId: pending!._id, accept: true });
+      if (transfer.status === "pending")
+        await respond({ ...creds, transferId: transfer._id, accept: true });
       let joined = false;
       let lastError: unknown;
       for (let attempt = 0; attempt < 3 && !joined; attempt += 1) {
         try {
-          const details = await join({ ...creds, transferId: pending!._id });
+          const details = await join({ ...creds, transferId: transfer._id });
           await startCall({
             ...details,
             myName: creds.code,
-            chatName: pending!.remoteName,
+            chatName: transfer.remoteName,
             callType: details.callType,
             mode: "p2p",
+            remotePublisherIdentities: details.remotePublisherIdentities,
             initialCameraEnabled,
             cameraDeviceId,
+            requireInitialCamera: initialCameraEnabled,
           });
+          activeCallIdRef.current = transfer.callId;
           joined = true;
         } catch (error) {
           lastError = error;
@@ -1167,16 +1198,41 @@ export function GlobalTransferNotification() {
           ? lastError
           : new Error(copy.connectTransferredFailed);
       await waitForTransferReady();
-      await confirm({ ...creds, transferId: pending!._id });
+      const recovery = await startTransferCompletionRecovery({
+        complete: () => confirm({ ...creds, transferId: transfer._id }),
+        readStatus: async () =>
+          (
+            await convex.query(api.callState.targetTransferStatus, {
+              ...creds,
+              transferId: transfer._id,
+            })
+          )?.status ?? null,
+      });
+      if (recovery.initial.outcome === "terminal") {
+        await terminateUncompletedTransfer(recovery.initial.error);
+        return;
+      }
+      if (recovery.reconciliation) {
+        void recovery.reconciliation
+          .then(async (result) => {
+            if (result.outcome === "terminal")
+              await terminateUncompletedTransfer(result.error);
+            else if (result.outcome === "unconfirmed")
+              console.warn(
+                "[CALL_TRANSFER] completion remains unconfirmed; keeping the live room connected",
+                { transferId: transfer._id },
+              );
+          })
+          .catch((error) => {
+            console.warn(
+              "[CALL_TRANSFER] background completion reconciliation stopped unexpectedly",
+              { transferId: transfer._id, error },
+            );
+          });
+      }
       toast.success(copy.joinedTransferred);
     } catch (error) {
-      await failJoin({
-        ...creds,
-        transferId: pending!._id,
-        reason: uiErrorMessage(error, copy.connectTransferredFailed),
-      }).catch(() => undefined);
-      await hangUp();
-      toast.error(copy.joinTransferredFailed);
+      await terminateUncompletedTransfer(error);
     } finally {
       setBusy(false);
     }
@@ -1189,7 +1245,7 @@ export function GlobalTransferNotification() {
     if (outgoing.status === "completed") {
       handledStatus.current = key;
       toast.success(copy.transferCompleted);
-      void hangUp();
+      void hangUp({ preserveBackendCall: true });
     } else if (outgoing.status === "rejected") {
       handledStatus.current = key;
       toast.error(copy.transferRejected);
@@ -1260,9 +1316,7 @@ export function GlobalTransferNotification() {
               <button
                 key={camera.deviceId}
                 disabled={busy}
-                onClick={() =>
-                  void acceptTransfer(true, camera.deviceId)
-                }
+                onClick={() => void acceptTransfer(true, camera.deviceId)}
                 className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-3 text-left text-sm"
               >
                 {camera.label}
@@ -1270,33 +1324,33 @@ export function GlobalTransferNotification() {
             ))}
           </div>
         ) : (
-        <div className="mt-6 flex gap-3">
-          <button
-            disabled={busy}
-            onClick={async () => {
-              setBusy(true);
-              try {
-                await respond({
-                  ...creds,
-                  transferId: pending._id,
-                  accept: false,
-                });
-              } finally {
-                setBusy(false);
-              }
-            }}
-            className="flex-1 rounded-xl bg-red-600 py-3 font-semibold"
-          >
-            {copy.reject}
-          </button>
-          <button
-            disabled={busy}
-            onClick={() => setChoosingMedia(true)}
-            className="flex-1 rounded-xl bg-green-600 py-2 font-semibold"
-          >
-            {copy.accept}
-          </button>
-        </div>
+          <div className="mt-6 flex gap-3">
+            <button
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  await respond({
+                    ...creds,
+                    transferId: pending._id,
+                    accept: false,
+                  });
+                } finally {
+                  setBusy(false);
+                }
+              }}
+              className="flex-1 rounded-xl bg-red-600 py-3 font-semibold"
+            >
+              {copy.reject}
+            </button>
+            <button
+              disabled={busy}
+              onClick={() => setChoosingMedia(true)}
+              className="flex-1 rounded-xl bg-green-600 py-2 font-semibold"
+            >
+              {copy.accept}
+            </button>
+          </div>
         )}
       </div>
     </div>

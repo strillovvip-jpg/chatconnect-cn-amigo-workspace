@@ -9,6 +9,7 @@ import {
   requireAdmin,
   requireSuperAdmin,
 } from "./roles";
+import { isClaimSecretHash } from "./claimCredentials";
 
 async function visibleCodeSet(
   ctx: QueryCtx | MutationCtx,
@@ -342,7 +343,11 @@ export const cleanupStaleCalls = mutation({
 });
 
 export const resetCode = mutation({
-  args: { password: v.string(), code: v.string() },
+  args: {
+    password: v.string(),
+    code: v.string(),
+    claimSecretHash: v.optional(v.string()),
+  },
   handler: async (ctx: MutationCtx, args) => {
     const auth = await requireAdmin(ctx, args.password);
     await assertAdminCanAccessCode(ctx, auth, args.code);
@@ -366,7 +371,20 @@ export const resetCode = mutation({
         code: "FORBIDDEN",
         message: "普通管理员无法强制退出其他管理员。",
       });
+    if (
+      args.claimSecretHash !== undefined &&
+      !isClaimSecretHash(args.claimSecretHash)
+    )
+      throw new ConvexError({
+        code: "BAD_REQUEST",
+        message: "设备启用密钥摘要无效。",
+      });
     await ctx.db.delete(record._id);
+    if (access && args.claimSecretHash)
+      await ctx.db.patch(access._id, {
+        claimSecretHash: args.claimSecretHash,
+        updatedAt: Date.now(),
+      });
     await ctx.db.insert("audit_logs", {
       actorCode: auth.code,
       action: "auth_code.reset",

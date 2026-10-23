@@ -7,14 +7,15 @@ import { action } from "./_generated/server";
 const authorizeTranslation = makeFunctionReference<
   "query",
   { code: string; deviceId: string; callId: string },
-  { speakerCode: string; speakerName: string }
+  { speakerCode: string; deviceId: string; consentEpoch: number }
 >("callCompliance:authorizeTranslation");
 const storeTranslation = makeFunctionReference<
   "mutation",
   {
     callId: string;
     speakerCode: string;
-    speakerName: string;
+    deviceId: string;
+    consentEpoch: number;
     text: string;
     originalText: string;
     sourceLanguage: string;
@@ -81,7 +82,8 @@ export const translateToChinese = action({
     await ctx.runMutation(storeTranslation, {
       callId: args.callId,
       speakerCode: speaker.speakerCode,
-      speakerName: speaker.speakerName,
+      deviceId: speaker.deviceId,
+      consentEpoch: speaker.consentEpoch,
       text,
       originalText,
       sourceLanguage: args.sourceLanguage,

@@ -7,9 +7,9 @@ import {
   TrackSource,
 } from "livekit-server-sdk";
 import { makeFunctionReference } from "convex/server";
-import { action } from "./_generated/server";
+import { action, internalAction } from "./_generated/server";
 import { v, ConvexError } from "convex/values";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 
 function roomName(a: string, b: string): string {
   return [a, b].sort().join("-").toLowerCase();
@@ -46,6 +46,88 @@ function sha256Hex(value: string) {
 
 function createInvitePassword() {
   return String(randomInt(100000, 1000000));
+}
+
+function participantIdentityMatchesCode(identity: string, code: string) {
+  const normalizedIdentity = identity.trim().toUpperCase();
+  const normalizedCode = code.trim().toUpperCase();
+  return (
+    normalizedIdentity === normalizedCode ||
+    normalizedIdentity.startsWith(`${normalizedCode}-`)
+  );
+}
+
+type TransferCleanupDetails = {
+  roomName: string;
+  participantIdentities: string[];
+};
+
+// A transferred publisher can reconnect with its original 15 minute LiveKit
+// token after a brief background/network interruption. Keep sweeping for the
+// entire token lifetime instead of assuming the first disconnect is final.
+async function cleanupTransferredPublishers(
+  roomService: RoomServiceClient,
+  details: TransferCleanupDetails,
+  existingParticipants?: Awaited<
+    ReturnType<RoomServiceClient["listParticipants"]>
+  >,
+) {
+  const participants =
+    existingParticipants ??
+    (await roomService.listParticipants(details.roomName));
+  // Revoke every exact identity selected by the transfer state, even when it
+  // is currently offline. Completed handoffs select the replaced source;
+  // abandoned handoffs select only the never-promoted receiver.
+  // LiveKit Cloud accepts revokeTokenTs for a departed participant and then
+  // rejects a reconnect made with the pre-transfer token. Restricting this to
+  // the current participant list leaves a backgrounded sender able to rejoin.
+  const revocationCutoff = BigInt(Math.floor(Date.now() / 1_000));
+  const failures: unknown[] = [];
+  for (const identity of details.participantIdentities) {
+    try {
+      await roomService.removeParticipant(details.roomName, identity, {
+        revokeTokenTs: revocationCutoff,
+      });
+    } catch (error) {
+      failures.push(error);
+      console.error("[CALL_TRANSFER] failed to evict publisher", {
+        roomName: details.roomName,
+        identity,
+        error,
+      });
+    }
+  }
+  if (failures.length)
+    throw new Error(`Failed to evict ${failures.length} publisher(s)`);
+  return participants;
+}
+
+type TransferCleanupAttemptResult = {
+  success: boolean;
+  error?: string;
+};
+
+export async function runTransferCleanupAttempt(options: {
+  cleanup: () => Promise<unknown>;
+  record: (result: TransferCleanupAttemptResult) => Promise<unknown>;
+  onRecordError?: (error: unknown) => void;
+}): Promise<TransferCleanupAttemptResult> {
+  let result: TransferCleanupAttemptResult;
+  try {
+    await options.cleanup();
+    result = { success: true };
+  } catch (error) {
+    result = {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+  try {
+    await options.record(result);
+  } catch (error) {
+    options.onRecordError?.(error);
+  }
+  return result;
 }
 
 const DEFAULT_PUBLIC_INVITE_ORIGIN = "https://nyfbi.org";
@@ -287,6 +369,12 @@ export const joinAcceptedOutgoingCall = action({
       });
       nativeVideoToken = await videoAccessToken.toJwt();
     }
+    await ctx.runMutation(internal.callState.recordParticipantIdentities, {
+      ...args,
+      identities: [browserIdentity, nativeVideoIdentity].filter(
+        (identity): identity is string => Boolean(identity),
+      ),
+    });
     return {
       serverUrl,
       token: await accessToken.toJwt(),
@@ -322,14 +410,19 @@ export const joinTransferredRoom = action({
     myCode: string;
     remoteCode: string;
     callType: "audio" | "video";
+    remoteMediaMode: "camera" | "face-swap";
+    remotePublisherIdentities: string[];
   }> => {
     const { serverUrl, apiKey, apiSecret } = liveKitConfig();
+    const normalizedCode = args.code.trim().toUpperCase();
+    const requestedIdentity = `${normalizedCode}-${crypto.randomUUID()}`;
     const prepared = await ctx.runMutation(
-      api.callState.authorizeTransferJoin,
-      args,
+      internal.callState.authorizeTransferJoin,
+      { ...args, targetIdentity: requestedIdentity },
     );
+    const browserIdentity = prepared.targetIdentity ?? requestedIdentity;
     const accessToken = new AccessToken(apiKey, apiSecret, {
-      identity: `${args.code.trim().toUpperCase()}-${crypto.randomUUID()}`,
+      identity: browserIdentity,
       name: prepared.name,
       ttl: "5m",
     });
@@ -344,10 +437,153 @@ export const joinTransferredRoom = action({
       token: await accessToken.toJwt(),
       roomName: prepared.roomName,
       callId: prepared.callId,
-      myCode: args.code.trim().toUpperCase(),
-      remoteCode: "",
+      myCode: normalizedCode,
+      remoteCode: prepared.remoteUserId,
       callType: prepared.callType,
+      remoteMediaMode: prepared.remoteMediaMode,
+      remotePublisherIdentities: prepared.remotePublisherIdentities,
     };
+  },
+});
+
+export const completeTransferredRoom = action({
+  args: {
+    code: v.string(),
+    deviceId: v.string(),
+    transferId: v.id("call_transfers"),
+  },
+  handler: async (ctx, args): Promise<{ completed: true }> => {
+    const { apiUrl, apiKey, apiSecret } = liveKitConfig();
+    const prepared = await ctx.runQuery(
+      internal.callState.authorizeTransferCompletion,
+      args,
+    );
+    const roomService = new RoomServiceClient(apiUrl, apiKey, apiSecret);
+    const participants = await roomService.listParticipants(prepared.roomName);
+    if (prepared.transferStatus !== "completed") {
+      if (
+        !participants.some(
+          (participant) => participant.identity === prepared.targetIdentity,
+        )
+      )
+        throw new ConvexError({
+          code: "CONFLICT",
+          message: "转接接收端尚未进入通话房间。",
+        });
+      if (
+        !participants.some((participant) =>
+          participantIdentityMatchesCode(
+            participant.identity,
+            prepared.remoteUserId,
+          ),
+        )
+      )
+        throw new ConvexError({
+          code: "CONFLICT",
+          message: "原通话对象已离开，无法完成转接。",
+        });
+    }
+    const sourceIdentities = Array.from(
+      new Set([
+        ...prepared.sourceIdentities,
+        ...participants
+          .map((participant) => participant.identity)
+          .filter(
+            (identity) =>
+              identity !== prepared.targetIdentity &&
+              participantIdentityMatchesCode(
+                identity,
+                prepared.transferSourceCode,
+              ),
+          ),
+      ]),
+    ).filter((identity) => identity !== prepared.targetIdentity);
+    if (prepared.transferStatus !== "completed" && !sourceIdentities.length)
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "无法确认原转接端的通话身份，请等待来源装置重新连线后重试。",
+      });
+    const completed = await ctx.runMutation(
+      internal.callState.confirmTransferJoined,
+      { ...args, sourceIdentities },
+    );
+    if (!completed.completed)
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: completed.failureReason,
+      });
+    let cleanupError: unknown;
+    try {
+      await cleanupTransferredPublishers(
+        roomService,
+        {
+          roomName: completed.roomName,
+          participantIdentities: completed.sourceIdentities,
+        },
+        participants,
+      );
+    } catch (error) {
+      cleanupError = error;
+      console.error("[CALL_TRANSFER] initial LiveKit cleanup failed", {
+        transferId: args.transferId,
+        roomName: completed.roomName,
+        error,
+      });
+    }
+    try {
+      await ctx.runMutation(internal.callState.recordTransferCleanup, {
+        transferId: args.transferId,
+        success: cleanupError === undefined,
+        error:
+          cleanupError === undefined
+            ? undefined
+            : cleanupError instanceof Error
+              ? cleanupError.message
+              : String(cleanupError),
+      });
+    } catch (error) {
+      console.error("[CALL_TRANSFER] failed to record cleanup status", {
+        transferId: args.transferId,
+        error,
+      });
+    }
+    return { completed: true };
+  },
+});
+
+export const retryTransferCleanup = internalAction({
+  args: {
+    transferId: v.id("call_transfers"),
+    attempt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const details = await ctx.runQuery(
+      internal.callState.transferCleanupDetails,
+      { transferId: args.transferId },
+    );
+    if (!details?.participantIdentities.length) return;
+    const { apiUrl, apiKey, apiSecret } = liveKitConfig();
+    const roomService = new RoomServiceClient(apiUrl, apiKey, apiSecret);
+    const result = await runTransferCleanupAttempt({
+      cleanup: () => cleanupTransferredPublishers(roomService, details),
+      record: (record) =>
+        ctx.runMutation(internal.callState.recordTransferCleanup, {
+          transferId: args.transferId,
+          ...record,
+        }),
+      onRecordError: (error) =>
+        console.error("[CALL_TRANSFER] failed to record cleanup status", {
+          transferId: args.transferId,
+          attempt: args.attempt,
+          error,
+        }),
+    });
+    if (!result.success)
+      console.error("[CALL_TRANSFER] scheduled LiveKit cleanup failed", {
+        transferId: args.transferId,
+        attempt: args.attempt,
+        error: result.error,
+      });
   },
 });
 
@@ -373,8 +609,9 @@ export const acceptIncomingCall = action({
       api.callState.acceptAndAuthorizeIncomingJoin,
       args,
     );
+    const browserIdentity = `${args.code.trim().toUpperCase()}-${crypto.randomUUID()}`;
     const accessToken = new AccessToken(apiKey, apiSecret, {
-      identity: `${args.code.trim().toUpperCase()}-${crypto.randomUUID()}`,
+      identity: browserIdentity,
       name: prepared.name,
       ttl: "15m",
     });
@@ -383,6 +620,10 @@ export const acceptIncomingCall = action({
       room: prepared.roomName,
       canPublish: true,
       canSubscribe: true,
+    });
+    await ctx.runMutation(internal.callState.recordParticipantIdentities, {
+      ...args,
+      identities: [browserIdentity],
     });
     return {
       serverUrl,

@@ -75,6 +75,25 @@ async function participant(
     .unique();
   if (call?.participantCodes.includes(auth.code))
     return { auth, participantCodes: call.participantCodes };
+  const joiningTransfer = (
+    await ctx.db
+      .query("call_transfers")
+      .withIndex("by_call", (q) => q.eq("callId", callId))
+      .collect()
+  ).find(
+    (transfer) =>
+      transfer.targetUserId === auth.code &&
+      ["accepted", "joining"].includes(transfer.status) &&
+      transfer.expiresAt > Date.now(),
+  );
+  if (joiningTransfer)
+    return {
+      auth,
+      participantCodes: [
+        joiningTransfer.remoteUserId,
+        joiningTransfer.targetUserId,
+      ],
+    };
   const groupCall = await ctx.db
     .query("chat_group_calls")
     .withIndex("by_call_id", (q) => q.eq("callId", callId))

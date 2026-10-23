@@ -796,6 +796,13 @@ describe("global incoming calls", () => {
       deviceId: "device-c",
       transferId,
     });
+    await expect(
+      t.query(api.callCompliance.status, {
+        code: "CCCCC",
+        deviceId: "device-c",
+        callId: created.callId,
+      }),
+    ).resolves.toBeNull();
     expect(
       await t.query(api.callState.callStatus, {
         code: "AAAAA",

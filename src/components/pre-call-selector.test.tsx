@@ -10,6 +10,7 @@ import { PreCallSelector } from "./pre-call-selector";
 
 const mocks = vi.hoisted(() => ({
   enumerateDevices: vi.fn(),
+  getUserMedia: vi.fn(),
 }));
 
 vi.mock("@/contexts/feature-context.tsx", () => ({
@@ -72,7 +73,13 @@ describe("PreCallSelector camera selection", () => {
     vi.clearAllMocks();
     Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
-      value: { enumerateDevices: mocks.enumerateDevices },
+      value: {
+        enumerateDevices: mocks.enumerateDevices,
+        getUserMedia: mocks.getUserMedia,
+      },
+    });
+    mocks.getUserMedia.mockResolvedValue({
+      getTracks: () => [{ stop: vi.fn() }],
     });
     mocks.enumerateDevices.mockResolvedValue([
       device("audioinput", "microphone-1", "Desk microphone"),
@@ -121,6 +128,39 @@ describe("PreCallSelector camera selection", () => {
         cameraDeviceId: "obs-camera",
       }),
     );
+  });
+
+  it("unlocks camera permission before listing virtual cameras", async () => {
+    setViewport(1280);
+    mocks.enumerateDevices
+      .mockResolvedValueOnce([
+        device("videoinput", "built-in-camera", ""),
+      ])
+      .mockResolvedValueOnce([
+        device("videoinput", "built-in-camera", "Built-in Camera"),
+        device("videoinput", "obs-camera", "OBS Virtual Camera"),
+      ]);
+
+    render(
+      <PreCallSelector
+        contactName="Callee"
+        onClose={() => undefined}
+        onConfirm={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    const cameraSelect = await screen.findByRole("combobox", {
+      name: "Camera",
+    });
+    expect(mocks.getUserMedia).toHaveBeenCalledWith({
+      video: true,
+      audio: false,
+    });
+    expect(
+      within(cameraSelect).getByRole("option", {
+        name: "OBS Virtual Camera",
+      }),
+    ).toBeInTheDocument();
   });
 
   it("keeps camera selection off the mobile preparation page", async () => {

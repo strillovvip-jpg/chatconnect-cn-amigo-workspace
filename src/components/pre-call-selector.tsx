@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Camera, Film, Phone, X } from "lucide-react";
 import { useFeatures } from "@/contexts/feature-context.tsx";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { listCameraDevices } from "@/lib/calls/camera-control.ts";
 import { useI18n } from "@/lib/i18n";
 import type { VideoFileOptions } from "@/lib/video-sources/types.ts";
 
@@ -40,7 +41,9 @@ export function PreCallSelector({
     initialMode,
   );
   const [file, setFile] = useState<File | null>(null);
-  const [cameraDevices, setCameraDevices] = useState<MediaDeviceInfo[]>([]);
+  const [cameraDevices, setCameraDevices] = useState<
+    Array<{ deviceId: string; label: string }>
+  >([]);
   const [cameraDeviceId, setCameraDeviceId] = useState("");
 
   useEffect(() => {
@@ -51,13 +54,9 @@ export function PreCallSelector({
     )
       return;
     let active = true;
-    void navigator.mediaDevices
-      .enumerateDevices()
-      .then((devices) => {
+    void listCameraDevices()
+      .then((videoInputs) => {
         if (!active) return;
-        const videoInputs = devices.filter(
-          (device) => device.kind === "videoinput",
-        );
         setCameraDevices(videoInputs);
         setCameraDeviceId((current) =>
           videoInputs.some((device) => device.deviceId === current)

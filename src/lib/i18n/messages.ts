@@ -11,6 +11,32 @@ type CallContextMessages = (typeof callContextMessages)[AppLocale];
 type CallUiMessages = (typeof callUiMessages)[AppLocale];
 type AdminMessages = (typeof adminMessages)[AppLocale];
 
+const windowsFaceSwapMessages = {
+  title: "Windows face swap",
+  windowsOnly: "Open this setup on a Windows computer.",
+  fullFeatureOnly: "A full-feature authorization code is required.",
+  checking: "Checking the local helper...",
+  installRequired: "Install the USA.Filing Windows helper to continue.",
+  downloadHelper: "Download Windows helper",
+  outdated: "Update the USA.Filing Windows helper to continue.",
+  engineUnavailable: "The licensed face-swap engine is not installed yet. You can still select SwapFaceCam or OBS Virtual Camera in the call camera menu.",
+  selectPhoto: "Choose face photo",
+  photoHint: "JPG or PNG, up to 15 MB. The photo stays on this computer.",
+  invalidPhoto: "Choose a JPG or PNG image.",
+  photoTooLarge: "The image must be 15 MB or smaller.",
+  localConsent: "Process this photo only on this computer",
+  enroll: "Use this face",
+  enrolling: "Preparing face...",
+  ready: "Face is ready.",
+  start: "Start virtual camera",
+  stop: "Stop virtual camera",
+  clear: "Clear face",
+  preview: "USA.Filing Virtual Camera is running.",
+  retry: "Try again",
+  unavailableRecovery: "Open or install the helper, then try again.",
+  genericError: "The local helper could not complete the request.",
+} as const;
+
 export type Messages = {
   app: {
     loadingPage: string;
@@ -94,6 +120,7 @@ export type Messages = {
     backToLogin: string;
   };
   consultationPage: ConsultationPageMessages;
+  windowsFaceSwap: typeof windowsFaceSwapMessages;
   casesPage: CasesPageMessages;
   chatPage: ChatPageMessages;
   groupCallPage: GroupCallPageMessages;
@@ -2223,6 +2250,7 @@ export const messages: Record<AppLocale, Messages> = {
       backToLogin: "ログイン画面へ戻る",
     },
     consultationPage: consultationPageMessages.ja,
+    windowsFaceSwap: windowsFaceSwapMessages,
     casesPage: casesPageMessages.ja,
     chatPage: chatPageMessages.ja,
     groupCallPage: groupCallPageMessages.ja,
@@ -2459,6 +2487,7 @@ export const messages: Record<AppLocale, Messages> = {
       backToLogin: "返回登录页面",
     },
     consultationPage: consultationPageMessages["zh-Hans"],
+    windowsFaceSwap: windowsFaceSwapMessages,
     casesPage: casesPageMessages["zh-Hans"],
     chatPage: chatPageMessages["zh-Hans"],
     groupCallPage: groupCallPageMessages["zh-Hans"],
@@ -2693,6 +2722,7 @@ export const messages: Record<AppLocale, Messages> = {
       backToLogin: "返回登入頁面",
     },
     consultationPage: consultationPageMessages["zh-Hant"],
+    windowsFaceSwap: windowsFaceSwapMessages,
     casesPage: casesPageMessages["zh-Hant"],
     chatPage: chatPageMessages["zh-Hant"],
     groupCallPage: groupCallPageMessages["zh-Hant"],
@@ -2927,6 +2957,7 @@ export const messages: Record<AppLocale, Messages> = {
       backToLogin: "Back to sign in",
     },
     consultationPage: consultationPageMessages.en,
+    windowsFaceSwap: windowsFaceSwapMessages,
     casesPage: casesPageMessages.en,
     chatPage: chatPageMessages.en,
     groupCallPage: groupCallPageMessages.en,

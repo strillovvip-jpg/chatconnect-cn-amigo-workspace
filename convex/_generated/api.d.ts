@@ -10,11 +10,13 @@
 
 import type * as admin from "../admin.js";
 import type * as authCodes from "../authCodes.js";
+import type * as authorizationCodeLifecycle from "../authorizationCodeLifecycle.js";
 import type * as callCompliance from "../callCompliance.js";
 import type * as callState from "../callState.js";
 import type * as callTranslation from "../callTranslation.js";
 import type * as calls from "../calls.js";
 import type * as caseDocuments from "../caseDocuments.js";
+import type * as caseTenant from "../caseTenant.js";
 import type * as cases from "../cases.js";
 import type * as claimCredentials from "../claimCredentials.js";
 import type * as contacts from "../contacts.js";
@@ -49,11 +51,13 @@ import type {
 declare const fullApi: ApiFromModules<{
   admin: typeof admin;
   authCodes: typeof authCodes;
+  authorizationCodeLifecycle: typeof authorizationCodeLifecycle;
   callCompliance: typeof callCompliance;
   callState: typeof callState;
   callTranslation: typeof callTranslation;
   calls: typeof calls;
   caseDocuments: typeof caseDocuments;
+  caseTenant: typeof caseTenant;
   cases: typeof cases;
   claimCredentials: typeof claimCredentials;
   contacts: typeof contacts;

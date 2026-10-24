@@ -312,6 +312,112 @@ describe("authorization-code device limits", () => {
     });
   });
 
+  test("configuring an opted-in code preserves its two-device override", async () => {
+    const { t, full, limited } = await setup();
+    await t.run(async (ctx) => {
+      for (const profileId of [full, limited])
+        await ctx.db.patch(profileId, { companyId: "nersp" });
+      const root = await ctx.db
+        .query("allowed_codes")
+        .withIndex("by_code", (q) => q.eq("code", "ROOTA"))
+        .unique();
+      if (!root) throw new Error("missing root fixture");
+      await ctx.db.patch(root._id, { companyId: "nersp" });
+      await ctx.db.insert("allowed_codes", {
+        code: "OPTIN",
+        role: "user",
+        companyId: "nersp",
+        enabled: true,
+        allowCodeOnlyDeviceClaim: true,
+        maxDevices: 2,
+        licenseProfileId: full,
+      });
+      await ctx.db.insert("auth_codes", {
+        code: "OPTIN",
+        deviceId: "optin-old",
+        deviceIds: ["optin-old", "optin-new"],
+        name: "Opted in",
+        usedAt: new Date().toISOString(),
+      });
+    });
+
+    await t.mutation(api.features.configureCode, {
+      password: "ROOTA:root-device",
+      targetCode: "OPTIN",
+      profileId: limited,
+      enabled: true,
+    });
+
+    await t.run(async (ctx) => {
+      const allowed = await ctx.db
+        .query("allowed_codes")
+        .withIndex("by_code", (q) => q.eq("code", "OPTIN"))
+        .unique();
+      expect(allowed).toMatchObject({
+        allowCodeOnlyDeviceClaim: true,
+        licenseProfileId: limited,
+        maxDevices: 2,
+      });
+      const session = await ctx.db
+        .query("auth_codes")
+        .withIndex("by_code", (q) => q.eq("code", "OPTIN"))
+        .unique();
+      expect(session?.deviceIds).toEqual(["optin-old", "optin-new"]);
+    });
+  });
+
+  test("editing an assigned profile preserves opted-in codes at two devices", async () => {
+    const { t, full } = await setup();
+    await t.run(async (ctx) => {
+      await ctx.db.patch(full, { companyId: "nersp" });
+      const root = await ctx.db
+        .query("allowed_codes")
+        .withIndex("by_code", (q) => q.eq("code", "ROOTA"))
+        .unique();
+      if (!root) throw new Error("missing root fixture");
+      await ctx.db.patch(root._id, { companyId: "nersp" });
+      await ctx.db.insert("allowed_codes", {
+        code: "OPTIN",
+        role: "user",
+        companyId: "nersp",
+        enabled: true,
+        allowCodeOnlyDeviceClaim: true,
+        maxDevices: 2,
+        licenseProfileId: full,
+      });
+      await ctx.db.insert("auth_codes", {
+        code: "OPTIN",
+        deviceId: "optin-old",
+        deviceIds: ["optin-old", "optin-new"],
+        name: "Opted in",
+        usedAt: new Date().toISOString(),
+      });
+    });
+
+    await t.mutation(api.features.updateProfile, {
+      password: "ROOTA:root-device",
+      profileId: full,
+      name: "Now limited",
+      features: limitedFeatures,
+    });
+
+    await t.run(async (ctx) => {
+      const allowed = await ctx.db
+        .query("allowed_codes")
+        .withIndex("by_code", (q) => q.eq("code", "OPTIN"))
+        .unique();
+      expect(allowed).toMatchObject({
+        allowCodeOnlyDeviceClaim: true,
+        maxDevices: 2,
+      });
+      const session = await ctx.db
+        .query("auth_codes")
+        .withIndex("by_code", (q) => q.eq("code", "OPTIN"))
+        .unique();
+      expect(session?.deviceIds).toEqual(["optin-old", "optin-new"]);
+    });
+  });
+
   test("demoting a profileless administrator to user applies the limited tier immediately", async () => {
     const { t } = await setup();
     await t.run(async (ctx) => {

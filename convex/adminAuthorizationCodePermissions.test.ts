@@ -125,6 +125,77 @@ describe("administrator authorization-code permissions", () => {
     ).toBe(claimSecretHash);
   });
 
+  test("new customer codes inherit their opted-in company policy", async () => {
+    const { t, limited } = await setup();
+    await t.run(async (ctx) => {
+      const admin = await ctx.db
+        .query("allowed_codes")
+        .withIndex("by_code", (q) => q.eq("code", "ADMIN"))
+        .unique();
+      if (!admin) throw new Error("missing administrator fixture");
+      await ctx.db.patch(admin._id, {
+        companyId: "nersp",
+        allowCodeOnlyDeviceClaim: true,
+        maxDevices: 2,
+      });
+      await ctx.db.patch(limited, { companyId: "nersp" });
+    });
+
+    await expect(
+      t.mutation(api.features.createAuthorizationCode, {
+        password: "ADMIN:admin-device",
+        targetCode: "NEWCU",
+        claimSecretHash,
+        profileId: limited,
+      }),
+    ).resolves.toBe("NEWCU");
+
+    await expect(
+      t.run(async (ctx) =>
+        ctx.db
+          .query("allowed_codes")
+          .withIndex("by_code", (q) => q.eq("code", "NEWCU"))
+          .unique(),
+      ),
+    ).resolves.toMatchObject({
+      allowCodeOnlyDeviceClaim: true,
+      maxDevices: 2,
+    });
+    for (const deviceId of ["new-device-1", "new-device-2"])
+      await expect(
+        t.mutation(api.authCodes.claimCode, {
+          code: "NEWCU",
+          deviceId,
+          deviceType: "mobile",
+          deviceContext: "standalone",
+          surface: "nyfbi",
+          name: "New customer",
+        }),
+      ).resolves.toMatchObject({ success: true });
+    await expect(
+      t.mutation(api.authCodes.claimCode, {
+        code: "NEWCU",
+        deviceId: "new-device-3",
+        deviceType: "desktop",
+        deviceContext: "browser",
+        surface: "nyfbi",
+        name: "New customer",
+      }),
+    ).rejects.toThrow("最多同时登录两台设备");
+    await expect(
+      t.query(api.features.current, {
+        code: "NEWCU",
+        deviceId: "new-device-1",
+      }),
+    ).resolves.toMatchObject({
+      features: {
+        canPlayVideo: false,
+        canScreenShare: false,
+        canTransferCall: false,
+      },
+    });
+  });
+
   test("an administrator can rotate only a customer activation credential in their tenant", async () => {
     const { t, limited } = await setup();
     await t.run(async (ctx) => {

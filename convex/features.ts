@@ -81,6 +81,21 @@ export const allFeatureFlags: Record<FeatureKey, boolean> = {
   canRecord: true,
 };
 
+export const codeOnlyDeviceClaimTenantIds = ["nersp", "bjqaf"] as const;
+
+export function permitsCodeOnlyDeviceClaim(
+  allowed:
+    | { companyId?: string; allowCodeOnlyDeviceClaim?: boolean }
+    | null
+    | undefined,
+) {
+  const companyId = allowed?.companyId?.trim().toLowerCase();
+  return (
+    allowed?.allowCodeOnlyDeviceClaim === true &&
+    codeOnlyDeviceClaimTenantIds.some((tenantId) => tenantId === companyId)
+  );
+}
+
 type DbCtx = QueryCtx | MutationCtx;
 
 type AdminAuth = {
@@ -191,7 +206,9 @@ export async function effectiveFeatures(
 export function authorizationDeviceLimit(
   role: string | null | undefined,
   features: Record<FeatureKey, boolean>,
+  allowCodeOnlyDeviceClaim = false,
 ) {
+  if (allowCodeOnlyDeviceClaim) return 2;
   if (role === "admin" || role === "super_admin") return 2;
   return featureKeys.every((key) => features[key] === true) ? 2 : 1;
 }
@@ -203,12 +220,20 @@ export async function effectiveAuthorizationDeviceLimit(
         role?: string | null;
         companyId?: string;
         licenseProfileId?: Id<"license_profiles">;
+        allowCodeOnlyDeviceClaim?: boolean;
       }
     | null
     | undefined,
 ) {
   const license = await effectiveFeatures(ctx, allowed);
-  return authorizationDeviceLimit(allowed?.role, license.features);
+  // This flag is writable only through privileged provisioning or
+  // administration. Opted-in full and limited/customer codes both receive
+  // exactly two slots; their feature permissions remain profile-driven.
+  return authorizationDeviceLimit(
+    allowed?.role,
+    license.features,
+    permitsCodeOnlyDeviceClaim(allowed),
+  );
 }
 
 export async function requireFeature(
@@ -328,7 +353,11 @@ export const updateProfile = mutation({
       await ctx.db.query("allowed_codes").collect()
     ).filter((record) => record.licenseProfileId === profile._id);
     for (const record of assignedCodes) {
-      const maxDevices = authorizationDeviceLimit(record.role, args.features);
+      const maxDevices = authorizationDeviceLimit(
+        record.role,
+        args.features,
+        permitsCodeOnlyDeviceClaim(record),
+      );
       await ctx.db.patch(record._id, {
         maxDevices,
         unlimitedDevices: undefined,
@@ -374,6 +403,7 @@ export const configureCode = mutation({
     const maxDevices = authorizationDeviceLimit(
       target.role,
       profile?.features ?? defaultFeatureFlags,
+      permitsCodeOnlyDeviceClaim(target),
     );
     await ctx.db.patch(target._id, {
       licenseProfileId: args.profileId,
@@ -482,9 +512,11 @@ export const createAuthorizationCode = mutation({
         }));
     }
     const assignedProfile = await ctx.db.get(profileId);
+    const allowCodeOnlyDeviceClaim = permitsCodeOnlyDeviceClaim(auth.allowed);
     const maxDevices = authorizationDeviceLimit(
       "user",
       assignedProfile?.features ?? defaultFeatureFlags,
+      allowCodeOnlyDeviceClaim,
     );
     const authorizationCodeId = await ctx.db.insert("allowed_codes", {
       code,
@@ -492,6 +524,7 @@ export const createAuthorizationCode = mutation({
       companyId: auth.allowed?.companyId,
       enabled: true,
       claimSecretHash: args.claimSecretHash,
+      allowCodeOnlyDeviceClaim: allowCodeOnlyDeviceClaim ? true : undefined,
       licenseProfileId: profileId,
       maxDevices,
       expiresAt: args.expiresAt,

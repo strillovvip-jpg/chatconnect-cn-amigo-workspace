@@ -95,10 +95,14 @@ test("deployment payload contains only claim-secret hashes while the owner-only 
   assert.match(rawSecret, /^[A-Z2-7]{32}$/);
   assert.equal(JSON.stringify(request).includes(rawSecret), false);
   assert.equal("activationSecrets" in request[0], false);
+  assert.ok(
+    request.every((company) => !("allowCodeOnlyDeviceClaim" in company)),
+  );
   assert.equal(request[0].claimSecretHashes.length, 61);
   assert.ok(
     request[0].claimSecretHashes.every(
-      ({ code, hash }) => /^[A-Z]{5}$/.test(code) && /^[a-f0-9]{64}$/.test(hash),
+      ({ code, hash }) =>
+        /^[A-Z]{5}$/.test(code) && /^[a-f0-9]{64}$/.test(hash),
     ),
   );
 });

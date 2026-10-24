@@ -79,6 +79,10 @@ export default defineSchema({
     // prove possession of the high-entropy claim secret; only its digest is
     // retained server-side.
     claimSecretHash: v.optional(v.string()),
+    // Privileged provisioning may explicitly allow this public identifier to
+    // claim a new device without the high-entropy secret. Omission preserves
+    // the secure compound-credential default.
+    allowCodeOnlyDeviceClaim: v.optional(v.boolean()),
     licenseProfileId: v.optional(v.id("license_profiles")),
     expiresAt: v.optional(v.number()),
     // The exact expiry value whose scheduled revocation has completed.

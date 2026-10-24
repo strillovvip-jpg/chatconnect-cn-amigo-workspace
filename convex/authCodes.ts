@@ -2,7 +2,10 @@ import { mutation, query, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 import { assertSurfaceAccess, requireSession } from "./roles";
-import { effectiveAuthorizationDeviceLimit } from "./features";
+import {
+  effectiveAuthorizationDeviceLimit,
+  permitsCodeOnlyDeviceClaim,
+} from "./features";
 import type { MutationCtx } from "./_generated/server";
 import {
   constantTimeHashEqual,
@@ -538,7 +541,23 @@ export const assignAuthorizationCodeTenant = internalMutation({
       .unique();
     if (!target)
       throw new ConvexError({ code: "NOT_FOUND", message: "找不到授权码。" });
-    await ctx.db.patch(target._id, { companyId, updatedAt: Date.now() });
+    const allowCodeOnlyDeviceClaim = permitsCodeOnlyDeviceClaim({
+      ...target,
+      companyId,
+    });
+    const maxDevices = await effectiveAuthorizationDeviceLimit(ctx, {
+      ...target,
+      companyId,
+      allowCodeOnlyDeviceClaim,
+    });
+    await ctx.db.patch(target._id, {
+      companyId,
+      allowCodeOnlyDeviceClaim: allowCodeOnlyDeviceClaim ? true : undefined,
+      maxDevices,
+      unlimitedDevices: undefined,
+      updatedAt: Date.now(),
+    });
+    await enforceAuthorizationCodeDeviceLimit(ctx, code, maxDevices);
     return { code, companyId };
   },
 });
@@ -632,9 +651,13 @@ export const claimCode = mutation({
 
     // Device ids are supplied by the client and therefore are not a safe
     // brute-force key. Only a device whose exact high-entropy id is already
-    // bound may use the five-letter public code by itself. Every first/new
-    // device must present CODE.<high-entropy-secret>.
-    if (!alreadyBound) {
+    // bound may use the five-letter public code by itself. Privileged opt-in
+    // extends code-only login to a first/new device; whenever a caller does
+    // supply CODE.<secret>, the secret is still verified.
+    if (
+      claimSecret !== null ||
+      (!alreadyBound && !permitsCodeOnlyDeviceClaim(allowed))
+    ) {
       const candidateHash = await hashClaimSecret(code, claimSecret ?? "");
       const expectedHash = allowed?.claimSecretHash ?? DUMMY_CLAIM_SECRET_HASH;
       if (
@@ -678,7 +701,7 @@ export const claimCode = mutation({
       if (!alreadyBound && boundDevices.length >= deviceLimit) {
         throw new ConvexError({
           code: "CONFLICT",
-          message: "此全功能授权码最多同时登录两台设备。",
+          message: "此授权码最多同时登录两台设备。",
         });
       }
       let deviceIds: string[];

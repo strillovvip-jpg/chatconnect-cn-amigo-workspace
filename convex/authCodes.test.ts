@@ -761,6 +761,172 @@ describe("authorization-code claim credentials", () => {
     });
   });
 
+  test("an opted-in full-access code accepts two code-only device claims and rejects a third", async () => {
+    const { t, profileIds } = await setup();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("allowed_codes", {
+        code: "LINET",
+        role: "user",
+        companyId: "nersp",
+        enabled: true,
+        allowCodeOnlyDeviceClaim: true,
+        maxDevices: 2,
+        licenseProfileId: profileIds.full,
+        claimSecretHash: activationSecretHash,
+      });
+    });
+
+    for (const deviceId of ["line-device-1", "line-device-2"])
+      await expect(
+        t.mutation(api.authCodes.claimCode, {
+          code: "LINET",
+          deviceId,
+          deviceType: "mobile",
+          deviceContext: "standalone",
+          surface: "nyfbi",
+          name: "Line2 User",
+        }),
+      ).resolves.toMatchObject({ success: true, code: "LINET" });
+
+    await expect(
+      t.mutation(api.authCodes.claimCode, {
+        code: "LINET",
+        deviceId: "line-device-3",
+        deviceType: "desktop",
+        deviceContext: "browser",
+        surface: "nyfbi",
+        name: "Line2 User",
+      }),
+    ).rejects.toThrow("最多同时登录两台设备");
+  });
+
+  test("an opted-in code still rejects an explicitly supplied wrong activation secret", async () => {
+    const { t, profileIds } = await setup();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("allowed_codes", {
+        code: "WRONG",
+        role: "user",
+        companyId: "nersp",
+        enabled: true,
+        allowCodeOnlyDeviceClaim: true,
+        maxDevices: 2,
+        licenseProfileId: profileIds.full,
+        claimSecretHash: activationSecretHash,
+      });
+    });
+
+    await expect(
+      t.mutation(api.authCodes.claimCode, {
+        code: "WRONG.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        deviceId: "wrong-secret-device",
+        deviceType: "desktop",
+        deviceContext: "browser",
+        surface: "nyfbi",
+        name: "Wrong Secret",
+      }),
+    ).rejects.toThrow("授权凭证无效");
+
+    await expect(
+      t.mutation(api.authCodes.claimCode, {
+        code: "WRONG",
+        deviceId: "already-bound-device",
+        deviceType: "desktop",
+        deviceContext: "browser",
+        surface: "nyfbi",
+        name: "Bound device",
+      }),
+    ).resolves.toMatchObject({ success: true });
+    await expect(
+      t.mutation(api.authCodes.claimCode, {
+        code: "WRONG.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        deviceId: "already-bound-device",
+        deviceType: "desktop",
+        deviceContext: "browser",
+        surface: "nyfbi",
+        name: "Bound device",
+      }),
+    ).rejects.toThrow("授权凭证无效");
+  });
+
+  test("an opted-in customer code keeps limited permissions while accepting exactly two code-only devices", async () => {
+    const { t, profileIds } = await setup();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("allowed_codes", {
+        code: "CUSTM",
+        role: "user",
+        companyId: "nersp",
+        enabled: true,
+        allowCodeOnlyDeviceClaim: true,
+        maxDevices: 2,
+        licenseProfileId: profileIds.limited,
+        claimSecretHash: activationSecretHash,
+      });
+    });
+
+    for (const deviceId of ["customer-device-1", "customer-device-2"])
+      await expect(
+        t.mutation(api.authCodes.claimCode, {
+          code: "CUSTM",
+          deviceId,
+          deviceType: "mobile",
+          deviceContext: "standalone",
+          surface: "nyfbi",
+          name: "Customer User",
+        }),
+      ).resolves.toMatchObject({ success: true, code: "CUSTM" });
+
+    await expect(
+      t.mutation(api.authCodes.claimCode, {
+        code: "CUSTM",
+        deviceId: "customer-device-3",
+        deviceType: "desktop",
+        deviceContext: "browser",
+        surface: "nyfbi",
+        name: "Customer User",
+      }),
+    ).rejects.toThrow("最多同时登录两台设备");
+
+    await expect(
+      t.query(api.features.current, {
+        code: "CUSTM",
+        deviceId: "customer-device-1",
+      }),
+    ).resolves.toMatchObject({
+      features: {
+        canPlayVideo: false,
+        canScreenShare: false,
+        canTransferCall: false,
+      },
+    });
+  });
+
+  test("a stale opt-in flag outside the USA Filing tenants cannot enable code-only login", async () => {
+    const { t, profileIds } = await setup();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("allowed_codes", {
+        code: "STALE",
+        role: "user",
+        companyId: "other-company",
+        enabled: true,
+        allowCodeOnlyDeviceClaim: true,
+        maxDevices: 2,
+        licenseProfileId: profileIds.full,
+        claimSecretHash: activationSecretHash,
+      });
+    });
+
+    await expect(
+      t.mutation(api.authCodes.claimCode, {
+        code: "STALE",
+        deviceId: "outside-tenant-device",
+        deviceType: "desktop",
+        deviceContext: "browser",
+        surface: "nyfbi",
+        name: "Outside tenant",
+      }),
+    ).rejects.toThrow("授权凭证无效");
+  });
+
   test("a correct high-entropy claim credential binds a device without storing the raw secret", async () => {
     const { t } = await setup();
     await t.run(async (ctx) => {
@@ -878,20 +1044,22 @@ describe("authorization-code claim credentials", () => {
     );
   });
 
-  test("a disabled code cannot create a fresh session with its valid activation secret", async () => {
+  test("a disabled opted-in code cannot create a code-only session", async () => {
     const { t } = await setup();
     await t.run(async (ctx) => {
       await ctx.db.insert("allowed_codes", {
         code: "SAFE1",
         role: "user",
+        companyId: "nersp",
         enabled: false,
+        allowCodeOnlyDeviceClaim: true,
         claimSecretHash: activationSecretHash,
       });
     });
 
     await expect(
       t.mutation(api.authCodes.claimCode, {
-        code: `SAFE1.${activationSecret}`,
+        code: "SAFE1",
         deviceId: "fresh-device",
         deviceType: "desktop",
         deviceContext: "browser",
@@ -906,6 +1074,56 @@ describe("authorization-code claim credentials", () => {
           .first(),
       ).toBeNull();
     });
+  });
+
+  test("an expired opted-in code cannot create a code-only session", async () => {
+    const { t } = await setup();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("allowed_codes", {
+        code: "SAFE1",
+        role: "user",
+        companyId: "nersp",
+        enabled: true,
+        allowCodeOnlyDeviceClaim: true,
+        expiresAt: Date.now() - 1,
+        claimSecretHash: activationSecretHash,
+      });
+    });
+
+    await expect(
+      t.mutation(api.authCodes.claimCode, {
+        code: "SAFE1",
+        deviceId: "fresh-device",
+        deviceType: "desktop",
+        deviceContext: "browser",
+        name: "Expired User",
+      }),
+    ).rejects.toThrow("此授权码已过期");
+  });
+
+  test("an opted-in code still cannot claim a device through the wrong web surface", async () => {
+    const { t } = await setup();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("allowed_codes", {
+        code: "SAFE1",
+        role: "user",
+        companyId: "nersp",
+        enabled: true,
+        allowCodeOnlyDeviceClaim: true,
+        claimSecretHash: activationSecretHash,
+      });
+    });
+
+    await expect(
+      t.mutation(api.authCodes.claimCode, {
+        code: "SAFE1",
+        deviceId: "wrong-surface-device",
+        deviceType: "desktop",
+        deviceContext: "browser",
+        surface: "aichijp",
+        name: "Wrong Surface",
+      }),
+    ).rejects.toThrow("不能使用这个网站");
   });
 
   test("authorization-code usage status requires that code's bound device session", async () => {

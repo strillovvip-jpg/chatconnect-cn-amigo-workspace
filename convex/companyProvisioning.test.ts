@@ -1,6 +1,6 @@
 import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { hashClaimSecret } from "./claimCredentials";
 import type { Id } from "./_generated/dataModel";
@@ -80,6 +80,23 @@ async function provision(
     claimSecretHashes,
   });
   return { result, fullCodes, limitedCodes };
+}
+
+async function setupUsaFilingRollout() {
+  const t = await setupRoot();
+  const nersp = await provision(t, {
+    adminCode: "NERSP",
+    fullPrefix: "NF",
+    limitedPrefix: "NL",
+    companyName: "USA Filing Company 1",
+  });
+  const bjqaf = await provision(t, {
+    adminCode: "BJQAF",
+    fullPrefix: "BF",
+    limitedPrefix: "BL",
+    companyName: "USA Filing Company 2",
+  });
+  return { t, nersp, bjqaf };
 }
 
 async function uploadDocument(
@@ -175,6 +192,11 @@ describe("company authorization provisioning", () => {
           /^[a-f0-9]{64}$/.test(record.claimSecretHash ?? ""),
         ),
       ).toBe(true);
+      expect(
+        companyCodes.every(
+          (record) => record.allowCodeOnlyDeviceClaim !== true,
+        ),
+      ).toBe(true);
 
       const fullCode = companyCodes.find(
         (record) => record.code === fullCodes[0],
@@ -215,6 +237,345 @@ describe("company authorization provisioning", () => {
         ),
       ).toHaveLength(50);
     });
+  });
+
+  test("the internal USA Filing rollout updates exactly 122 validated codes and can revoke them on rollback", async () => {
+    const { t, nersp, bjqaf } = await setupUsaFilingRollout();
+    const originalClaimSecretHashes = await t.run(async (ctx) =>
+      Object.fromEntries(
+        (await ctx.db.query("allowed_codes").collect())
+          .filter((record) =>
+            ["nersp", "bjqaf"].includes(record.companyId ?? ""),
+          )
+          .map((record) => [record.code, record.claimSecretHash]),
+      ),
+    );
+    process.env.AUTH_CODE_IMPORT_SECRET = "rollout-secret";
+    try {
+      await t.run(async (ctx) => {
+        for (const code of [
+          "NERSP",
+          nersp.fullCodes[0],
+          nersp.limitedCodes[0],
+          "BJQAF",
+          bjqaf.fullCodes[0],
+          bjqaf.limitedCodes[0],
+        ])
+          await ctx.db.insert("auth_codes", {
+            code,
+            deviceId: `${code}-device`,
+            deviceIds: [`${code}-device`],
+            name: code,
+            usedAt: new Date().toISOString(),
+          });
+      });
+
+      await expect(
+        t.mutation(
+          internal.roleManagement.rolloutUsaFilingCodeOnlyDeviceClaims,
+          {
+            password: "rollout-secret",
+            enabled: true,
+          },
+        ),
+      ).resolves.toMatchObject({ enabled: true, updated: 122 });
+
+      await t.run(async (ctx) => {
+        const records = (await ctx.db.query("allowed_codes").collect()).filter(
+          (record) => ["nersp", "bjqaf"].includes(record.companyId ?? ""),
+        );
+        expect(records).toHaveLength(122);
+        expect(
+          records.every(
+            (record) =>
+              record.allowCodeOnlyDeviceClaim === true &&
+              record.maxDevices === 2,
+          ),
+        ).toBe(true);
+        expect(
+          Object.fromEntries(
+            records.map((record) => [record.code, record.claimSecretHash]),
+          ),
+        ).toEqual(originalClaimSecretHashes);
+      });
+
+      await expect(
+        t.mutation(
+          internal.roleManagement.rolloutUsaFilingCodeOnlyDeviceClaims,
+          {
+            password: "rollout-secret",
+            enabled: false,
+          },
+        ),
+      ).resolves.toMatchObject({
+        enabled: false,
+        updated: 122,
+        revokedSessions: true,
+      });
+
+      await t.run(async (ctx) => {
+        const records = (await ctx.db.query("allowed_codes").collect()).filter(
+          (record) => ["nersp", "bjqaf"].includes(record.companyId ?? ""),
+        );
+        expect(records.every((record) => record.maxDevices === 2)).toBe(false);
+        expect(
+          records.every(
+            (record) => record.allowCodeOnlyDeviceClaim === undefined,
+          ),
+        ).toBe(true);
+        expect(
+          Object.fromEntries(
+            records.map((record) => [record.code, record.claimSecretHash]),
+          ),
+        ).toEqual(originalClaimSecretHashes);
+        const sessions = await ctx.db.query("auth_codes").collect();
+        expect(
+          sessions.some((session) =>
+            records.some((record) => record.code === session.code),
+          ),
+        ).toBe(false);
+      });
+    } finally {
+      delete process.env.AUTH_CODE_IMPORT_SECRET;
+    }
+  });
+
+  test("rollback remains available after a manager creates another customer code and always revokes sessions", async () => {
+    const { t } = await setupUsaFilingRollout();
+    process.env.AUTH_CODE_IMPORT_SECRET = "rollout-secret";
+    try {
+      await t.mutation(
+        internal.roleManagement.rolloutUsaFilingCodeOnlyDeviceClaims,
+        { password: "rollout-secret", enabled: true },
+      );
+      const limitedProfileId = await t.run(async (ctx) => {
+        const profile = (await ctx.db.query("license_profiles").collect()).find(
+          (candidate) =>
+            candidate.companyId === "nersp" &&
+            !candidate.features.canPlayVideo &&
+            !candidate.features.canScreenShare &&
+            !candidate.features.canTransferCall,
+        );
+        if (!profile) throw new Error("missing nersp limited profile");
+        await ctx.db.insert("auth_codes", {
+          code: "NERSP",
+          deviceId: "nersp-admin-device",
+          deviceIds: ["nersp-admin-device"],
+          name: "NERSP",
+          usedAt: new Date().toISOString(),
+        });
+        return profile._id;
+      });
+      await t.mutation(api.features.createAuthorizationCode, {
+        password: "NERSP:nersp-admin-device",
+        targetCode: "NEWCU",
+        claimSecretHash: await hashClaimSecret("NEWCU", activationSecret),
+        profileId: limitedProfileId,
+      });
+      await t.mutation(api.authCodes.claimCode, {
+        code: "NEWCU",
+        deviceId: "new-customer-device",
+        deviceType: "mobile",
+        deviceContext: "standalone",
+        surface: "nyfbi",
+        name: "New customer",
+      });
+
+      await expect(
+        t.mutation(
+          internal.roleManagement.rolloutUsaFilingCodeOnlyDeviceClaims,
+          { password: "rollout-secret", enabled: false },
+        ),
+      ).resolves.toMatchObject({
+        enabled: false,
+        updated: 123,
+        revokedSessions: true,
+      });
+
+      await t.run(async (ctx) => {
+        const records = (await ctx.db.query("allowed_codes").collect()).filter(
+          (record) => ["nersp", "bjqaf"].includes(record.companyId ?? ""),
+        );
+        expect(records).toHaveLength(123);
+        expect(
+          records.every(
+            (record) => record.allowCodeOnlyDeviceClaim === undefined,
+          ),
+        ).toBe(true);
+        const sessions = await ctx.db.query("auth_codes").collect();
+        expect(
+          sessions.some((session) =>
+            records.some((record) => record.code === session.code),
+          ),
+        ).toBe(false);
+      });
+
+      await expect(
+        t.mutation(
+          internal.roleManagement.rolloutUsaFilingCodeOnlyDeviceClaims,
+          { password: "rollout-secret", enabled: true },
+        ),
+      ).resolves.toMatchObject({
+        enabled: true,
+        updated: 123,
+        revokedSessions: false,
+      });
+      await t.run(async (ctx) => {
+        const records = (await ctx.db.query("allowed_codes").collect()).filter(
+          (record) => ["nersp", "bjqaf"].includes(record.companyId ?? ""),
+        );
+        expect(records).toHaveLength(123);
+        expect(
+          records.every(
+            (record) =>
+              record.allowCodeOnlyDeviceClaim === true &&
+              record.maxDevices === 2,
+          ),
+        ).toBe(true);
+      });
+    } finally {
+      delete process.env.AUTH_CODE_IMPORT_SECRET;
+    }
+  });
+
+  test("the internal USA Filing rollout rejects a wrong import secret without writes", async () => {
+    const { t } = await setupUsaFilingRollout();
+    process.env.AUTH_CODE_IMPORT_SECRET = "rollout-secret";
+    try {
+      await expect(
+        t.mutation(
+          internal.roleManagement.rolloutUsaFilingCodeOnlyDeviceClaims,
+          { password: "wrong-secret", enabled: true },
+        ),
+      ).rejects.toThrow("切换验证失败");
+      await t.run(async (ctx) => {
+        const records = (await ctx.db.query("allowed_codes").collect()).filter(
+          (record) => ["nersp", "bjqaf"].includes(record.companyId ?? ""),
+        );
+        expect(records).toHaveLength(122);
+        expect(
+          records.every(
+            (record) => record.allowCodeOnlyDeviceClaim === undefined,
+          ),
+        ).toBe(true);
+      });
+    } finally {
+      delete process.env.AUTH_CODE_IMPORT_SECRET;
+    }
+  });
+
+  test.each([
+    {
+      name: "record count",
+      corrupt: async (
+        t: Awaited<ReturnType<typeof setupRoot>>,
+        limitedCode: string,
+      ) =>
+        t.run(async (ctx) => {
+          const record = await ctx.db
+            .query("allowed_codes")
+            .withIndex("by_code", (q) => q.eq("code", limitedCode))
+            .unique();
+          if (!record) throw new Error("missing limited-code fixture");
+          await ctx.db.delete(record._id);
+        }),
+      error: "必须正好包含 61 个授权码",
+    },
+    {
+      name: "administrator identity",
+      corrupt: async (t: Awaited<ReturnType<typeof setupRoot>>) =>
+        t.run(async (ctx) => {
+          const record = await ctx.db
+            .query("allowed_codes")
+            .withIndex("by_code", (q) => q.eq("code", "NERSP"))
+            .unique();
+          if (!record) throw new Error("missing administrator fixture");
+          await ctx.db.patch(record._id, { role: "user" });
+        }),
+      error: "管理员授权码",
+    },
+    {
+      name: "claim-secret hash",
+      corrupt: async (
+        t: Awaited<ReturnType<typeof setupRoot>>,
+        limitedCode: string,
+      ) =>
+        t.run(async (ctx) => {
+          const record = await ctx.db
+            .query("allowed_codes")
+            .withIndex("by_code", (q) => q.eq("code", limitedCode))
+            .unique();
+          if (!record) throw new Error("missing limited-code fixture");
+          await ctx.db.patch(record._id, { claimSecretHash: undefined });
+        }),
+      error: "设备启用密钥摘要",
+    },
+  ])(
+    "the internal USA Filing rollout rejects an invalid $name without partial writes",
+    async ({ corrupt, error }) => {
+      const { t, nersp } = await setupUsaFilingRollout();
+      await corrupt(t, nersp.limitedCodes[0]);
+      process.env.AUTH_CODE_IMPORT_SECRET = "rollout-secret";
+      try {
+        await expect(
+          t.mutation(
+            internal.roleManagement.rolloutUsaFilingCodeOnlyDeviceClaims,
+            {
+              password: "rollout-secret",
+              enabled: true,
+            },
+          ),
+        ).rejects.toThrow(error);
+        await t.run(async (ctx) => {
+          const records = (
+            await ctx.db.query("allowed_codes").collect()
+          ).filter((record) =>
+            ["nersp", "bjqaf"].includes(record.companyId ?? ""),
+          );
+          expect(
+            records.every((record) => record.allowCodeOnlyDeviceClaim !== true),
+          ).toBe(true);
+        });
+      } finally {
+        delete process.env.AUTH_CODE_IMPORT_SECRET;
+      }
+    },
+  );
+
+  test("the internal USA Filing rollout validates both tenants before writing either one", async () => {
+    const { t, bjqaf } = await setupUsaFilingRollout();
+    await t.run(async (ctx) => {
+      const record = await ctx.db
+        .query("allowed_codes")
+        .withIndex("by_code", (q) => q.eq("code", bjqaf.limitedCodes[0]))
+        .unique();
+      const profile = record?.licenseProfileId
+        ? await ctx.db.get(record.licenseProfileId)
+        : null;
+      if (!profile) throw new Error("missing limited profile fixture");
+      await ctx.db.patch(profile._id, {
+        features: { ...profile.features, canPlayVideo: true },
+      });
+    });
+    process.env.AUTH_CODE_IMPORT_SECRET = "rollout-secret";
+    try {
+      await expect(
+        t.mutation(
+          internal.roleManagement.rolloutUsaFilingCodeOnlyDeviceClaims,
+          { password: "rollout-secret", enabled: true },
+        ),
+      ).rejects.toThrow("受限授权配置");
+      await t.run(async (ctx) => {
+        const records = (await ctx.db.query("allowed_codes").collect()).filter(
+          (record) => ["nersp", "bjqaf"].includes(record.companyId ?? ""),
+        );
+        expect(
+          records.every((record) => record.allowCodeOnlyDeviceClaim !== true),
+        ).toBe(true);
+      });
+    } finally {
+      delete process.env.AUTH_CODE_IMPORT_SECRET;
+    }
   });
 
   test("company administrators can see only their own codes, documents, and recording controls", async () => {

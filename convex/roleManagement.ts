@@ -1,5 +1,6 @@
 import { ConvexError, v } from "convex/values";
-import { mutation } from "./_generated/server";
+import { internalMutation, mutation } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import {
   assertAdminCanAccessCode,
@@ -11,7 +12,12 @@ import {
   requireSuperAdmin,
   tenantIdForAllowed,
 } from "./roles";
-import { allFeatureFlags, effectiveAuthorizationDeviceLimit } from "./features";
+import {
+  allFeatureFlags,
+  codeOnlyDeviceClaimTenantIds,
+  effectiveAuthorizationDeviceLimit,
+  featureKeys,
+} from "./features";
 import { isClaimSecretHash } from "./claimCredentials";
 import {
   assertAuthorizationCodeNotRetired,
@@ -695,6 +701,205 @@ export const provisionCompaniesWithImportSecret = mutation({
         await provisionCompanyRecords(ctx, company, "SYSTEM_IMPORT"),
       );
     return results;
+  },
+});
+
+async function validateUsaFilingCodeOnlyClaimTenant(
+  ctx: MutationCtx,
+  tenantId: (typeof codeOnlyDeviceClaimTenantIds)[number],
+  requireInitialShape: boolean,
+) {
+  const records = (await ctx.db.query("allowed_codes").collect()).filter(
+    (record) => record.companyId?.trim().toLowerCase() === tenantId,
+  );
+  if (requireInitialShape && records.length !== 61)
+    throw new ConvexError({
+      code: "PRECONDITION_FAILED",
+      message: `公司 ${tenantId} 必须正好包含 61 个授权码。`,
+    });
+  if (
+    new Set(records.map((record) => normalize(record.code))).size !==
+    records.length
+  )
+    throw new ConvexError({
+      code: "PRECONDITION_FAILED",
+      message: `公司 ${tenantId} 的授权码不得重复。`,
+    });
+
+  const expectedAdminCode = tenantId.toUpperCase();
+  const administrators = records.filter((record) => record.role === "admin");
+  if (
+    administrators.length !== 1 ||
+    administrators[0].code !== expectedAdminCode ||
+    records.some(
+      (record) =>
+        record.companyId?.trim().toLowerCase() !== tenantId ||
+        (record.code !== expectedAdminCode && record.role !== "user") ||
+        (record.code === expectedAdminCode && record.role !== "admin"),
+    )
+  )
+    throw new ConvexError({
+      code: "PRECONDITION_FAILED",
+      message: `公司 ${tenantId} 的管理员授权码必须为 ${expectedAdminCode}，其余授权码必须为用户。`,
+    });
+  if (
+    records.some(
+      (record) =>
+        !newAuthorizationCodePattern.test(record.code) ||
+        !isClaimSecretHash(record.claimSecretHash ?? ""),
+    )
+  )
+    throw new ConvexError({
+      code: "PRECONDITION_FAILED",
+      message: `公司 ${tenantId} 的每个授权码都必须保留有效的设备启用密钥摘要。`,
+    });
+
+  let fullCount = 0;
+  let limitedCount = 0;
+  for (const record of records) {
+    if (record.role === "admin") continue;
+    const profile = record.licenseProfileId
+      ? await ctx.db.get(record.licenseProfileId)
+      : null;
+    if (!profile || profile.companyId?.trim().toLowerCase() !== tenantId)
+      throw new ConvexError({
+        code: "PRECONDITION_FAILED",
+        message: `公司 ${tenantId} 的用户授权码必须使用本公司的授权配置。`,
+      });
+    if (
+      featureKeys.every((key) => profile.features[key] === allFeatureFlags[key])
+    ) {
+      fullCount += 1;
+      continue;
+    }
+    if (
+      featureKeys.every(
+        (key) => profile.features[key] === limitedCompanyFeatures[key],
+      )
+    ) {
+      limitedCount += 1;
+      continue;
+    }
+    throw new ConvexError({
+      code: "PRECONDITION_FAILED",
+      message: `公司 ${tenantId} 的受限授权配置必须停用视频切换、屏幕共享与通话转接。`,
+    });
+  }
+  if (requireInitialShape && (fullCount !== 10 || limitedCount !== 50))
+    throw new ConvexError({
+      code: "PRECONDITION_FAILED",
+      message: `公司 ${tenantId} 必须正好包含 10 个全功能及 50 个受限授权码。`,
+    });
+  return { tenantId, records, fullCount, limitedCount };
+}
+
+// This migration is deliberately internal and tenant-specific. It cannot be
+// reused to weaken first-device authentication for an arbitrary company.
+export const rolloutUsaFilingCodeOnlyDeviceClaims = internalMutation({
+  args: {
+    password: v.string(),
+    enabled: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const expectedSecret = process.env.AUTH_CODE_IMPORT_SECRET;
+    if (!expectedSecret || args.password !== expectedSecret)
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "USA Filing 授权码切换验证失败。",
+      });
+
+    // Complete both tenant audits before the first write. Convex would roll
+    // back a thrown mutation, but this ordering also makes the fail-closed
+    // boundary explicit and reviewable.
+    const validated: Array<{
+      tenantId: (typeof codeOnlyDeviceClaimTenantIds)[number];
+      records: Doc<"allowed_codes">[];
+      fullCount?: number;
+      limitedCount?: number;
+    }> = [];
+    for (const tenantId of codeOnlyDeviceClaimTenantIds) {
+      if (args.enabled) {
+        const hasPriorRollout = (
+          await ctx.db.query("audit_logs").collect()
+        ).some(
+          (entry) =>
+            entry.action === "company.code_only_device_claim_rollout" &&
+            entry.targetType === "company" &&
+            entry.targetId === tenantId &&
+            (entry.details as { enabled?: boolean } | undefined)?.enabled ===
+              true,
+        );
+        validated.push(
+          await validateUsaFilingCodeOnlyClaimTenant(
+            ctx,
+            tenantId,
+            !hasPriorRollout,
+          ),
+        );
+        continue;
+      }
+      const records = (await ctx.db.query("allowed_codes").collect()).filter(
+        (record) => record.companyId?.trim().toLowerCase() === tenantId,
+      );
+      validated.push({ tenantId, records });
+    }
+
+    const now = Date.now();
+    // Disabling this weaker login path is a security rollback, so every
+    // session claimed under it is revoked unconditionally.
+    const revokeSessions = !args.enabled;
+    for (const tenant of validated) {
+      for (const record of tenant.records) {
+        const maxDevices = args.enabled
+          ? 2
+          : await effectiveAuthorizationDeviceLimit(ctx, {
+              ...record,
+              allowCodeOnlyDeviceClaim: false,
+            });
+        await ctx.db.patch(record._id, {
+          allowCodeOnlyDeviceClaim: args.enabled ? true : undefined,
+          maxDevices,
+          unlimitedDevices: undefined,
+          updatedAt: now,
+        });
+        if (revokeSessions)
+          await revokeAuthorizationCodeIdentityState(ctx, record.code);
+        else
+          await enforceAuthorizationCodeDeviceLimit(
+            ctx,
+            record.code,
+            maxDevices,
+          );
+      }
+      await ctx.db.insert("audit_logs", {
+        actorCode: "SYSTEM_IMPORT",
+        action: "company.code_only_device_claim_rollout",
+        targetType: "company",
+        targetId: tenant.tenantId,
+        success: true,
+        details: {
+          enabled: args.enabled,
+          recordCount: tenant.records.length,
+          ...(tenant.fullCount === undefined
+            ? {}
+            : { fullCount: tenant.fullCount }),
+          ...(tenant.limitedCount === undefined
+            ? {}
+            : { limitedCount: tenant.limitedCount }),
+          revokeSessions,
+        },
+        createdAt: now,
+      });
+    }
+
+    return {
+      enabled: args.enabled,
+      updated: validated.reduce(
+        (count, tenant) => count + tenant.records.length,
+        0,
+      ),
+      revokedSessions: revokeSessions,
+    };
   },
 });
 

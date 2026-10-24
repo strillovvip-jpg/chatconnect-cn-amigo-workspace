@@ -62,6 +62,10 @@ async function setupTenantCalls() {
       await ctx.db.insert("auth_codes", {
         code: account.code,
         deviceId: account.deviceId,
+        deviceIds:
+          account.code === "AIONE"
+            ? [account.deviceId, "ai-one-second-device"]
+            : undefined,
         name: account.code,
         usedAt: new Date(now).toISOString(),
       });
@@ -119,6 +123,14 @@ async function setupTenantCalls() {
         await ctx.db.insert("chat_group_call_participants", {
           groupCallId,
           userId: participant,
+          deviceId:
+            participant === "AIONE"
+              ? "ai-one-device"
+              : participant === "AITWO"
+                ? "ai-two-device"
+                : participant === "NYONE"
+                  ? "ny-one-device"
+                  : "ny-two-device",
           status: "joined",
           joinedAt: now,
           isHost: participant === group.owner,
@@ -138,6 +150,7 @@ async function insertCompliance(
   await t.run(async (ctx) => {
     await ctx.db.insert("call_compliance", {
       callId,
+      tenantId: participantCodes[0].startsWith("AI") ? "aichijp" : "nyfbi",
       participantCodes,
       consentedCodes: status === "active" ? participantCodes : [],
       declinedCodes: [],
@@ -306,5 +319,69 @@ describe("tenant-scoped call compliance", () => {
       "ai-p2p",
       "ny-p2p",
     ]);
+  });
+
+  test("a second device cannot provide compliance consent for a joined group participant", async () => {
+    const t = await setupTenantCalls();
+    await t.mutation(api.callCompliance.request, {
+      password: "RAVE1:aichijp-admin-device",
+      callId: "ai-group",
+    });
+
+    await expect(
+      t.mutation(api.callCompliance.respond, {
+        code: "AIONE",
+        deviceId: "ai-one-second-device",
+        callId: "ai-group",
+        consent: true,
+      }),
+    ).rejects.toThrow();
+    await expect(
+      t.mutation(api.callCompliance.respond, {
+        code: "AIONE",
+        deviceId: "ai-one-device",
+        callId: "ai-group",
+        consent: true,
+      }),
+    ).resolves.toBeNull();
+  });
+
+  test("stored tenant ownership survives participant-code revocation", async () => {
+    const t = await setupTenantCalls();
+    await t.mutation(api.callCompliance.request, {
+      password: "RAVE1:aichijp-admin-device",
+      callId: "ai-p2p",
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("call_transcripts", {
+        callId: "ai-p2p",
+        tenantId: "aichijp",
+        speakerCode: "AIONE",
+        speakerName: "AI one",
+        text: "private tenant transcript",
+        createdAt: Date.now(),
+      });
+      for (const code of ["AIONE", "AITWO"]) {
+        const allowed = await ctx.db
+          .query("allowed_codes")
+          .withIndex("by_code", (q) => q.eq("code", code))
+          .unique();
+        if (allowed) await ctx.db.delete(allowed._id);
+      }
+    });
+
+    const [nySessions, aiSessions] = await Promise.all([
+      t.query(api.callCompliance.adminDashboard, {
+        password: "RAVE:nyfbi-admin-device",
+      }),
+      t.query(api.callCompliance.adminDashboard, {
+        password: "RAVE1:aichijp-admin-device",
+      }),
+    ]);
+    expect(nySessions).toEqual([]);
+    expect(aiSessions).toHaveLength(1);
+    expect(aiSessions[0]?.transcripts[0]?.text).toBe(
+      "private tenant transcript",
+    );
   });
 });

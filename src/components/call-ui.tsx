@@ -83,6 +83,11 @@ export function transferTargetOptions({
   ];
 }
 
+function normalizeTransferTargetCode(value: string) {
+  const normalized = value.normalize("NFKC").trim().toUpperCase();
+  return /^[A-Z]{5}$/.test(normalized) ? normalized : "";
+}
+
 export function CallOverlay() {
   const copy = useCallUiCopy();
   const { can } = useFeatures();
@@ -913,6 +918,8 @@ function TransferButton({ compact }: { compact: boolean }) {
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch] = useDebounce(searchInput, 300);
   const [targetCode, setTargetCode] = useState("");
+  const validTargetCode = normalizeTransferTargetCode(targetCode);
+  const exactSearchCode = normalizeTransferTargetCode(debouncedSearch);
   const [busy, setBusy] = useState(false);
   const initiate = useMutation(api.callState.initiateTransfer);
   const cancel = useMutation(api.callState.cancelTransfer);
@@ -926,9 +933,9 @@ function TransferButton({ compact }: { compact: boolean }) {
     outgoing && ["pending", "accepted", "joining"].includes(outgoing.status);
   const searchResults = useQuery(
     api.contacts.searchUser,
-    open && !transferInProgress && debouncedSearch.trim()
+    open && !transferInProgress && exactSearchCode
       ? {
-          query: debouncedSearch.trim(),
+          query: exactSearchCode,
           requesterCode: creds.code,
           deviceId: creds.deviceId,
         }
@@ -1042,13 +1049,7 @@ function TransferButton({ compact }: { compact: boolean }) {
                   onChange={(e) => {
                     const value = e.target.value;
                     setSearchInput(value);
-                    const normalized = value
-                      .normalize("NFKC")
-                      .replace(/\s/g, "")
-                      .toUpperCase();
-                    setTargetCode(
-                      /^[A-Z0-9]{4,20}$/.test(normalized) ? normalized : "",
-                    );
+                    setTargetCode(normalizeTransferTargetCode(value));
                   }}
                   placeholder={copy.searchCodeOrName}
                   className="w-full rounded-xl border border-white/10 bg-white/10 px-4 py-3 text-white outline-none"
@@ -1082,14 +1083,14 @@ function TransferButton({ compact }: { compact: boolean }) {
                   </div>
                 )}
                 <button
-                  disabled={busy || !targetCode.trim()}
+                  disabled={busy || !validTargetCode}
                   onClick={async () => {
                     setBusy(true);
                     try {
                       await initiate({
                         ...credentials(),
                         callId: callInfo.callId!,
-                        targetCode,
+                        targetCode: validTargetCode,
                       });
                       toast.success(copy.transferSent);
                     } catch (error) {
@@ -1115,7 +1116,14 @@ export function GlobalTransferNotification() {
   const copy = useCallUiCopy();
   const creds = credentials();
   const convex = useConvex();
-  const { callInfo, startCall, hangUp, waitForTransferReady } = useCall();
+  const {
+    callInfo,
+    startCall,
+    hangUp,
+    waitForTransferReady,
+    prepareTransferHandoff,
+    resumeAfterFailedTransfer,
+  } = useCall();
   const pending = useQuery(
     api.callState.pendingTransfer,
     creds.code && creds.deviceId ? creds : "skip",
@@ -1129,6 +1137,7 @@ export function GlobalTransferNotification() {
   const respond = useMutation(api.callState.respondTransfer);
   const confirm = useAction(api.calls.completeTransferredRoom);
   const failJoin = useMutation(api.callState.failTransferJoin);
+  const cancelTransfer = useMutation(api.callState.cancelTransfer);
   const join = useAction(api.calls.joinTransferredRoom);
   const [busy, setBusy] = useState(false);
   const [choosingMedia, setChoosingMedia] = useState(false);
@@ -1156,12 +1165,7 @@ export function GlobalTransferNotification() {
         transferId: transfer._id,
         reason: uiErrorMessage(error, copy.connectTransferredFailed),
       }).catch(() => undefined);
-      if (
-        shouldHangUpTransferredCall(
-          activeCallIdRef.current,
-          transfer.callId,
-        )
-      )
+      if (shouldHangUpTransferredCall(activeCallIdRef.current, transfer.callId))
         await hangUp({ preserveBackendCall: true });
       toast.error(copy.joinTransferredFailed);
     };
@@ -1183,6 +1187,7 @@ export function GlobalTransferNotification() {
             remotePublisherIdentities: details.remotePublisherIdentities,
             initialCameraEnabled,
             cameraDeviceId,
+            requireInitialMicrophone: true,
             requireInitialCamera: initialCameraEnabled,
           });
           activeCallIdRef.current = transfer.callId;
@@ -1244,18 +1249,39 @@ export function GlobalTransferNotification() {
     if (!outgoing) return;
     const key = `${outgoing._id}:${outgoing.status}`;
     if (handledStatus.current === key) return;
-    if (outgoing.status === "completed") {
+    if (outgoing.status === "joining") {
+      handledStatus.current = key;
+      void (async () => {
+        try {
+          await prepareTransferHandoff(outgoing._id);
+        } catch {
+          await cancelTransfer({
+            code: creds.code,
+            deviceId: creds.deviceId,
+            transferId: outgoing._id,
+          }).catch(() => undefined);
+          await resumeAfterFailedTransfer().catch(() => undefined);
+          toast.error(copy.transferJoinFailedContinue);
+        }
+      })();
+    } else if (outgoing.status === "completed") {
       handledStatus.current = key;
       toast.success(copy.transferCompleted);
       void hangUp({ preserveBackendCall: true });
     } else if (outgoing.status === "rejected") {
       handledStatus.current = key;
+      void resumeAfterFailedTransfer();
       toast.error(copy.transferRejected);
+    } else if (outgoing.status === "cancelled") {
+      handledStatus.current = key;
+      void resumeAfterFailedTransfer();
     } else if (outgoing.status === "expired") {
       handledStatus.current = key;
+      void resumeAfterFailedTransfer();
       toast.error(copy.transferExpired);
     } else if (outgoing.status === "failed") {
       handledStatus.current = key;
+      void resumeAfterFailedTransfer();
       toast.error(copy.transferJoinFailedContinue);
     }
   }, [
@@ -1265,6 +1291,11 @@ export function GlobalTransferNotification() {
     copy.transferRejected,
     outgoing,
     hangUp,
+    prepareTransferHandoff,
+    resumeAfterFailedTransfer,
+    cancelTransfer,
+    creds.code,
+    creds.deviceId,
   ]);
 
   if (!pending) return null;

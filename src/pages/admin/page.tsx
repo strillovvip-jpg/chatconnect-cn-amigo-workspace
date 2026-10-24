@@ -949,7 +949,9 @@ export default function AdminPage() {
       ? fullProfileId
       : limitedProfileId;
   const selectedTierCodes = (allowedCodes ?? []).filter(
-    (item) => item.licenseProfileId === selectedProfileId,
+    (item) =>
+      item.role === "user" &&
+      (!isSuperAdmin || item.licenseProfileId === selectedProfileId),
   );
   const selectedTierUsed = selectedTierCodes.filter((item) =>
     usedCodes.has(item.code),
@@ -1157,15 +1159,18 @@ export default function AdminPage() {
                       setNewCode(
                         event.target.value
                           .normalize("NFKC")
-                          .replace(/\s/g, "")
-                          .toUpperCase(),
+                          .toUpperCase()
+                          .replace(/[^A-Z]/g, "")
+                          .slice(0, 5),
                       )
                     }
+                    maxLength={5}
+                    autoCapitalize="characters"
                     placeholder={copy.createCodePlaceholder}
                     className="min-w-0 flex-1 rounded-lg bg-black/20 px-3 py-2 text-sm outline-none"
                   />
                   <button
-                    disabled={!newCode.trim() || !limitedProfileId}
+                    disabled={!/^[A-Z]{5}$/.test(newCode) || !limitedProfileId}
                     onClick={() => void handleCreateCode()}
                     className="rounded-lg bg-blue-500 px-4 text-xs font-semibold text-white disabled:opacity-40"
                   >
@@ -1184,10 +1189,13 @@ export default function AdminPage() {
                         setNewCode(
                           event.target.value
                             .normalize("NFKC")
-                            .replace(/\s/g, "")
-                            .toUpperCase(),
+                            .toUpperCase()
+                            .replace(/[^A-Z]/g, "")
+                            .slice(0, 5),
                         )
                       }
+                      maxLength={5}
+                      autoCapitalize="characters"
                       placeholder={
                         activeTab === "managers"
                           ? copy.createManagerPlaceholder
@@ -1196,7 +1204,7 @@ export default function AdminPage() {
                       className="min-w-0 flex-1 rounded-lg bg-black/20 px-3 py-2 text-sm outline-none"
                     />
                     <button
-                      disabled={!newCode.trim()}
+                      disabled={!/^[A-Z]{5}$/.test(newCode)}
                       onClick={() => void handleCreateCode()}
                       className="rounded-lg bg-amber-500 px-4 text-xs font-semibold text-black disabled:opacity-40"
                     >
@@ -1333,7 +1341,9 @@ export default function AdminPage() {
                     record.role === "admin" ||
                     record.role === "super_admin") &&
                   (activeTab !== "codes" ||
-                    record.licenseProfileId === selectedProfileId),
+                    (record.role === "user" &&
+                      (!isSuperAdmin ||
+                        record.licenseProfileId === selectedProfileId))),
               )
               .map((record) => {
                 const isExpanded = expandedCode === record.code;
@@ -1463,6 +1473,30 @@ export default function AdminPage() {
                             {activeTab === "codes" &&
                               record.role !== "super_admin" && (
                                 <div className="flex flex-wrap gap-2">
+                                  {record.role === "user" && (
+                                    <button
+                                      onClick={() =>
+                                        void setCodeEnabled({
+                                          password,
+                                          targetCode: record.code,
+                                          enabled: !record.enabled,
+                                        })
+                                          .then(() =>
+                                            toast.success(
+                                              copy.usageStateUpdated,
+                                            ),
+                                          )
+                                          .catch(() =>
+                                            toast.error(copy.updateFailed),
+                                          )
+                                      }
+                                      className="rounded-lg bg-white/10 px-3 py-2 text-xs font-semibold"
+                                    >
+                                      {record.enabled
+                                        ? copy.disable
+                                        : copy.enable}
+                                    </button>
+                                  )}
                                   {(isSuperAdmin || record.role === "user") && (
                                     <button
                                       onClick={() =>
@@ -1565,10 +1599,12 @@ export default function AdminPage() {
                   {(allowedCodes ?? [])
                     .filter(
                       (item) =>
+                        item.role === "user" &&
                         !usedCodes.has(item.code) &&
-                        item.licenseProfileId === selectedProfileId,
+                        (!isSuperAdmin ||
+                          item.licenseProfileId === selectedProfileId),
                     )
-                    .map(({ code, role }) => (
+                    .map(({ code, role, enabled }) => (
                       <span
                         key={code}
                         className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-mono"
@@ -1581,6 +1617,22 @@ export default function AdminPage() {
                         {code}
                         {role === "user" && (
                           <>
+                            <button
+                              onClick={() =>
+                                void setCodeEnabled({
+                                  password,
+                                  targetCode: code,
+                                  enabled: enabled === false,
+                                })
+                                  .then(() =>
+                                    toast.success(copy.usageStateUpdated),
+                                  )
+                                  .catch(() => toast.error(copy.updateFailed))
+                              }
+                              className="rounded bg-white/10 px-2 py-0.5 text-[10px] font-sans"
+                            >
+                              {enabled === false ? copy.enable : copy.disable}
+                            </button>
                             <button
                               aria-label={`Generate device activation credential for ${code}`}
                               title="Generate device activation credential"
@@ -1999,6 +2051,7 @@ export default function AdminPage() {
                           {{
                             requested: copy.statuses.requested,
                             active: copy.statuses.active,
+                            stopping: "Saving final recording…",
                             declined: copy.statuses.declined,
                             stopped: copy.statuses.stopped,
                           }[session.status] ?? session.status}

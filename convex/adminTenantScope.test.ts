@@ -144,6 +144,7 @@ async function setupTenantFixtures() {
       });
     }
     const nyCase = await ctx.db.insert("cases", {
+      tenantId: "nyfbi",
       caseNumber: "NY-CASE",
       title: "NY case",
       status: "open",
@@ -156,6 +157,7 @@ async function setupTenantFixtures() {
       updatedAt: new Date(now).toISOString(),
     });
     const aiCase = await ctx.db.insert("cases", {
+      tenantId: "aichijp",
       caseNumber: "AI-CASE",
       title: "AI case",
       status: "in_progress",
@@ -170,6 +172,8 @@ async function setupTenantFixtures() {
     const nyStorage = await ctx.storage.store(new Blob(["ny document"]));
     const aiStorage = await ctx.storage.store(new Blob(["ai document"]));
     const nyDocument = await ctx.db.insert("case_documents", {
+      tenantId: "nyfbi",
+      caseId: nyCase,
       caseNumber: "NY-CASE",
       fileName: "ny.pdf",
       storageId: nyStorage,
@@ -178,6 +182,8 @@ async function setupTenantFixtures() {
       uploadedAt: new Date(now).toISOString(),
     });
     const aiDocument = await ctx.db.insert("case_documents", {
+      tenantId: "aichijp",
+      caseId: aiCase,
       caseNumber: "AI-CASE",
       fileName: "ai.pdf",
       storageId: aiStorage,
@@ -195,6 +201,7 @@ describe("tenant-scoped administration", () => {
     const { t } = await setupTenantFixtures();
     await t.run(async (ctx) => {
       await ctx.db.insert("cases", {
+        tenantId: "aichijp",
         caseNumber: "AI-ADMIN-CASE",
         title: "Admin-created case",
         status: "open",

@@ -49,7 +49,6 @@ import {
 } from "@/lib/amigo/contact-face-swap-preflight";
 import { LanguageSelector } from "@/components/language-selector";
 import { useI18n } from "@/lib/i18n";
-import { WindowsFaceSwapSetup } from "@/components/windows-face-swap-setup";
 
 type Tab = "messages" | "cases" | "contacts" | "groupcall" | "docsearch";
 
@@ -72,7 +71,7 @@ type SearchResult = {
 
 function exactAuthorizationCode(value: string) {
   const normalized = value.normalize("NFKC").trim().toUpperCase();
-  return /^[A-Z0-9]{5}$/.test(normalized) ? normalized : null;
+  return /^[A-Z]{5}$/.test(normalized) ? normalized : null;
 }
 
 function Avatar({
@@ -122,7 +121,6 @@ function AddContactModal({
           query: exactSearchCode,
           requesterCode: userCode,
           deviceId: localStorage.getItem("ksc_device_id") ?? "",
-          exactCodeOnly: true,
         }
       : "skip",
   ) as SearchResult[] | undefined | null;
@@ -173,7 +171,9 @@ function AddContactModal({
         <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mb-2" />
 
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold text-white">{copy.addContact}</h2>
+          <h2 className="text-base font-semibold text-white">
+            {copy.addContact}
+          </h2>
           <button
             onClick={onClose}
             className="cursor-pointer opacity-50 hover:opacity-100 transition-opacity"
@@ -322,7 +322,6 @@ export function ContactsTab({
           query: exactSearchCode,
           requesterCode: userCode,
           deviceId: localStorage.getItem("ksc_device_id") ?? "",
-          exactCodeOnly: true,
         }
       : "skip",
   ) as SearchResult[] | undefined;
@@ -470,9 +469,9 @@ export function ContactsTab({
         {filteredContacts.length > 0 && (
           <div>
             {search.trim() && (
-                <p className="text-[10px] text-white/40 px-4 pt-3 pb-1 uppercase tracking-wider font-semibold">
-                  {messages.consultation.tabs.contacts}
-                </p>
+              <p className="text-[10px] text-white/40 px-4 pt-3 pb-1 uppercase tracking-wider font-semibold">
+                {messages.consultation.tabs.contacts}
+              </p>
             )}
             {filteredContacts.map((contact) => (
               <motion.div
@@ -617,15 +616,8 @@ export default function ConsultationPage({
   } | null>(null);
   const [faceSwapInviteOpen, setFaceSwapInviteOpen] = useState(false);
   const [faceSettingsOpen, setFaceSettingsOpen] = useState(false);
-  const [windowsFaceSwapOpen, setWindowsFaceSwapOpen] = useState(false);
   const [faceReady, setFaceReady] = useState(false);
   const canCreateFaceSwapInvite = canUseExternalFaceSwapInvite(flags);
-  const createHelperAssertion = useMutation(api.helperSessions.create);
-  const requestHelperAssertion = useCallback(
-    (input: { code: string; deviceId: string; helperNonce: string }) =>
-      createHelperAssertion(input),
-    [createHelperAssertion],
-  );
   const isWindowsBrowser = /win/i.test(navigator.platform);
 
   useEffect(() => {
@@ -912,15 +904,11 @@ export default function ConsultationPage({
         {/* Messages tab */}
         {activeTab === "messages" && (
           <div>
-            {canCreateFaceSwapInvite && (
+            {canCreateFaceSwapInvite && !isWindowsBrowser && (
               <div className="space-y-2 border-b border-white/8 px-4 py-3">
                 <button
                   type="button"
                   onClick={() => {
-                    if (isWindowsBrowser) {
-                      setWindowsFaceSwapOpen((open) => !open);
-                      return;
-                    }
                     if (!nativeAmigoRoom.isAvailable) {
                       toast.error(messages.faceSwapInvite.nativeOnly);
                       return;
@@ -932,15 +920,6 @@ export default function ConsultationPage({
                   <UserCheck size={16} />
                   {messages.faceSwapInvite.manageFaces}
                 </button>
-                {windowsFaceSwapOpen && (
-                  <WindowsFaceSwapSetup
-                    authorizationCode={userCode}
-                    deviceId={deviceId}
-                    fullFeature={canCreateFaceSwapInvite}
-                    copy={messages.windowsFaceSwap}
-                    createAssertion={requestHelperAssertion}
-                  />
-                )}
                 <button
                   type="button"
                   disabled={!faceReady}
@@ -1045,7 +1024,7 @@ export default function ConsultationPage({
                 initialMode: type === "audio" ? "audio" : "camera",
               })
             }
-            canStartFaceSwapCall={canCreateFaceSwapInvite}
+            canStartFaceSwapCall={canCreateFaceSwapInvite && !isWindowsBrowser}
             onStartFaceSwapCall={(code, name) =>
               void handleStartFaceSwapCall(code, name)
             }

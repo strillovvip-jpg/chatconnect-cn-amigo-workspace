@@ -1,12 +1,10 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import {
-  assertAdminCanAccessCode,
-  getAdminCompanyScope,
-  listVisibleAllowedCodes,
-  requireAdmin,
-} from "./roles";
+import { getAdminCompanyScope, requireAdmin } from "./roles";
+import { assertAdminCanAccessCase, tenantIdForNewCase } from "./caseTenant";
+import { ConvexError } from "convex/values";
+import { consumeFileUpload, createFileUploadAdmission } from "./messages";
 
 function normalize(value: string) {
   return value
@@ -29,8 +27,11 @@ async function secureHash(value: string) {
 export const generateUploadUrl = mutation({
   args: { password: v.string() },
   handler: async (ctx: MutationCtx, args) => {
-    await requireAdmin(ctx, args.password);
-    return await ctx.storage.generateUploadUrl();
+    const auth = await requireAdmin(ctx, args.password);
+    const deviceId = args.password.slice(args.password.indexOf(":") + 1);
+    return await createFileUploadAdmission(ctx, auth, deviceId, {
+      purpose: "document",
+    });
   },
 });
 
@@ -52,17 +53,46 @@ export const saveDocument = mutation({
     const caseName = args.caseName.trim();
     if (!caseNumber || !normalize(args.idNumber) || !name || !caseName)
       throw new Error("必须填写案件编号、证件号码、姓名和案件名称。");
-    let record = await ctx.db
-      .query("cases")
-      .withIndex("by_case_number", (q) => q.eq("caseNumber", caseNumber))
-      .unique();
-    if (record) await assertAdminCanAccessCode(ctx, auth, record.assignedCode);
+    await consumeFileUpload(
+      ctx,
+      auth,
+      args.password.slice(args.password.indexOf(":") + 1),
+      args.storageId,
+      { purpose: "document" },
+    );
+    const scope = getAdminCompanyScope(auth);
+    const writeTenantId = tenantIdForNewCase(auth);
+    let record;
+    if (scope) {
+      record = await ctx.db
+        .query("cases")
+        .withIndex("by_tenant_case_number", (q) =>
+          q.eq("tenantId", scope).eq("caseNumber", caseNumber),
+        )
+        .unique();
+    } else {
+      const candidates = await ctx.db
+        .query("cases")
+        .withIndex("by_case_number", (q) => q.eq("caseNumber", caseNumber))
+        .collect();
+      const defaultTenantRecord = candidates.find(
+        (candidate) => candidate.tenantId === writeTenantId,
+      );
+      if (!defaultTenantRecord && candidates.length > 1)
+        throw new ConvexError({
+          code: "CONFLICT",
+          message: "案件编号对应多个公司，无法确定上传目标。",
+        });
+      record = defaultTenantRecord ?? candidates[0] ?? null;
+    }
+    if (record) assertAdminCanAccessCase(auth, record);
     const idNumberHash = await secureHash(args.idNumber);
     if (record?.idNumberHash && record.idNumberHash !== idNumberHash)
       throw new Error("案件编号或证件号码不正确。");
     if (!record) {
       const now = new Date().toISOString();
       const caseId = await ctx.db.insert("cases", {
+        tenantId: writeTenantId,
         caseNumber,
         idNumberHash,
         suspectName: name,
@@ -89,7 +119,14 @@ export const saveDocument = mutation({
         updatedAt: new Date().toISOString(),
       });
     }
+    if (!record || !record.tenantId)
+      throw new ConvexError({
+        code: "PRECONDITION_FAILED",
+        message: "案件尚未完成公司资料迁移，暂时不能上传文件。",
+      });
     return await ctx.db.insert("case_documents", {
+      tenantId: record.tenantId,
+      caseId: record._id,
       caseNumber,
       idNumberHash,
       fileName: args.fileName,
@@ -108,7 +145,15 @@ export const deleteDocument = mutation({
     const auth = await requireAdmin(ctx, args.password);
     const doc = await ctx.db.get(args.documentId);
     if (doc) {
-      await assertAdminCanAccessCode(ctx, auth, doc.uploadedByCode);
+      const scope = getAdminCompanyScope(auth);
+      if (
+        scope &&
+        (!doc.caseId || doc.tenantId?.trim().toLowerCase() !== scope)
+      )
+        throw new ConvexError({
+          code: "FORBIDDEN",
+          message: "没有权限执行此操作。",
+        });
       await ctx.storage.delete(doc.storageId);
       await ctx.db.delete(args.documentId);
     }
@@ -120,26 +165,32 @@ export const listAll = query({
   args: { password: v.string() },
   handler: async (ctx: QueryCtx, args) => {
     const auth = await requireAdmin(ctx, args.password);
+    if (!getAdminCompanyScope(auth)) {
+      const documents = await ctx.db
+        .query("case_documents")
+        .order("desc")
+        .take(100);
+      return await Promise.all(
+        documents.map(async (doc) => ({
+          ...doc,
+          url: await ctx.storage.getUrl(doc.storageId),
+        })),
+      );
+    }
     const scope = getAdminCompanyScope(auth);
-    const visible = scope
-      ? new Set(
-          (await listVisibleAllowedCodes(ctx, auth)).map(
-            (record) => record.code,
-          ),
-        )
-      : null;
-    const docs = (
-      await ctx.db.query("case_documents").order("desc").take(100)
-    ).filter(
-      (doc) =>
-        visible === null ||
-        visible.has(doc.uploadedByCode.trim().toUpperCase()),
-    );
+    if (!scope) return [];
+    const docs = await ctx.db
+      .query("case_documents")
+      .withIndex("by_tenant_uploaded", (q) => q.eq("tenantId", scope))
+      .order("desc")
+      .take(100);
     return await Promise.all(
-      docs.map(async (doc) => ({
-        ...doc,
-        url: await ctx.storage.getUrl(doc.storageId),
-      })),
+      docs
+        .filter((doc) => !!doc.caseId)
+        .map(async (doc) => ({
+          ...doc,
+          url: await ctx.storage.getUrl(doc.storageId),
+        })),
     );
   },
 });

@@ -8,6 +8,7 @@ import {
 } from "livekit-server-sdk";
 import { makeFunctionReference } from "convex/server";
 import { action, internalAction } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import { v, ConvexError } from "convex/values";
 import { api, internal } from "./_generated/api";
 
@@ -152,6 +153,7 @@ const prepareInviteSession = makeFunctionReference<
     inviteId: string;
     roomName: string;
     operatorIdentity: string;
+    operatorViewerIdentity: string;
     passwordHash: string;
     passwordSalt: string;
     expiresAt: number;
@@ -219,6 +221,27 @@ const getOwnedInviteSessionForHost = makeFunctionReference<
   { code: string; deviceId: string; inviteId: string },
   { inviteId: string; roomName: string; operatorIdentity: string }
 >("externalVideoInvites:getOwnedInviteSessionForHost");
+
+const authorizationRevocationCleanupDetails = makeFunctionReference<
+  "query",
+  { auditLogId: Id<"audit_logs"> },
+  {
+    roomName: string;
+    participantIdentities: string[];
+    cleanupAttempts: number;
+  } | null
+>("authorizationCodeLifecycle:authorizationRevocationCleanupDetails");
+
+const recordAuthorizationRevocationCleanup = makeFunctionReference<
+  "mutation",
+  {
+    auditLogId: Id<"audit_logs">;
+    attempt: number;
+    success: boolean;
+    error?: string;
+  },
+  null
+>("authorizationCodeLifecycle:recordAuthorizationRevocationCleanup");
 
 async function waitForActiveParticipantSources(
   roomService: RoomServiceClient,
@@ -587,6 +610,50 @@ export const retryTransferCleanup = internalAction({
   },
 });
 
+export const retryAuthorizationRevocation = internalAction({
+  args: {
+    auditLogId: v.id("audit_logs"),
+    attempt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const details = await ctx.runQuery(authorizationRevocationCleanupDetails, {
+      auditLogId: args.auditLogId,
+    });
+    if (!details?.participantIdentities.length) return;
+    const result = await runTransferCleanupAttempt({
+      cleanup: async () => {
+        const { apiUrl, apiKey, apiSecret } = liveKitConfig();
+        const roomService = new RoomServiceClient(apiUrl, apiKey, apiSecret);
+        await cleanupTransferredPublishers(roomService, details);
+      },
+      record: (record) =>
+        ctx.runMutation(recordAuthorizationRevocationCleanup, {
+          auditLogId: args.auditLogId,
+          attempt: args.attempt,
+          ...record,
+        }),
+      onRecordError: (error) =>
+        console.error(
+          "[AUTHORIZATION_REVOCATION] failed to record cleanup status",
+          {
+            auditLogId: args.auditLogId,
+            attempt: args.attempt,
+            error,
+          },
+        ),
+    });
+    if (!result.success)
+      console.error(
+        "[AUTHORIZATION_REVOCATION] scheduled LiveKit cleanup failed",
+        {
+          auditLogId: args.auditLogId,
+          attempt: args.attempt,
+          error: result.error,
+        },
+      );
+  },
+});
+
 export const acceptIncomingCall = action({
   args: { code: v.string(), deviceId: v.string(), callId: v.string() },
   handler: async (
@@ -689,6 +756,7 @@ export const createFaceSwapInvite = action({
         inviteId,
         roomName,
         operatorIdentity,
+        operatorViewerIdentity,
         passwordHash,
         passwordSalt,
         expiresAt,

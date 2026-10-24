@@ -49,6 +49,26 @@ export function assertSameTenant(
     });
 }
 
+export function isActiveAuthorizationTarget(
+  allowed: { enabled?: boolean; expiresAt?: number } | null | undefined,
+) {
+  return Boolean(
+    allowed &&
+    allowed.enabled !== false &&
+    (allowed.expiresAt === undefined || allowed.expiresAt > Date.now()),
+  );
+}
+
+export function assertActiveAuthorizationTarget(
+  allowed: { enabled?: boolean; expiresAt?: number } | null | undefined,
+) {
+  if (!isActiveAuthorizationTarget(allowed))
+    throw new ConvexError({
+      code: "NOT_FOUND",
+      message: "对方的授权码无效或不可用。",
+    });
+}
+
 export function assertAuthorizationSetCanExpand(auth: {
   allowed?: { companyId?: string } | null;
 }) {
@@ -80,19 +100,22 @@ export async function requireSession(
       session.mobileDeviceId === deviceId ||
       session.mobileAppDeviceId === deviceId ||
       session.desktopDeviceId === deviceId);
-  if (!session || !validDevice) {
+  // A device binding is only a session for a currently authorized code.
+  // Fail closed when the allowlist record has been removed so stale
+  // auth_codes rows cannot retain access to messages, calls, or admin APIs.
+  if (!session || !allowed || !validDevice) {
     throw new ConvexError({
       code: "UNAUTHENTICATED",
       message: "需要有效的登录会话。",
     });
   }
-  if (allowed?.enabled === false)
+  if (allowed.enabled === false)
     throw new ConvexError({ code: "FORBIDDEN", message: "此授权码已停用。" });
-  if (allowed?.expiresAt && allowed.expiresAt <= Date.now())
+  if (allowed.expiresAt !== undefined && allowed.expiresAt <= Date.now())
     throw new ConvexError({ code: "FORBIDDEN", message: "此授权码已过期。" });
   return {
     code: normalized,
-    role: (allowed?.role ?? "user") as SystemRole,
+    role: allowed.role as SystemRole,
     session,
     allowed,
   };

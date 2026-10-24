@@ -14,6 +14,7 @@ import {
   requireGroupTenant,
   tenantIdForGroup,
 } from "./tenantBoundaries";
+import { consumeFileUpload, createFileUploadAdmission } from "./messages";
 
 const MAX_GROUP_MEMBERS = 20;
 const authArgs = { code: v.string(), deviceId: v.string() };
@@ -70,7 +71,10 @@ export const generateUploadUrl = mutation({
   handler: async (ctx, args) => {
     const auth = await requireSession(ctx, args.code, args.deviceId);
     await activeMember(ctx, args.groupId, auth);
-    return await ctx.storage.generateUploadUrl();
+    return await createFileUploadAdmission(ctx, auth, args.deviceId, {
+      purpose: "group_message",
+      groupId: args.groupId,
+    });
   },
 });
 
@@ -478,9 +482,11 @@ export const messages = query({
     return await Promise.all(
       records.reverse().map(async (record) => ({
         ...record,
-        url: record.storageId
-          ? await ctx.storage.getUrl(record.storageId)
-          : null,
+        storageId: record.type === "text" ? undefined : record.storageId,
+        url:
+          record.type !== "text" && record.storageId
+            ? await ctx.storage.getUrl(record.storageId)
+            : null,
       })),
     );
   },
@@ -506,8 +512,30 @@ export const sendMessage = mutation({
       throw new ConvexError({ code: "BAD_REQUEST", message: "请输入消息。" });
     if (args.type === "text" && args.text!.trim().length > 5000)
       throw new ConvexError({ code: "BAD_REQUEST", message: "消息过长。" });
+    if (args.type === "text" && args.storageId)
+      throw new ConvexError({
+        code: "BAD_REQUEST",
+        message: "文字消息不能包含附件。",
+      });
     if (args.type !== "text" && !args.storageId)
       throw new ConvexError({ code: "BAD_REQUEST", message: "找不到附件。" });
+    if (args.type !== "text") {
+      const mimeType = await consumeFileUpload(
+        ctx,
+        auth,
+        args.deviceId,
+        args.storageId!,
+        { purpose: "group_message", groupId: args.groupId },
+      );
+      if (
+        (args.type === "image" && !mimeType.startsWith("image/")) ||
+        (args.type === "video" && !mimeType.startsWith("video/"))
+      )
+        throw new ConvexError({
+          code: "BAD_REQUEST",
+          message: "Upload MIME type does not match the attachment.",
+        });
+    }
     return await ctx.db.insert("chat_group_messages", {
       groupId: args.groupId,
       senderUserId: auth.code,

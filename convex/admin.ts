@@ -10,6 +10,8 @@ import {
   requireSuperAdmin,
 } from "./roles";
 import { isClaimSecretHash } from "./claimCredentials";
+import { adminCanAccessCase, assertAdminCanAccessCase } from "./caseTenant";
+import { revokeAuthorizationCodeIdentityState } from "./authorizationCodeLifecycle";
 
 async function visibleCodeSet(
   ctx: QueryCtx | MutationCtx,
@@ -167,12 +169,14 @@ export const getAllCases = query({
   args: { password: v.string() },
   handler: async (ctx: QueryCtx, args) => {
     const auth = await requireAdmin(ctx, args.password);
-    const records = await ctx.db.query("cases").order("desc").take(100);
-    if (!getAdminCompanyScope(auth)) return records;
-    const visible = new Set(
-      (await listVisibleAllowedCodes(ctx, auth)).map((item) => item.code),
-    );
-    return records.filter((record) => visible.has(record.assignedCode));
+    const scope = getAdminCompanyScope(auth);
+    if (scope)
+      return await ctx.db
+        .query("cases")
+        .withIndex("by_tenant_created", (q) => q.eq("tenantId", scope))
+        .order("desc")
+        .take(100);
+    return await ctx.db.query("cases").order("desc").take(100);
   },
 });
 
@@ -379,7 +383,7 @@ export const resetCode = mutation({
         code: "BAD_REQUEST",
         message: "设备启用密钥摘要无效。",
       });
-    await ctx.db.delete(record._id);
+    await revokeAuthorizationCodeIdentityState(ctx, record.code);
     if (access && args.claimSecretHash)
       await ctx.db.patch(access._id, {
         claimSecretHash: args.claimSecretHash,
@@ -448,7 +452,7 @@ export const updateCaseStatusAdmin = mutation({
     const record = await ctx.db.get(args.caseId);
     if (!record)
       throw new ConvexError({ code: "NOT_FOUND", message: "找不到案件。" });
-    await assertAdminCanAccessCode(ctx, auth, record.assignedCode);
+    assertAdminCanAccessCase(auth, record);
     await ctx.db.patch(args.caseId, {
       status: args.status,
       updatedAt: new Date().toISOString(),
@@ -463,7 +467,7 @@ export const deleteCaseAdmin = mutation({
     const record = await ctx.db.get(args.caseId);
     if (!record)
       throw new ConvexError({ code: "NOT_FOUND", message: "找不到案件。" });
-    await assertAdminCanAccessCode(ctx, auth, record.assignedCode);
+    assertAdminCanAccessCase(auth, record);
     await ctx.db.delete(args.caseId);
   },
 });
@@ -499,7 +503,7 @@ export const getStats = query({
       (record) => messageIsVisible(visibleAll, record),
     );
     const cases = (await ctx.db.query("cases").collect()).filter((record) =>
-      codeIsVisible(visibleAll, record.assignedCode),
+      adminCanAccessCase(auth, record),
     );
     const activeCalls = (
       await ctx.db.query("chat_group_calls").collect()

@@ -8,6 +8,16 @@ const modules = import.meta.glob("./**/*.*s");
 async function setup() {
   const t = convexTest({ schema, modules });
   await t.run(async (ctx) => {
+    await ctx.db.insert("allowed_codes", {
+      code: "USERA",
+      role: "user",
+      enabled: true,
+    });
+    await ctx.db.insert("allowed_codes", {
+      code: "USERB",
+      role: "user",
+      enabled: true,
+    });
     await ctx.db.insert("auth_codes", {
       code: "USERA",
       deviceId: "device-a",
@@ -138,6 +148,58 @@ describe("presence and browser notification subscriptions", () => {
     ).toBeNull();
   });
 
+  test("expiresAt zero cannot restore an authorization session", async () => {
+    const t = convexTest({ schema, modules });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("allowed_codes", {
+        code: "ZEROA",
+        role: "user",
+        enabled: true,
+        expiresAt: 0,
+      });
+      await ctx.db.insert("auth_codes", {
+        code: "ZEROA",
+        deviceId: "device-zero",
+        name: "Zero Expiry",
+        usedAt: new Date().toISOString(),
+      });
+    });
+
+    await expect(
+      t.query(api.authCodes.getSessionRole, {
+        code: "ZEROA",
+        deviceId: "device-zero",
+      }),
+    ).resolves.toBeNull();
+  });
+
+  test("expiresAt zero cannot be reclaimed by an already-bound device", async () => {
+    const t = convexTest({ schema, modules });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("allowed_codes", {
+        code: "ZEROB",
+        role: "user",
+        enabled: true,
+        expiresAt: 0,
+      });
+      await ctx.db.insert("auth_codes", {
+        code: "ZEROB",
+        deviceId: "device-zero",
+        name: "Zero Expiry",
+        usedAt: new Date().toISOString(),
+      });
+    });
+
+    await expect(
+      t.mutation(api.authCodes.claimCode, {
+        code: "ZEROB",
+        deviceId: "device-zero",
+        deviceType: "desktop",
+        name: "Zero Expiry",
+      }),
+    ).rejects.toThrow("此授权码已过期");
+  });
+
   test("one full-feature authorization code allows exactly two devices of any type", async () => {
     const t = convexTest({ schema, modules });
     const secret = "A".repeat(32);
@@ -224,7 +286,7 @@ describe("presence and browser notification subscriptions", () => {
     ).rejects.toThrow();
   });
 
-  test("an unlimited authorization code accepts additional devices", async () => {
+  test("a legacy unlimitedDevices flag cannot bypass the effective tier limit", async () => {
     const t = convexTest({ schema, modules });
     const secret = "A".repeat(32);
     const claimSecretHash = await hashClaimSecret("MULTI1", secret);
@@ -243,30 +305,20 @@ describe("presence and browser notification subscriptions", () => {
       deviceType: "mobile",
       name: "Multi Device",
     });
-    await t.mutation(api.authCodes.claimCode, {
-      code: `MULTI1.${secret}`,
-      deviceId: "phone-2",
-      deviceType: "mobile",
-      name: "Multi Device",
-    });
-    await t.mutation(api.authCodes.claimCode, {
-      code: `MULTI1.${secret}`,
-      deviceId: "desktop-2",
-      deviceType: "desktop",
-      name: "Multi Device",
-    });
-    expect(
-      await t.query(api.authCodes.getSessionRole, {
-        code: "MULTI1",
+    await expect(
+      t.mutation(api.authCodes.claimCode, {
+        code: `MULTI1.${secret}`,
         deviceId: "phone-2",
+        deviceType: "mobile",
+        name: "Multi Device",
       }),
-    ).toMatchObject({ role: "user" });
-    expect(
-      await t.query(api.authCodes.getSessionRole, {
+    ).rejects.toThrow("仅允许绑定一台设备");
+    await expect(
+      t.query(api.authCodes.getSessionRole, {
         code: "MULTI1",
-        deviceId: "desktop-2",
+        deviceId: "phone-1",
       }),
-    ).toMatchObject({ role: "user" });
+    ).resolves.toMatchObject({ role: "user" });
   });
 
   test("online status is derived from an authenticated heartbeat", async () => {

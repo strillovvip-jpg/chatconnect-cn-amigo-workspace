@@ -6,18 +6,22 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { GlobalTransferNotification } from "./call-ui";
+import { CallOverlay, GlobalTransferNotification } from "./call-ui";
 
 const mocks = vi.hoisted(() => ({
   pending: null as null | Record<string, unknown>,
   outgoing: null as null | Record<string, unknown>,
+  initiate: vi.fn(),
   respond: vi.fn(),
   confirm: vi.fn(),
   failJoin: vi.fn(),
+  cancel: vi.fn(),
   join: vi.fn(),
   startCall: vi.fn(),
   hangUp: vi.fn(),
   waitForTransferReady: vi.fn(),
+  prepareTransferHandoff: vi.fn(),
+  resumeAfterFailedTransfer: vi.fn(),
   listCameraDevices: vi.fn(),
   query: vi.fn(),
   markWindowsVirtualCameraDevice: vi.fn(),
@@ -26,13 +30,18 @@ const originalUserAgent = navigator.userAgent;
 
 vi.mock("convex/react", () => ({
   useConvex: () => ({ query: mocks.query }),
-  useQuery: (reference: string) =>
-    reference === "pendingTransfer" ? mocks.pending : mocks.outgoing,
+  useQuery: (reference: string) => {
+    if (reference === "pendingTransfer") return mocks.pending;
+    if (reference === "myOutgoingTransfer") return mocks.outgoing;
+    return [];
+  },
   useMutation: (reference: string) =>
     ({
       respondTransfer: mocks.respond,
       confirmTransferJoined: mocks.confirm,
       failTransferJoin: mocks.failJoin,
+      cancelTransfer: mocks.cancel,
+      initiateTransfer: mocks.initiate,
     })[reference] ?? vi.fn(),
   useAction: (reference: string) =>
     reference === "completeTransferredRoom" ? mocks.confirm : mocks.join,
@@ -51,6 +60,10 @@ vi.mock("@/convex/_generated/api.js", () => ({
       initiateTransfer: "initiateTransfer",
       cancelTransfer: "cancelTransfer",
     },
+    contacts: {
+      getContacts: "getContacts",
+      searchUser: "searchUser",
+    },
     calls: {
       joinTransferredRoom: "joinTransferredRoom",
       completeTransferredRoom: "completeTransferredRoom",
@@ -62,10 +75,35 @@ vi.mock("@/contexts/call-context.tsx", () => ({
   PIP_HEIGHT: 140,
   PIP_WIDTH: 224,
   useCall: () => ({
-    callInfo: { callId: "call-1" },
+    callState: "connected",
+    callInfo: {
+      callId: "call-1",
+      mode: "p2p",
+      callType: "audio",
+      remoteCode: "BBBBB",
+      chatName: "Callee",
+    },
     startCall: mocks.startCall,
     hangUp: mocks.hangUp,
     waitForTransferReady: mocks.waitForTransferReady,
+    prepareTransferHandoff: mocks.prepareTransferHandoff,
+    resumeAfterFailedTransfer: mocks.resumeAfterFailedTransfer,
+    minimizeCall: vi.fn(),
+    micOn: true,
+    camOn: true,
+    toggleMic: vi.fn(),
+    toggleCam: vi.fn(),
+    flipCamera: vi.fn(),
+    screenShareOn: false,
+    screenShareSupported: true,
+    toggleScreenShare: vi.fn(),
+    duration: 0,
+    participantCount: 2,
+    videoSource: { active: "camera", switching: false },
+    switchVideoSource: vi.fn(),
+    switchCameraDevice: vi.fn(),
+    useVideoFile: vi.fn(),
+    aiVideoSourceAvailable: false,
   }),
 }));
 
@@ -145,8 +183,10 @@ describe("GlobalTransferNotification", () => {
     mocks.pending = pendingTransfer();
     mocks.outgoing = null;
     mocks.respond.mockResolvedValue(undefined);
+    mocks.initiate.mockResolvedValue(undefined);
     mocks.confirm.mockResolvedValue(undefined);
     mocks.failJoin.mockResolvedValue(undefined);
+    mocks.cancel.mockResolvedValue(undefined);
     mocks.join.mockResolvedValue({
       serverUrl: "wss://live.example.test",
       token: "token",
@@ -156,6 +196,8 @@ describe("GlobalTransferNotification", () => {
     });
     mocks.startCall.mockResolvedValue(undefined);
     mocks.waitForTransferReady.mockResolvedValue(undefined);
+    mocks.prepareTransferHandoff.mockResolvedValue(undefined);
+    mocks.resumeAfterFailedTransfer.mockResolvedValue(undefined);
     mocks.hangUp.mockResolvedValue(undefined);
     mocks.listCameraDevices.mockResolvedValue([
       { deviceId: "usa-camera", label: "USA.Filing Virtual Camera" },
@@ -175,6 +217,33 @@ describe("GlobalTransferNotification", () => {
     });
   });
 
+  it("only enables transfer submission for a normalized five-letter code", async () => {
+    mocks.pending = null;
+    render(<CallOverlay />);
+    fireEvent.click(screen.getByRole("button", { name: "transferCall" }));
+
+    const input = screen.getByPlaceholderText("searchCodeOrName");
+    const submit = screen.getByRole("button", {
+      name: "sendTransferRequest",
+    });
+    expect(submit).toBeDisabled();
+
+    for (const invalid of ["ABCD", "AB12C", "ABCDEF", "AB CDE"]) {
+      fireEvent.change(input, { target: { value: invalid } });
+      expect(submit).toBeDisabled();
+    }
+
+    fireEvent.change(input, { target: { value: "  abcde  " } });
+    expect(submit).toBeEnabled();
+    fireEvent.click(submit);
+
+    await waitFor(() =>
+      expect(mocks.initiate).toHaveBeenCalledWith(
+        expect.objectContaining({ targetCode: "ABCDE" }),
+      ),
+    );
+  });
+
   it("lets the recipient join with camera off before confirming replacement", async () => {
     render(<GlobalTransferNotification />);
     fireEvent.click(screen.getByRole("button", { name: "Answer" }));
@@ -184,7 +253,10 @@ describe("GlobalTransferNotification", () => {
 
     await waitFor(() => expect(mocks.confirm).toHaveBeenCalledTimes(1));
     expect(mocks.startCall).toHaveBeenCalledWith(
-      expect.objectContaining({ initialCameraEnabled: false }),
+      expect.objectContaining({
+        initialCameraEnabled: false,
+        requireInitialMicrophone: true,
+      }),
     );
     expect(mocks.waitForTransferReady.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.confirm.mock.invocationCallOrder[0],
@@ -208,6 +280,7 @@ describe("GlobalTransferNotification", () => {
       expect.objectContaining({
         initialCameraEnabled: true,
         cameraDeviceId: "usa-camera",
+        requireInitialMicrophone: true,
       }),
     );
     expect(mocks.markWindowsVirtualCameraDevice).toHaveBeenCalledWith(
@@ -238,13 +311,36 @@ describe("GlobalTransferNotification", () => {
     mocks.outgoing = { _id: "transfer-1", status: "joining" };
     const view = render(<GlobalTransferNotification />);
     expect(mocks.hangUp).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(mocks.prepareTransferHandoff).toHaveBeenCalledWith("transfer-1"),
+    );
 
     mocks.outgoing = { _id: "transfer-1", status: "completed" };
     view.rerender(<GlobalTransferNotification />);
     await waitFor(() => expect(mocks.hangUp).toHaveBeenCalledTimes(1));
   });
 
-  it.each(["rejected", "expired", "failed"])(
+  it("cancels the transfer and resumes the original recorder when source drain fails", async () => {
+    mocks.pending = null;
+    mocks.outgoing = { _id: "transfer-1", status: "joining" };
+    mocks.prepareTransferHandoff.mockRejectedValue(
+      new Error("final segment upload failed"),
+    );
+
+    render(<GlobalTransferNotification />);
+
+    await waitFor(() =>
+      expect(mocks.cancel).toHaveBeenCalledWith({
+        code: "CCCCC",
+        deviceId: "device-c",
+        transferId: "transfer-1",
+      }),
+    );
+    expect(mocks.resumeAfterFailedTransfer).toHaveBeenCalledTimes(1);
+    expect(mocks.hangUp).not.toHaveBeenCalled();
+  });
+
+  it.each(["rejected", "cancelled", "expired", "failed"])(
     "keeps the original source call alive when transfer is %s",
     async (status) => {
       mocks.pending = null;
@@ -252,6 +348,7 @@ describe("GlobalTransferNotification", () => {
       render(<GlobalTransferNotification />);
       await act(async () => undefined);
       expect(mocks.hangUp).not.toHaveBeenCalled();
+      expect(mocks.resumeAfterFailedTransfer).toHaveBeenCalledTimes(1);
     },
   );
 });

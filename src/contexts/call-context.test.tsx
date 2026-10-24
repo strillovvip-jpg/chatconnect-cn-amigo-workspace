@@ -37,6 +37,12 @@ const mocks = vi.hoisted(() => ({
   handleProcessedCameraFailure: vi.fn(),
   stopWindowsHelperForPublisher: vi.fn(),
   endP2PCall: vi.fn(),
+  flushCallRecording: vi.fn().mockResolvedValue(undefined),
+  flushCallRecordingForTransfer: vi.fn().mockResolvedValue(true),
+  resumeCallRecording: vi.fn().mockResolvedValue(undefined),
+  acknowledgeTransferRecordingDrain: vi
+    .fn()
+    .mockResolvedValue({ acknowledged: true }),
   markP2PConnected: vi.fn(),
   successToast: vi.fn(),
   backendCall: null as null | {
@@ -136,6 +142,8 @@ vi.mock("convex/react", () => ({
   useMutation: (reference: string) => {
     if (reference === "endP2PCall") return mocks.endP2PCall;
     if (reference === "markP2PConnected") return mocks.markP2PConnected;
+    if (reference === "acknowledgeTransferRecordingDrain")
+      return mocks.acknowledgeTransferRecordingDrain;
     return vi.fn().mockResolvedValue(undefined);
   },
 }));
@@ -147,6 +155,9 @@ vi.mock("@/convex/_generated/api.js", () => ({
       markParticipantConnected: "markP2PConnected",
       heartbeatCall: "heartbeatCall",
       callStatus: "callStatus",
+    },
+    callCompliance: {
+      acknowledgeTransferRecordingDrain: "acknowledgeTransferRecordingDrain",
     },
     groupCallState: {
       leave: "leaveGroupCall",
@@ -189,6 +200,9 @@ vi.mock("@/components/livekit-stage.tsx", () => ({
 }));
 
 vi.mock("@/components/call-compliance-agent.tsx", () => ({
+  flushCallRecording: mocks.flushCallRecording,
+  flushCallRecordingForTransfer: mocks.flushCallRecordingForTransfer,
+  resumeCallRecording: mocks.resumeCallRecording,
   CallComplianceAgent: (props: Record<string, unknown>) => {
     mocks.complianceProps.push(props);
     return null;
@@ -342,6 +356,11 @@ describe("CallProvider native face-swap media mode", () => {
     );
     mocks.stopWindowsHelperForPublisher.mockResolvedValue(false);
     mocks.endP2PCall.mockResolvedValue(undefined);
+    mocks.flushCallRecordingForTransfer.mockResolvedValue(true);
+    mocks.resumeCallRecording.mockResolvedValue(undefined);
+    mocks.acknowledgeTransferRecordingDrain.mockResolvedValue({
+      acknowledged: true,
+    });
     mocks.markP2PConnected.mockResolvedValue(undefined);
   });
 
@@ -461,6 +480,13 @@ describe("CallProvider native face-swap media mode", () => {
     });
 
     expect(mocks.bridgeDisconnect).toHaveBeenCalledTimes(1);
+    expect(mocks.flushCallRecording).toHaveBeenCalledWith(browserRoom);
+    expect(mocks.flushCallRecording.mock.invocationCallOrder[0]).toBeLessThan(
+      browserRoom.disconnect.mock.invocationCallOrder[0],
+    );
+    expect(mocks.flushCallRecording.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.endP2PCall.mock.invocationCallOrder[0],
+    );
     expect(browserRoom.disconnect).toHaveBeenCalledTimes(1);
     expect(mocks.endP2PCall).toHaveBeenCalledWith({
       code: "CALLER",
@@ -494,6 +520,51 @@ describe("CallProvider native face-swap media mode", () => {
     expect(mocks.bridgeDisconnect).toHaveBeenCalledTimes(1);
     expect(browserRoom.disconnect).toHaveBeenCalledTimes(1);
     expect(mocks.endP2PCall).not.toHaveBeenCalled();
+  });
+
+  it("coordinates transfer recording drain and rollback against the active room", async () => {
+    render(
+      <CallProvider>
+        <CaptureCallContext />
+      </CallProvider>,
+    );
+    await act(async () => {
+      await callApi.startCall({ ...baseCall, token: "browser-token" });
+    });
+    const browserRoom = mocks.rooms[0];
+
+    await act(async () => {
+      await callApi.prepareTransferHandoff("transfer-1" as never);
+      await callApi.resumeAfterFailedTransfer();
+    });
+
+    expect(mocks.flushCallRecordingForTransfer).toHaveBeenCalledWith(
+      browserRoom,
+      "transfer-1",
+    );
+    expect(mocks.resumeCallRecording).toHaveBeenCalledWith(browserRoom);
+    expect(browserRoom.disconnect).not.toHaveBeenCalled();
+    expect(mocks.endP2PCall).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the server drain acknowledgement when no recorder controller is registered", async () => {
+    mocks.flushCallRecordingForTransfer.mockResolvedValueOnce(false);
+    render(
+      <CallProvider>
+        <CaptureCallContext />
+      </CallProvider>,
+    );
+    await act(async () => {
+      await callApi.startCall({ ...baseCall, token: "browser-token" });
+      await callApi.prepareTransferHandoff("transfer-fallback" as never);
+    });
+
+    expect(mocks.acknowledgeTransferRecordingDrain).toHaveBeenCalledWith({
+      code: "CALLER",
+      deviceId: "device-1",
+      callId: baseCall.callId,
+      transferId: "transfer-fallback",
+    });
   });
 
   it("ends Windows helper processing after the virtual-camera publisher ends", async () => {

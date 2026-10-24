@@ -82,6 +82,33 @@ async function moveUserToNyfbi(
   });
 }
 
+async function setupTwoDeviceGroupHost() {
+  const t = await setupTenantUsers();
+  await t.run(async (ctx) => {
+    const session = await ctx.db
+      .query("auth_codes")
+      .withIndex("by_code", (q) => q.eq("code", "AIOWN"))
+      .unique();
+    if (!session) throw new Error("Missing AIOWN session fixture");
+    await ctx.db.patch(session._id, {
+      deviceIds: ["device-ai-owner", "device-ai-owner-secondary"],
+    });
+  });
+  const groupId = await t.mutation(api.groups.create, {
+    code: "AIOWN",
+    deviceId: "device-ai-owner",
+    name: "Two-device host group",
+    memberCodes: ["AIMEM"],
+  });
+  const call = await t.mutation(api.groupCallState.createCall, {
+    code: "AIOWN",
+    deviceId: "device-ai-owner",
+    groupId,
+    type: "video",
+  });
+  return { t, call };
+}
+
 describe("runtime tenant enforcement for existing direct relationships", () => {
   test("a legacy contact disappears when the recipient moves to another tenant", async () => {
     const t = await setupTenantUsers();
@@ -145,9 +172,78 @@ describe("runtime tenant enforcement for existing direct relationships", () => {
       expect(await ctx.db.query("notifications").collect()).toHaveLength(0);
     });
   });
+
+  test.each([
+    ["disabled", { enabled: false }],
+    ["expired", { expiresAt: Date.now() - 1 }],
+  ] as const)(
+    "messages to a %s authorization code fail before storage or notification",
+    async (_state, patch) => {
+      const t = await setupTenantUsers();
+      await t.run(async (ctx) => {
+        await ctx.db.insert("contacts", {
+          ownerCode: "AIOWN",
+          targetCode: "AIMEM",
+          targetName: "Aichijp Member",
+          addedAt: new Date().toISOString(),
+        });
+        const recipient = await ctx.db
+          .query("allowed_codes")
+          .withIndex("by_code", (q) => q.eq("code", "AIMEM"))
+          .unique();
+        if (!recipient) throw new Error("Missing AIMEM fixture");
+        await ctx.db.patch(recipient._id, patch);
+      });
+
+      await expect(
+        t.mutation(api.messages.sendText, {
+          myCode: "AIOWN",
+          myName: "Ignored client name",
+          theirCode: "AIMEM",
+          deviceId: "device-ai-owner",
+          text: "Must not be delivered",
+        }),
+      ).rejects.toThrow();
+      await t.run(async (ctx) => {
+        expect(await ctx.db.query("messages").collect()).toHaveLength(0);
+        expect(await ctx.db.query("notifications").collect()).toHaveLength(0);
+      });
+    },
+  );
 });
 
 describe("runtime tenant enforcement for existing one-to-one calls", () => {
+  test.each([
+    ["disabled", { enabled: false }],
+    ["expired", { expiresAt: Date.now() - 1 }],
+  ] as const)(
+    "a %s callee is rejected before ringing state or push is created",
+    async (_state, patch) => {
+      const t = await setupTenantUsers();
+      await t.run(async (ctx) => {
+        const callee = await ctx.db
+          .query("allowed_codes")
+          .withIndex("by_code", (q) => q.eq("code", "AIMEM"))
+          .unique();
+        if (!callee) throw new Error("Missing AIMEM fixture");
+        await ctx.db.patch(callee._id, patch);
+      });
+
+      await expect(
+        t.mutation(api.callState.prepareP2P, {
+          code: "AIOWN",
+          deviceId: "device-ai-owner",
+          theirCode: "AIMEM",
+          callType: "video",
+        }),
+      ).rejects.toThrow();
+      await t.run(async (ctx) => {
+        expect(await ctx.db.query("live_calls").collect()).toHaveLength(0);
+        expect(await ctx.db.query("notifications").collect()).toHaveLength(0);
+      });
+    },
+  );
+
   test("a reassigned callee cannot see or answer its former tenant call", async () => {
     const t = await setupTenantUsers();
     await t.run(async (ctx) => {
@@ -293,6 +389,59 @@ describe("runtime tenant enforcement for existing one-to-one calls", () => {
       expect(await ctx.db.query("notifications").collect()).toEqual([]);
     });
   });
+
+  test.each([
+    ["disabled", { enabled: false }],
+    ["expired", { expiresAt: Date.now() - 1 }],
+  ] as const)(
+    "a call transfer to a %s authorization code fails before transfer or push creation",
+    async (_state, patch) => {
+      const t = await setupTenantUsers();
+      await t.run(async (ctx) => {
+        const targetAllowed = await ctx.db
+          .query("allowed_codes")
+          .withIndex("by_code", (q) => q.eq("code", "NYUSR"))
+          .unique();
+        if (!targetAllowed) throw new Error("Missing NYUSR fixture");
+        await ctx.db.patch(targetAllowed._id, {
+          companyId: "aichijp",
+          ...patch,
+        });
+        await ctx.db.insert("user_presence", {
+          userId: "NYUSR",
+          lastSeenAt: Date.now(),
+          online: true,
+        });
+        await ctx.db.insert("live_calls", {
+          callId: "inactive-transfer-target-call",
+          roomName: "inactive-transfer-target-room",
+          type: "video",
+          status: "connected",
+          participantCodes: ["AIOWN", "AIMEM"],
+          createdByCode: "AIOWN",
+          callerUserId: "AIOWN",
+          callerDeviceId: "device-ai-owner",
+          calleeUserId: "AIMEM",
+          connectedAt: Date.now(),
+          lastActivityAt: Date.now(),
+          createdAt: Date.now(),
+        });
+      });
+
+      await expect(
+        t.mutation(api.callState.initiateTransfer, {
+          code: "AIOWN",
+          deviceId: "device-ai-owner",
+          callId: "inactive-transfer-target-call",
+          targetCode: "NYUSR",
+        }),
+      ).rejects.toThrow();
+      await t.run(async (ctx) => {
+        expect(await ctx.db.query("call_transfers").collect()).toHaveLength(0);
+        expect(await ctx.db.query("notifications").collect()).toHaveLength(0);
+      });
+    },
+  );
 
   test("a pending transfer becomes inaccessible when its target changes tenant", async () => {
     const t = await setupTenantUsers();
@@ -493,6 +642,54 @@ describe("runtime tenant enforcement for existing groups", () => {
     });
   });
 
+  test.each([
+    ["disabled", { enabled: false }],
+    ["expired", { expiresAt: Date.now() - 1 }],
+  ] as const)(
+    "group calls do not ring or push a %s authorization code",
+    async (_state, patch) => {
+      const t = await setupTenantUsers();
+      const groupId = await t.mutation(api.groups.create, {
+        code: "AIOWN",
+        deviceId: "device-ai-owner",
+        name: "Aichijp Group",
+        memberCodes: ["AIMEM"],
+      });
+      await t.run(async (ctx) => {
+        const memberAllowed = await ctx.db
+          .query("allowed_codes")
+          .withIndex("by_code", (q) => q.eq("code", "AIMEM"))
+          .unique();
+        if (!memberAllowed) throw new Error("Missing AIMEM fixture");
+        await ctx.db.patch(memberAllowed._id, patch);
+      });
+
+      const call = await t.mutation(api.groupCallState.createCall, {
+        code: "AIOWN",
+        deviceId: "device-ai-owner",
+        groupId,
+        type: "video",
+      });
+
+      await t.run(async (ctx) => {
+        const participants = await ctx.db
+          .query("chat_group_call_participants")
+          .withIndex("by_call", (q) => q.eq("groupCallId", call.groupCallId))
+          .collect();
+        expect(participants.map((participant) => participant.userId)).toEqual([
+          "AIOWN",
+        ]);
+        expect(
+          (await ctx.db.query("notifications").collect()).some(
+            (notification) =>
+              notification.userId === "AIMEM" &&
+              notification.type === "group_video_invite",
+          ),
+        ).toBe(false);
+      });
+    },
+  );
+
   test("an existing group-call invitation stops being visible after tenant reassignment", async () => {
     const t = await setupTenantUsers();
     const groupId = await t.mutation(api.groups.create, {
@@ -522,5 +719,143 @@ describe("runtime tenant enforcement for existing groups", () => {
         groupCallId: call.groupCallId,
       }),
     ).rejects.toThrow();
+  });
+
+  test.each(["block", "remove"] as const)(
+    "createCall cannot revive a participant after a host %ss them",
+    async (action) => {
+      const t = await setupTenantUsers();
+      const groupId = await t.mutation(api.groups.create, {
+        code: "AIOWN",
+        deviceId: "device-ai-owner",
+        name: "Moderated group",
+        memberCodes: ["AIMEM"],
+      });
+      const call = await t.mutation(api.groupCallState.createCall, {
+        code: "AIOWN",
+        deviceId: "device-ai-owner",
+        groupId,
+        type: "video",
+      });
+      await t.mutation(api.groupCallState.authorizeJoin, {
+        code: "AIMEM",
+        deviceId: "device-ai-member",
+        groupCallId: call.groupCallId,
+      });
+      await t.mutation(api.groupCallState.finalizeHostAction, {
+        code: "AIOWN",
+        deviceId: "device-ai-owner",
+        groupCallId: call.groupCallId,
+        targetCode: "AIMEM",
+        action,
+      });
+
+      await expect(
+        t.mutation(api.groupCallState.createCall, {
+          code: "AIMEM",
+          deviceId: "device-ai-member",
+          groupId,
+          type: "video",
+        }),
+      ).rejects.toThrow("您已被禁止重新加入此通话");
+
+      await t.run(async (ctx) => {
+        const participant = await ctx.db
+          .query("chat_group_call_participants")
+          .withIndex("by_call_user", (q) =>
+            q.eq("groupCallId", call.groupCallId).eq("userId", "AIMEM"),
+          )
+          .unique();
+        expect(participant).toMatchObject({
+          status: action === "block" ? "blocked" : "removed",
+          deviceId: "device-ai-member",
+        });
+      });
+    },
+  );
+
+  test("createCall cannot silently move a joined participant to another device", async () => {
+    const t = await setupTenantUsers();
+    await t.run(async (ctx) => {
+      const session = await ctx.db
+        .query("auth_codes")
+        .withIndex("by_code", (q) => q.eq("code", "AIMEM"))
+        .unique();
+      if (!session) throw new Error("Missing AIMEM session fixture");
+      await ctx.db.patch(session._id, {
+        deviceIds: ["device-ai-member", "device-ai-member-secondary"],
+      });
+    });
+    const groupId = await t.mutation(api.groups.create, {
+      code: "AIOWN",
+      deviceId: "device-ai-owner",
+      name: "Two-device group",
+      memberCodes: ["AIMEM"],
+    });
+    const call = await t.mutation(api.groupCallState.createCall, {
+      code: "AIOWN",
+      deviceId: "device-ai-owner",
+      groupId,
+      type: "video",
+    });
+    await t.mutation(api.groupCallState.authorizeJoin, {
+      code: "AIMEM",
+      deviceId: "device-ai-member",
+      groupCallId: call.groupCallId,
+    });
+
+    await expect(
+      t.mutation(api.groupCallState.createCall, {
+        code: "AIMEM",
+        deviceId: "device-ai-member-secondary",
+        groupId,
+        type: "video",
+      }),
+    ).rejects.toThrow("此通话已在另一台设备上加入");
+
+    await t.run(async (ctx) => {
+      const participant = await ctx.db
+        .query("chat_group_call_participants")
+        .withIndex("by_call_user", (q) =>
+          q.eq("groupCallId", call.groupCallId).eq("userId", "AIMEM"),
+        )
+        .unique();
+      expect(participant).toMatchObject({
+        status: "joined",
+        deviceId: "device-ai-member",
+      });
+    });
+  });
+
+  test("authorizeHostAction rejects a host code's device that did not join", async () => {
+    const { t, call } = await setupTwoDeviceGroupHost();
+
+    await expect(
+      t.mutation(api.groupCallState.authorizeHostAction, {
+        code: "AIOWN",
+        deviceId: "device-ai-owner-secondary",
+        groupCallId: call.groupCallId,
+        targetCode: "AIMEM",
+        action: "block",
+      }),
+    ).rejects.toThrow("只有主持人可以管理通话");
+  });
+
+  test("finalizeHostAction rejects a host code's device that did not join", async () => {
+    const { t, call } = await setupTwoDeviceGroupHost();
+
+    await expect(
+      t.mutation(api.groupCallState.finalizeHostAction, {
+        code: "AIOWN",
+        deviceId: "device-ai-owner-secondary",
+        groupCallId: call.groupCallId,
+        action: "end",
+      }),
+    ).rejects.toThrow("只有主持人可以管理通话");
+    await t.run(async (ctx) => {
+      const stored = await ctx.db.get(call.groupCallId);
+      expect(stored?.status).toBe("active");
+      expect(stored?.endedAt).toBeUndefined();
+    });
   });
 });

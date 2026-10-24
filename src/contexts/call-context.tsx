@@ -11,6 +11,7 @@ import { ConnectionState, Room, RoomEvent, Track } from "livekit-client";
 import { LiveKitStage } from "@/components/livekit-stage.tsx";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api.js";
+import type { Id } from "@/convex/_generated/dataModel.js";
 import { toast } from "sonner";
 import { useLocation } from "react-router-dom";
 import { VideoSourceManager } from "@/lib/video-sources/video-source-manager.ts";
@@ -20,7 +21,12 @@ import type {
   VideoSourceSnapshot,
 } from "@/lib/video-sources/types.ts";
 import { useFeatures } from "@/contexts/feature-context.tsx";
-import { CallComplianceAgent } from "@/components/call-compliance-agent.tsx";
+import {
+  CallComplianceAgent,
+  flushCallRecording,
+  flushCallRecordingForTransfer,
+  resumeCallRecording,
+} from "@/components/call-compliance-agent.tsx";
 import { useI18n } from "@/lib/i18n";
 import {
   handleProcessedCameraFailure,
@@ -93,6 +99,7 @@ type StartCallArgs = Omit<CallInfo, "mode"> & {
 type HangUpOptions = {
   preservePendingCall?: CallInfo;
   preserveBackendCall?: boolean;
+  skipRecordingFlush?: boolean;
 };
 
 type CallContextType = {
@@ -103,6 +110,8 @@ type CallContextType = {
   minimizeCall: () => void;
   expandCall: () => void;
   hangUp: (options?: HangUpOptions) => Promise<void>;
+  prepareTransferHandoff: (transferId: Id<"call_transfers">) => Promise<void>;
+  resumeAfterFailedTransfer: () => Promise<void>;
   micOn: boolean;
   camOn: boolean;
   toggleMic: () => Promise<void>;
@@ -240,6 +249,9 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const heartbeatCall = useMutation(api.callState.heartbeatCall);
   const heartbeatGroupCall = useMutation(api.groupCallState.heartbeat);
   const authorizeVideoSource = useMutation(api.features.authorizeVideoSource);
+  const acknowledgeTransferRecordingDrain = useMutation(
+    api.callCompliance.acknowledgeTransferRecordingDrain,
+  );
   const roomRef = useRef<Room | null>(null);
   const videoSourceManagerRef = useRef<VideoSourceManager | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -396,6 +408,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       reconnectTimeoutRef.current = null;
       const activeRoom = roomRef.current;
       const activeInfo = callInfoRef.current;
+      if (
+        !options?.preserveBackendCall &&
+        !options?.preservePendingCall &&
+        !options?.skipRecordingFlush
+      )
+        await flushCallRecording(activeRoom).catch(() => undefined);
       const shouldDisconnectNative =
         nativePublisherConnectedRef.current ||
         activeInfo?.localMediaMode === "face-swap";
@@ -477,6 +495,31 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     },
     [copy, stopTimer, stopLocalMedia, endP2PCall, leaveGroupCall],
   );
+
+  const prepareTransferHandoff = useCallback(
+    async (transferId: Id<"call_transfers">) => {
+      const activeRoom = roomRef.current;
+      const activeCall = callInfoRef.current;
+      if (!activeRoom || !activeCall?.callId)
+        throw new Error(copy.callNotConnected);
+      const controllerHandled = await flushCallRecordingForTransfer(
+        activeRoom,
+        transferId,
+      );
+      if (!controllerHandled)
+        await acknowledgeTransferRecordingDrain({
+          code: localStorage.getItem("ksc_session_code") ?? "",
+          deviceId: localStorage.getItem("ksc_device_id") ?? "",
+          callId: activeCall.callId,
+          transferId,
+        });
+    },
+    [acknowledgeTransferRecordingDrain, copy.callNotConnected],
+  );
+
+  const resumeAfterFailedTransfer = useCallback(async () => {
+    await resumeCallRecording(roomRef.current);
+  }, []);
 
   const startCall = useCallback(
     async (args: StartCallArgs) => {
@@ -957,8 +1000,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         await handleProcessedCameraFailure({
           disableCamera: () =>
             setCallCameraEnabled(activeRoom.localParticipant, false),
-          stopHelper: () =>
-            stopWindowsHelperForPublisher(info.cameraDeviceId),
+          stopHelper: () => stopWindowsHelperForPublisher(info.cameraDeviceId),
         });
       }
       toast.error(copy.mediaStopped, {
@@ -1072,7 +1114,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       toast.message(
         backendCall.status === "ended" ? copy.remoteEnded : copy.callEnded,
       );
-      void hangUp();
+      void hangUp({ skipRecordingFlush: true });
     }
   }, [backendCall, callInfo, copy, hangUp]);
 
@@ -1365,6 +1407,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       },
       expandCall: () => setCallState("connected" as const),
       hangUp,
+      prepareTransferHandoff,
+      resumeAfterFailedTransfer,
       micOn,
       camOn,
       toggleMic,
@@ -1397,6 +1441,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       startCall,
       connectPendingCall,
       hangUp,
+      prepareTransferHandoff,
+      resumeAfterFailedTransfer,
       micOn,
       camOn,
       toggleMic,

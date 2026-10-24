@@ -13,6 +13,12 @@ import {
   tenantIdForAllowed,
 } from "./roles";
 import { isClaimSecretHash } from "./claimCredentials";
+import {
+  assertAuthorizationCodeNotRetired,
+  enforceAuthorizationCodeDeviceLimit,
+  revokeAuthorizationCodeIdentityState,
+  scheduleAuthorizationCodeExpiry,
+} from "./authorizationCodeLifecycle";
 
 export const featureKeys = [
   "canVideoCall",
@@ -182,6 +188,29 @@ export async function effectiveFeatures(
   };
 }
 
+export function authorizationDeviceLimit(
+  role: string | null | undefined,
+  features: Record<FeatureKey, boolean>,
+) {
+  if (role === "admin" || role === "super_admin") return 2;
+  return featureKeys.every((key) => features[key] === true) ? 2 : 1;
+}
+
+export async function effectiveAuthorizationDeviceLimit(
+  ctx: DbCtx,
+  allowed:
+    | {
+        role?: string | null;
+        companyId?: string;
+        licenseProfileId?: Id<"license_profiles">;
+      }
+    | null
+    | undefined,
+) {
+  const license = await effectiveFeatures(ctx, allowed);
+  return authorizationDeviceLimit(allowed?.role, license.features);
+}
+
 export async function requireFeature(
   ctx: DbCtx,
   code: string,
@@ -295,6 +324,18 @@ export const updateProfile = mutation({
       features: args.features,
       updatedAt: Date.now(),
     });
+    const assignedCodes = (
+      await ctx.db.query("allowed_codes").collect()
+    ).filter((record) => record.licenseProfileId === profile._id);
+    for (const record of assignedCodes) {
+      const maxDevices = authorizationDeviceLimit(record.role, args.features);
+      await ctx.db.patch(record._id, {
+        maxDevices,
+        unlimitedDevices: undefined,
+        updatedAt: Date.now(),
+      });
+      await enforceAuthorizationCodeDeviceLimit(ctx, record.code, maxDevices);
+    }
   },
 });
 
@@ -321,8 +362,8 @@ export const configureCode = mutation({
         code: "FORBIDDEN",
         message: "无法修改总管理员的设置。",
       });
+    const profile = args.profileId ? await ctx.db.get(args.profileId) : null;
     if (args.profileId) {
-      const profile = await ctx.db.get(args.profileId);
       if (!profile)
         throw new ConvexError({
           code: "NOT_FOUND",
@@ -330,12 +371,31 @@ export const configureCode = mutation({
         });
       await assertAdminCanAccessProfile(ctx, auth, profile);
     }
+    const maxDevices = authorizationDeviceLimit(
+      target.role,
+      profile?.features ?? defaultFeatureFlags,
+    );
     await ctx.db.patch(target._id, {
       licenseProfileId: args.profileId,
       enabled: args.enabled,
       expiresAt: args.expiresAt,
+      maxDevices,
+      unlimitedDevices: undefined,
       updatedAt: Date.now(),
     });
+    if (
+      !args.enabled ||
+      (args.expiresAt !== undefined && args.expiresAt <= Date.now())
+    ) {
+      await revokeAuthorizationCodeIdentityState(ctx, code);
+      if (args.expiresAt !== undefined && args.expiresAt <= Date.now())
+        await ctx.db.patch(target._id, {
+          expiryRevocationVersion: args.expiresAt,
+        });
+    } else {
+      await scheduleAuthorizationCodeExpiry(ctx, target._id, args.expiresAt);
+      await enforceAuthorizationCodeDeviceLimit(ctx, code, maxDevices);
+    }
     await ctx.db.insert("audit_logs", {
       actorCode: auth.code,
       action: "license.configure",
@@ -364,10 +424,10 @@ export const createAuthorizationCode = mutation({
     const auth = await requireAdmin(ctx, args.password);
     assertAuthorizationSetCanExpand(auth);
     const code = args.targetCode.normalize("NFKC").trim().toUpperCase();
-    if (!/^[A-Z0-9]{4,20}$/.test(code))
+    if (!/^[A-Z]{5}$/.test(code))
       throw new ConvexError({
         code: "BAD_REQUEST",
-        message: "授权码必须为 4 至 20 位英文字母或数字。",
+        message: "Authorization code must contain exactly five letters.",
       });
     if (!isClaimSecretHash(args.claimSecretHash))
       throw new ConvexError({
@@ -381,6 +441,7 @@ export const createAuthorizationCode = mutation({
         .unique()
     )
       throw new ConvexError({ code: "CONFLICT", message: "此授权码已注册。" });
+    await assertAuthorizationCodeNotRetired(ctx, code);
     if (args.profileId) {
       const profile = await ctx.db.get(args.profileId);
       if (!profile)
@@ -420,17 +481,28 @@ export const createAuthorizationCode = mutation({
           updatedAt: Date.now(),
         }));
     }
-    await ctx.db.insert("allowed_codes", {
+    const assignedProfile = await ctx.db.get(profileId);
+    const maxDevices = authorizationDeviceLimit(
+      "user",
+      assignedProfile?.features ?? defaultFeatureFlags,
+    );
+    const authorizationCodeId = await ctx.db.insert("allowed_codes", {
       code,
       role: "user",
       companyId: auth.allowed?.companyId,
       enabled: true,
       claimSecretHash: args.claimSecretHash,
       licenseProfileId: profileId,
+      maxDevices,
       expiresAt: args.expiresAt,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
+    await scheduleAuthorizationCodeExpiry(
+      ctx,
+      authorizationCodeId,
+      args.expiresAt,
+    );
     await ctx.db.insert("audit_logs", {
       actorCode: auth.code,
       action: "auth_code.create",

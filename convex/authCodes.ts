@@ -2,7 +2,7 @@ import { mutation, query, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 import { assertSurfaceAccess, requireSession } from "./roles";
-import { effectiveFeatures } from "./features";
+import { effectiveAuthorizationDeviceLimit } from "./features";
 import type { MutationCtx } from "./_generated/server";
 import {
   constantTimeHashEqual,
@@ -11,6 +11,12 @@ import {
   isClaimSecretHash,
   splitClaimCredential,
 } from "./claimCredentials";
+import {
+  assertAuthorizationCodesNotRetired,
+  enforceAuthorizationCodeDeviceLimit,
+  retireAuthorizationCode,
+  revokeAuthorizationCodeIdentityState,
+} from "./authorizationCodeLifecycle";
 
 const authorizationCodePattern = /^[A-Z0-9]{4,20}$/;
 const profileFeatureKeys = [
@@ -307,6 +313,10 @@ export const replaceAuthorizationCodes = internalMutation({
       [...userCodes, ...administrators.keys()],
       args.claimSecretHashes,
     );
+    await assertAuthorizationCodesNotRetired(ctx, [
+      ...userCodes,
+      ...administrators.keys(),
+    ]);
 
     const profiles = await ctx.db.query("license_profiles").collect();
     const profileOwner = [...administrators.values()].find(
@@ -347,7 +357,22 @@ export const replaceAuthorizationCodes = internalMutation({
     const sessions = companyId
       ? allSessions.filter((session) => replacedCodes.has(session.code))
       : allSessions;
-    for (const session of sessions) await ctx.db.delete(session._id);
+    const removedCodes = new Set(
+      recordsToReplace
+        .filter((record) => !incomingCodes.has(record.code))
+        .map((record) => record.code),
+    );
+    for (const record of recordsToReplace) {
+      if (removedCodes.has(record.code))
+        await retireAuthorizationCode(ctx, record.code, {
+          retiredBy: "SYSTEM_IMPORT",
+          companyId: record.companyId,
+          reason: "bulk_replace",
+        });
+      else await revokeAuthorizationCodeIdentityState(ctx, record.code);
+    }
+    for (const session of sessions)
+      if (!replacedCodes.has(session.code)) await ctx.db.delete(session._id);
     for (const record of recordsToReplace) await ctx.db.delete(record._id);
 
     const now = Date.now();
@@ -357,6 +382,7 @@ export const replaceAuthorizationCodes = internalMutation({
         role: "user",
         companyId,
         enabled: true,
+        maxDevices: 2,
         claimSecretHash: claimSecretHashes.get(code),
         licenseProfileId: fullProfileId,
         createdAt: now,
@@ -368,6 +394,7 @@ export const replaceAuthorizationCodes = internalMutation({
         role: "user",
         companyId,
         enabled: true,
+        maxDevices: 1,
         claimSecretHash: claimSecretHashes.get(code),
         licenseProfileId: limitedProfileId,
         createdAt: now,
@@ -379,6 +406,7 @@ export const replaceAuthorizationCodes = internalMutation({
         role: administrator.role,
         companyId: administrator.companyId,
         enabled: true,
+        maxDevices: 2,
         unlimitedDevices: administrator.unlimitedDevices,
         claimSecretHash: claimSecretHashes.get(administrator.code),
         createdAt: now,
@@ -441,7 +469,34 @@ export const importAllowedCodes = internalMutation({
         code: "BAD_REQUEST",
         message: "每个授权码都必须有有效的设备启用密钥摘要。",
       });
+    await assertAuthorizationCodesNotRetired(
+      ctx,
+      records.map((record) => record.code),
+    );
+    // This endpoint replaces the complete allowlist and may rotate claim
+    // credentials. Revoke every prior device binding in the same transaction
+    // so neither removed nor credential-rotated codes retain a stale session.
+    const existingSessions = await ctx.db.query("auth_codes").collect();
     const existing = await ctx.db.query("allowed_codes").collect();
+    const incomingCodes = new Set(records.map((record) => record.code));
+    const existingCodeSet = new Set(existing.map((record) => record.code));
+    const removedCodes = new Set(
+      existing
+        .filter((record) => !incomingCodes.has(record.code))
+        .map((record) => record.code),
+    );
+    for (const record of existing) {
+      if (removedCodes.has(record.code))
+        await retireAuthorizationCode(ctx, record.code, {
+          retiredBy: "SYSTEM_IMPORT",
+          companyId: record.companyId,
+          reason: "bulk_import",
+        });
+      else await revokeAuthorizationCodeIdentityState(ctx, record.code);
+    }
+    for (const session of existingSessions) {
+      if (!existingCodeSet.has(session.code)) await ctx.db.delete(session._id);
+    }
     for (const record of existing) await ctx.db.delete(record._id);
     for (const item of records) {
       await ctx.db.insert("allowed_codes", {
@@ -490,14 +545,10 @@ export const assignAuthorizationCodeTenant = internalMutation({
 
 // Check if a code is already used and by which device
 export const getCodeStatus = query({
-  args: { code: v.string() },
+  args: { code: v.string(), deviceId: v.optional(v.string()) },
   handler: async (ctx, args) => {
-    const code = args.code.trim().toUpperCase();
-    const record = await ctx.db
-      .query("auth_codes")
-      .withIndex("by_code", (q) => q.eq("code", code))
-      .first();
-    return { used: Boolean(record) };
+    await requireSession(ctx, args.code, args.deviceId ?? "");
+    return { used: true };
   },
 });
 
@@ -567,15 +618,13 @@ export const claimCode = mutation({
     const boundDevices = existing
       ? Array.from(
           new Set(
-            (existing.deviceIds?.length
-              ? existing.deviceIds
-              : [
-                  existing.deviceId,
-                  existing.mobileDeviceId,
-                  existing.mobileAppDeviceId,
-                  existing.desktopDeviceId,
-                ]
-            ).filter((deviceId): deviceId is string => Boolean(deviceId)),
+            [
+              ...(existing.deviceIds ?? []),
+              existing.deviceId,
+              existing.mobileDeviceId,
+              existing.mobileAppDeviceId,
+              existing.desktopDeviceId,
+            ].filter((deviceId): deviceId is string => Boolean(deviceId)),
           ),
         )
       : [];
@@ -605,56 +654,45 @@ export const claimCode = mutation({
         message: "授权凭证无效。",
       });
     }
+    if (allowed.enabled === false)
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "此授权码已停用。",
+      });
     assertSurfaceAccess(allowed, args.surface);
-    if (allowed.expiresAt && allowed.expiresAt <= Date.now()) {
+    if (allowed.expiresAt !== undefined && allowed.expiresAt <= Date.now()) {
       throw new ConvexError({
         code: "FORBIDDEN",
         message: "此授权码已过期。",
       });
     }
-    const license = await effectiveFeatures(ctx, allowed);
-    const supportsComputerAndPhone =
-      allowed.role === "admin" ||
-      allowed.role === "super_admin" ||
-      profileFeatureKeys.every((key) => license.features[key] === true);
-    const deviceLimit = Math.min(
-      2,
-      Math.max(1, allowed.maxDevices ?? (supportsComputerAndPhone ? 2 : 1)),
-    );
+    const deviceLimit = await effectiveAuthorizationDeviceLimit(ctx, allowed);
 
     if (existing) {
-      if (allowed.enabled === false)
-        throw new ConvexError({
-          code: "FORBIDDEN",
-          message: "此授权码已停用。",
-        });
-      if (allowed.unlimitedDevices === true) {
-        const deviceIds = alreadyBound
-          ? boundDevices
-          : [...boundDevices, args.deviceId];
-        await ctx.db.patch(existing._id, {
-          name,
-          deviceIds,
-          lastLoginAt: Date.now(),
-        });
-        return { success: true, role: allowed.role, name, code };
-      }
-      const limitedBoundDevices = boundDevices.slice(0, deviceLimit);
       if (!alreadyBound && deviceLimit === 1) {
         throw new ConvexError({
           code: "CONFLICT",
           message: "此授权码仅允许绑定一台设备。",
         });
       }
-      if (!alreadyBound && limitedBoundDevices.length >= deviceLimit) {
+      if (!alreadyBound && boundDevices.length >= deviceLimit) {
         throw new ConvexError({
           code: "CONFLICT",
           message: "此全功能授权码最多同时登录两台设备。",
         });
       }
-      const deviceIds = alreadyBound
-        ? limitedBoundDevices
-        : [...limitedBoundDevices, args.deviceId];
+      let deviceIds: string[];
+      if (alreadyBound) {
+        const reconciled = await enforceAuthorizationCodeDeviceLimit(
+          ctx,
+          code,
+          deviceLimit,
+          args.deviceId,
+        );
+        deviceIds = [...reconciled.retainedDeviceIds].reverse();
+      } else {
+        deviceIds = [...boundDevices, args.deviceId];
+      }
       const patch = { name, deviceIds, lastLoginAt: Date.now() };
       await ctx.db.patch(existing._id, patch);
       return { success: true, role: allowed.role, name, code };

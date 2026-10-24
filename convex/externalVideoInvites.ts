@@ -75,13 +75,14 @@ function publicInviteState(
   };
 }
 
-export const prepareInviteSession = mutation({
+export const prepareInviteSession = internalMutation({
   args: {
     code: v.string(),
     deviceId: v.string(),
     inviteId: v.string(),
     roomName: v.string(),
     operatorIdentity: v.string(),
+    operatorViewerIdentity: v.string(),
     passwordHash: v.string(),
     passwordSalt: v.string(),
     expiresAt: v.number(),
@@ -117,6 +118,7 @@ export const prepareInviteSession = mutation({
       operatorCode: auth.code,
       operatorName: auth.session.name,
       operatorIdentity: args.operatorIdentity.trim(),
+      operatorViewerIdentity: args.operatorViewerIdentity.trim(),
       tenantId,
       passwordHash: args.passwordHash,
       passwordSalt: args.passwordSalt,

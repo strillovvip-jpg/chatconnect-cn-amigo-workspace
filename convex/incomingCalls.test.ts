@@ -661,6 +661,74 @@ describe("global incoming calls", () => {
     ).toMatchObject({ _id: transferId, targetUserId: "CCCCC" });
   });
 
+  test.each(["ABCD", "CODE1"])(
+    "rejects malformed transfer target %s before target discovery",
+    async (targetCode) => {
+      const t = await setup({ callerHasCalleeContact: true });
+      await t.run(async (ctx) => {
+        const profile = await ctx.db.query("license_profiles").first();
+        if (!profile) throw new Error("Expected a license profile");
+        await ctx.db.insert("auth_codes", {
+          code: "CODE1",
+          deviceId: "device-code-1",
+          name: "Invalid-format existing target",
+          usedAt: new Date().toISOString(),
+        });
+        await ctx.db.insert("allowed_codes", {
+          code: "CODE1",
+          role: "user",
+          enabled: true,
+          licenseProfileId: profile._id,
+        });
+        await ctx.db.insert("user_presence", {
+          userId: "CODE1",
+          lastSeenAt: Date.now(),
+          online: true,
+        });
+      });
+      const created = await t.mutation(api.callState.prepareP2P, {
+        code: "AAAAA",
+        deviceId: "device-a",
+        theirCode: "BBBBB",
+        callType: "video",
+      });
+      await t.mutation(api.callState.acceptAndAuthorizeIncomingJoin, {
+        code: "BBBBB",
+        deviceId: "device-b",
+        callId: created.callId,
+      });
+      await t.mutation(api.callState.markParticipantConnected, {
+        code: "AAAAA",
+        deviceId: "device-a",
+        callId: created.callId,
+      });
+      await t.mutation(api.callState.markParticipantConnected, {
+        code: "BBBBB",
+        deviceId: "device-b",
+        callId: created.callId,
+      });
+
+      await expect(
+        t.mutation(api.callState.initiateTransfer, {
+          code: "AAAAA",
+          deviceId: "device-a",
+          callId: created.callId,
+          targetCode,
+        }),
+      ).rejects.toThrow(
+        "Transfer target code must contain exactly five letters.",
+      );
+      await t.run(async (ctx) => {
+        expect(await ctx.db.query("call_transfers").collect()).toEqual([]);
+        expect(
+          (await ctx.db.query("notifications").collect()).filter(
+            (notification) => notification.type === "call_transfer",
+          ),
+        ).toEqual([]);
+      });
+    },
+  );
+
   test("a transfer receiver is told when the remaining peer publishes face-swap video", async () => {
     const t = await setup({ callerHasCalleeContact: true });
     const created = await t.mutation(api.callState.prepareP2P, {
@@ -775,6 +843,30 @@ describe("global incoming calls", () => {
       deviceId: "device-a",
       callId: created.callId,
       targetCode: "CCCCC",
+    });
+    await t.run(async (ctx) => {
+      const notification = await ctx.db
+        .query("notifications")
+        .withIndex("by_user_status", (q) =>
+          q.eq("userId", "CCCCC").eq("status", "unread"),
+        )
+        .unique();
+      expect(notification).toMatchObject({
+        title: "Call transfer request",
+        message: "Caller A sent you a call transfer request.",
+      });
+      const push = (
+        await ctx.db.system.query("_scheduled_functions").collect()
+      ).find(
+        (job) =>
+          job.name === "push:send" &&
+          job.state.kind === "pending" &&
+          (job.args[0] as { type?: string }).type === "call_transfer",
+      );
+      expect(push?.args[0]).toMatchObject({
+        title: "Call transfer request",
+        message: "Caller A sent you a call transfer request.",
+      });
     });
     await t.mutation(api.callState.respondTransfer, {
       code: "CCCCC",
@@ -1186,6 +1278,7 @@ describe("global incoming calls", () => {
     await t.run(async (ctx) => {
       await ctx.db.insert("call_compliance", {
         callId: created.callId,
+        tenantId: "nyfbi",
         participantCodes: ["AAAAA", "BBBBB"],
         consentedCodes: ["AAAAA", "BBBBB"],
         declinedCodes: [],
@@ -1239,6 +1332,12 @@ describe("global incoming calls", () => {
         callId: created.callId,
       }),
     ).toMatchObject({ peerCode: "BBBBB" });
+    await t.mutation(api.callCompliance.acknowledgeTransferRecordingDrain, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      callId: created.callId,
+      transferId,
+    });
     await t.mutation(internal.callState.confirmTransferJoined, {
       code: "CCCCC",
       deviceId: "device-c",
@@ -1340,6 +1439,7 @@ describe("global incoming calls", () => {
     await t.run(async (ctx) => {
       await ctx.db.insert("call_compliance", {
         callId: created.callId,
+        tenantId: "nyfbi",
         participantCodes: ["AAAAA", "BBBBB"],
         consentedCodes: ["AAAAA", "BBBBB"],
         declinedCodes: [],
@@ -1413,6 +1513,12 @@ describe("global incoming calls", () => {
       peerCode: "AAAAA",
       peerIdentity: "AAAAA-new-mobile",
       peerPublisherIdentities: ["AAAAA-new-mobile"],
+    });
+    await t.mutation(api.callCompliance.acknowledgeTransferRecordingDrain, {
+      code: "AAAAA",
+      deviceId: "device-a",
+      callId: created.callId,
+      transferId,
     });
     await t.mutation(internal.callState.confirmTransferJoined, {
       code: "AAAAA",

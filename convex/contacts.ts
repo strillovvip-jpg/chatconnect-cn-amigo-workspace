@@ -1,66 +1,46 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { ConvexError } from "convex/values";
-import { assertSameTenant, requireSession, tenantIdForAllowed } from "./roles";
+import {
+  assertActiveAuthorizationTarget,
+  assertSameTenant,
+  isActiveAuthorizationTarget,
+  requireSession,
+  tenantIdForAllowed,
+} from "./roles";
 import { internal } from "./_generated/api";
 import { allowedForCode } from "./tenantBoundaries";
 
-// Search for a user by auth code or name (partial match on name)
+// Authorization codes are public identifiers, but contact discovery must not
+// be an account-enumeration surface. Only one exact five-letter code is ever
+// looked up.
 export const searchUser = query({
   args: {
     query: v.string(),
     requesterCode: v.string(),
     deviceId: v.string(),
-    exactCodeOnly: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const auth = await requireSession(ctx, args.requesterCode, args.deviceId);
-    const q = args.query.trim().toUpperCase();
-    const qOriginal = args.query.trim().toLowerCase();
+    const q = args.query.normalize("NFKC").trim().toUpperCase();
+    if (!/^[A-Z]{5}$/.test(q)) return [];
 
-    const exactCodePattern =
-      tenantIdForAllowed(auth.allowed) === "nyfbi"
-        ? /^[A-Z]{5}$/
-        : /^[A-Z0-9]{5}$/;
-    if (args.exactCodeOnly && !exactCodePattern.test(q)) return [];
-
-    // Try exact match by code first
     const byCode = await ctx.db
       .query("auth_codes")
       .withIndex("by_code", (qb) => qb.eq("code", q))
       .first();
-    const allowedRecords = await ctx.db.query("allowed_codes").collect();
-    const allowedByCode = new Map(
-      allowedRecords.map((record) => [record.code, record]),
-    );
-    const requesterTenant = tenantIdForAllowed(auth.allowed);
+    if (!byCode || byCode.code === auth.code) return [];
+    const targetAllowed = await allowedForCode(ctx, byCode.code);
 
     if (
-      byCode &&
-      byCode.code !== auth.code &&
-      tenantIdForAllowed(allowedByCode.get(byCode.code)) === requesterTenant
+      isActiveAuthorizationTarget(targetAllowed) &&
+      tenantIdForAllowed(targetAllowed) === tenantIdForAllowed(auth.allowed)
     ) {
       return [
         { code: byCode.code, name: byCode.name, department: byCode.department },
       ];
     }
-
-    if (args.exactCodeOnly) return [];
-
-    // Search by name (partial, case-insensitive)
-    const all = await ctx.db.query("auth_codes").collect();
-    const results = all.filter(
-      (r) =>
-        r.code !== auth.code &&
-        tenantIdForAllowed(allowedByCode.get(r.code)) === requesterTenant &&
-        r.name.toLowerCase().includes(qOriginal),
-    );
-
-    return results.slice(0, 10).map((r) => ({
-      code: r.code,
-      name: r.name,
-      department: r.department,
-    }));
+    return [];
   },
 });
 
@@ -74,7 +54,12 @@ export const addContact = mutation({
   handler: async (ctx, args) => {
     const auth = await requireSession(ctx, args.ownerCode, args.deviceId);
     // Validate target code exists in the imported allowlist or registered users.
-    const targetCode = args.targetCode.trim().toUpperCase();
+    const targetCode = args.targetCode.normalize("NFKC").trim().toUpperCase();
+    if (!/^[A-Z]{5}$/.test(targetCode))
+      throw new ConvexError({
+        code: "BAD_REQUEST",
+        message: "授权码必须正好包含五个英文字母。",
+      });
     if (targetCode === auth.code)
       throw new ConvexError({
         code: "BAD_REQUEST",
@@ -91,6 +76,7 @@ export const addContact = mutation({
       .query("allowed_codes")
       .withIndex("by_code", (q) => q.eq("code", targetCode))
       .unique();
+    assertActiveAuthorizationTarget(targetAllowed);
     assertSameTenant(auth.allowed, targetAllowed);
 
     // Check already added

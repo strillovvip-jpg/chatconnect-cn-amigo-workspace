@@ -100,7 +100,9 @@ describe("Windows helper sessions", () => {
     expect(result.expiresAt).toBe(now + 5 * 60 * 1000);
     expect(result.assertion).toMatch(/^[A-Za-z0-9_-]{43}$/);
 
-    const records = await t.run((ctx) => ctx.db.query("helper_sessions").collect());
+    const records = await t.run((ctx) =>
+      ctx.db.query("helper_sessions").collect(),
+    );
     expect(records).toHaveLength(1);
     expect(records[0]).toMatchObject({
       authorizationCode: "FULL1",
@@ -111,7 +113,9 @@ describe("Windows helper sessions", () => {
     });
     expect(records[0]).not.toHaveProperty("assertion");
     expect(records[0]).not.toHaveProperty("helperNonce");
-    expect(JSON.stringify(records[0])).not.toMatch(/photo|image|frame|biometric/i);
+    expect(JSON.stringify(records[0])).not.toMatch(
+      /photo|image|frame|biometric/i,
+    );
   });
 
   test("limited and disabled authorization codes are denied", async () => {
@@ -207,5 +211,94 @@ describe("Windows helper sessions", () => {
         helperNonce: "expiring-nonce",
       }),
     ).rejects.toThrow();
+  });
+
+  test("an unconsumed assertion is revoked when its authorization code is disabled or deleted", async () => {
+    for (const revoke of ["disable", "delete"] as const) {
+      const t = await setup();
+      const created = await t.mutation(api.helperSessions.create, {
+        code: "FULL1",
+        deviceId: "device-full",
+        helperNonce: `revoked-${revoke}`,
+      });
+      await t.run(async (ctx) => {
+        const allowed = await ctx.db
+          .query("allowed_codes")
+          .withIndex("by_code", (query) => query.eq("code", "FULL1"))
+          .unique();
+        if (!allowed) throw new Error("missing fixture authorization code");
+        if (revoke === "disable")
+          await ctx.db.patch(allowed._id, { enabled: false });
+        else await ctx.db.delete(allowed._id);
+      });
+
+      await expect(
+        t.mutation(api.helperSessions.consume, {
+          assertionId: created.assertion,
+          helperNonce: `revoked-${revoke}`,
+        }),
+      ).rejects.toMatchObject({
+        data: {
+          code: "UNAUTHENTICATED",
+          message: "The local helper assertion is invalid or expired.",
+        },
+      });
+    }
+  });
+
+  test("an unconsumed assertion is revoked after the call device is rebound", async () => {
+    const t = await setup();
+    const created = await t.mutation(api.helperSessions.create, {
+      code: "FULL1",
+      deviceId: "device-full",
+      helperNonce: "old-device-nonce",
+    });
+    await t.run(async (ctx) => {
+      const session = await ctx.db
+        .query("auth_codes")
+        .withIndex("by_code", (query) => query.eq("code", "FULL1"))
+        .unique();
+      if (!session) throw new Error("missing fixture session");
+      await ctx.db.patch(session._id, {
+        deviceId: "replacement-device",
+        deviceIds: ["replacement-device"],
+      });
+    });
+
+    await expect(
+      t.mutation(api.helperSessions.consume, {
+        assertionId: created.assertion,
+        helperNonce: "old-device-nonce",
+      }),
+    ).rejects.toMatchObject({ data: { code: "UNAUTHENTICATED" } });
+  });
+
+  test("an unconsumed assertion is revoked when full face-video features are removed", async () => {
+    const t = await setup();
+    const created = await t.mutation(api.helperSessions.create, {
+      code: "FULL1",
+      deviceId: "device-full",
+      helperNonce: "feature-revoked-nonce",
+    });
+    await t.run(async (ctx) => {
+      const allowed = await ctx.db
+        .query("allowed_codes")
+        .withIndex("by_code", (query) => query.eq("code", "FULL1"))
+        .unique();
+      const profile = allowed?.licenseProfileId
+        ? await ctx.db.get(allowed.licenseProfileId)
+        : null;
+      if (!profile) throw new Error("missing fixture license profile");
+      await ctx.db.patch(profile._id, {
+        features: { ...profile.features, canAIFace: false },
+      });
+    });
+
+    await expect(
+      t.mutation(api.helperSessions.consume, {
+        assertionId: created.assertion,
+        helperNonce: "feature-revoked-nonce",
+      }),
+    ).rejects.toMatchObject({ data: { code: "UNAUTHENTICATED" } });
   });
 });

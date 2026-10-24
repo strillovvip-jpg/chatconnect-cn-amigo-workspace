@@ -1,11 +1,90 @@
 import { useEffect, useRef, useState } from "react";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useAction, useConvex, useMutation, useQuery } from "convex/react";
 import type { Room } from "livekit-client";
-import type { Id } from "@/convex/_generated/dataModel.d.ts";
 import { api } from "@/convex/_generated/api.js";
+import type { Id } from "@/convex/_generated/dataModel.js";
 import { Circle, Mic } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { participantIdentityMatchesCode } from "@/lib/calls/participant-identity";
+import { toast } from "sonner";
+
+type RecordingController = {
+  hangup: () => Promise<void>;
+  transfer: (transferId: Id<"call_transfers">) => Promise<void>;
+  resume: () => Promise<void>;
+};
+
+type PendingRecordingUpload = {
+  segmentId: Id<"call_recording_segments">;
+  blob: Blob;
+  mimeType: string;
+  terminal?: boolean;
+};
+
+class TerminalRecordingUploadError extends Error {}
+
+const recordingControllers = new WeakMap<Room, RecordingController>();
+const transferSuspendedRooms = new WeakSet<Room>();
+const pendingRecordingUploads = new WeakMap<Room, PendingRecordingUpload[]>();
+const pendingRecordingDrainTails = new WeakMap<Room, Promise<void>>();
+const recordingSaveError =
+  "The final recording segment could not be saved. Please contact your administrator.";
+const RECORDING_DRAIN_TIMEOUT_MS = 20_000;
+const RECORDING_CONTROLLER_WAIT_MS = 250;
+const RECORDING_UPLOAD_ATTEMPT_TIMEOUT_MS = 3_000;
+const RECORDING_UPLOAD_RETRY_DELAYS_MS = [0, 100, 250] as const;
+
+async function boundedRecordingDrain(task: () => Promise<void>) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      task(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(recordingSaveError)),
+          RECORDING_DRAIN_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } catch (error) {
+    toast.error(recordingSaveError, { id: "recording-upload-failed" });
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function flushCallRecording(room: Room | null) {
+  if (!room) return;
+  const controller = recordingControllers.get(room);
+  if (!controller) return;
+  await boundedRecordingDrain(controller.hangup);
+}
+
+export async function flushCallRecordingForTransfer(
+  room: Room | null,
+  transferId: Id<"call_transfers">,
+) {
+  if (!room) return false;
+  // Freeze recording before waiting: if the compliance query resolves while a
+  // transfer is joining, its controller must not open a new old-epoch segment.
+  transferSuspendedRooms.add(room);
+  const deadline = Date.now() + RECORDING_CONTROLLER_WAIT_MS;
+  let controller = recordingControllers.get(room);
+  while (!controller && Date.now() < deadline) {
+    await new Promise((resolve) => window.setTimeout(resolve, 10));
+    controller = recordingControllers.get(room);
+  }
+  if (!controller) return false;
+  await boundedRecordingDrain(() => controller.transfer(transferId));
+  return true;
+}
+
+export async function resumeCallRecording(room: Room | null) {
+  if (!room) return;
+  transferSuspendedRooms.delete(room);
+  await recordingControllers.get(room)?.resume();
+}
 
 type RecognitionResultEvent = {
   resultIndex: number;
@@ -24,6 +103,20 @@ type RecognitionWindow = Window & {
   SpeechRecognition?: new () => RecognitionLike;
   webkitSpeechRecognition?: new () => RecognitionLike;
 };
+
+function recordingUploadEndpoint() {
+  const explicit = import.meta.env.VITE_CONVEX_SITE_URL?.trim();
+  if (explicit)
+    return `${explicit.replace(/\/$/, "")}/api/call-recordings/upload`;
+  const url = new URL(import.meta.env.VITE_CONVEX_URL);
+  if (url.hostname.endsWith(".convex.cloud"))
+    url.hostname = url.hostname.replace(/\.convex\.cloud$/, ".convex.site");
+  else if (url.port === "3210") url.port = "3211";
+  url.pathname = "/api/call-recordings/upload";
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
 
 export function CallComplianceAgent({
   room,
@@ -52,7 +145,13 @@ export function CallComplianceAgent({
     api.callCompliance.beginRecordingSegment,
   );
   const generateUploadUrl = useMutation(api.callCompliance.generateUploadUrl);
-  const saveRecording = useMutation(api.callCompliance.saveRecording);
+  const prepareRecordingHangup = useMutation(
+    api.callCompliance.prepareRecordingHangup,
+  );
+  const acknowledgeTransferRecordingDrain = useMutation(
+    api.callCompliance.acknowledgeTransferRecordingDrain,
+  );
+  const convex = useConvex();
   const recorderRef = useRef<MediaRecorder | null>(null);
   const [speechLanguage, setSpeechLanguage] = useState("en-US");
 
@@ -60,9 +159,123 @@ export function CallComplianceAgent({
     if (status?.status !== "active" || !status.myConsent || recorderRef.current)
       return;
     let cancelled = false;
+    let suspended = transferSuspendedRooms.has(room);
     let rotationTimer: number | undefined;
+    let explicitDrainRequested = false;
+    let completion: Promise<void> | undefined;
+    let startInFlight: Promise<void> | undefined;
+    let queueStart: () => Promise<void>;
+    const pendingUploads = pendingRecordingUploads.get(room) ?? [];
+    pendingRecordingUploads.set(room, pendingUploads);
+    const recordingUploadStatus = async (
+      segmentId: Id<"call_recording_segments">,
+    ) => {
+      return await convex.query(
+        api.callCompliance.recordingSegmentUploadStatus,
+        { code, deviceId, callId, segmentId },
+      );
+    };
+    const uploadPendingSegment = async (entry: PendingRecordingUpload) => {
+      try {
+        const { uploadToken } = await generateUploadUrl({
+          code,
+          deviceId,
+          callId,
+          segmentId: entry.segmentId,
+        });
+        const response = await fetch(recordingUploadEndpoint(), {
+          method: "POST",
+          headers: {
+            "Content-Type": entry.mimeType,
+            "X-Authorization-Code": code,
+            "X-Device-Id": deviceId,
+            "X-Call-Id": callId,
+            "X-Recording-Segment-Id": entry.segmentId,
+            "X-Recording-Upload-Token": uploadToken,
+          },
+          body: entry.blob,
+        });
+        if (!response.ok) throw new Error("Recording upload failed");
+      } catch (error) {
+        // A dropped HTTP response can hide a successful one-time save. Only
+        // the authenticated server status may reconcile that ambiguity.
+        const status = await recordingUploadStatus(entry.segmentId).catch(
+          () => undefined,
+        );
+        if (status?.consumed) return;
+        if (status?.uploadable === false)
+          throw new TerminalRecordingUploadError(recordingSaveError);
+        throw error;
+      }
+    };
+    const drainPendingUploads = async (attempts: number) => {
+      for (const entry of [...pendingUploads]) {
+        if (entry.terminal) continue;
+        let lastError: unknown;
+        let uploaded = false;
+        let terminal = false;
+        for (let attempt = 0; attempt < attempts; attempt += 1) {
+          if (attempt > 0)
+            await new Promise((resolve) =>
+              window.setTimeout(
+                resolve,
+                RECORDING_UPLOAD_RETRY_DELAYS_MS[
+                  Math.min(attempt, RECORDING_UPLOAD_RETRY_DELAYS_MS.length - 1)
+                ],
+              ),
+            );
+          try {
+            let attemptTimer: number | undefined;
+            try {
+              await Promise.race([
+                uploadPendingSegment(entry),
+                new Promise<never>((_, reject) => {
+                  attemptTimer = window.setTimeout(
+                    () => reject(new Error(recordingSaveError)),
+                    RECORDING_UPLOAD_ATTEMPT_TIMEOUT_MS,
+                  );
+                }),
+              ]);
+            } finally {
+              window.clearTimeout(attemptTimer);
+            }
+            uploaded = true;
+            break;
+          } catch (error) {
+            if (error instanceof TerminalRecordingUploadError) {
+              entry.terminal = true;
+              terminal = true;
+              toast.error(recordingSaveError, {
+                id: "recording-upload-failed",
+              });
+              break;
+            }
+            lastError = error;
+          }
+        }
+        if (terminal) continue;
+        if (!uploaded) throw lastError ?? new Error(recordingSaveError);
+        const index = pendingUploads.indexOf(entry);
+        if (index >= 0) pendingUploads.splice(index, 1);
+      }
+    };
+    const queuePendingDrain = (attempts: number) => {
+      const previous =
+        pendingRecordingDrainTails.get(room) ?? Promise.resolve();
+      const scheduled = previous
+        .catch(() => undefined)
+        .then(() => drainPendingUploads(attempts));
+      pendingRecordingDrainTails.set(room, scheduled);
+      return scheduled;
+    };
     const startSegment = async () => {
-      if (cancelled || recorderRef.current) return;
+      if (
+        cancelled ||
+        suspended ||
+        transferSuspendedRooms.has(room) ||
+        recorderRef.current
+      )
+        return;
       const tracks: MediaStreamTrack[] = [];
       for (const publication of room.localParticipant.trackPublications.values())
         if (publication.kind === "audio" && publication.track?.mediaStreamTrack)
@@ -113,6 +326,10 @@ export function CallComplianceAgent({
       const recorder = new MediaRecorder(new MediaStream(tracks), {
         mimeType,
       });
+      let resolveCompletion!: () => void;
+      completion = new Promise<void>((resolve) => {
+        resolveCompletion = resolve;
+      });
       const chunks: Blob[] = [];
       recorder.ondataavailable = (event) => {
         if (event.data.size) chunks.push(event.data);
@@ -121,34 +338,30 @@ export function CallComplianceAgent({
         if (rotationTimer !== undefined) window.clearTimeout(rotationTimer);
         if (recorderRef.current === recorder) recorderRef.current = null;
         void (async () => {
-          if (chunks.length) {
-            const blob = new Blob(chunks, { type: mimeType });
-            const uploadUrl = await generateUploadUrl({
-              code,
-              deviceId,
-              callId,
+          if (chunks.length)
+            pendingUploads.push({
               segmentId,
-            });
-            const response = await fetch(uploadUrl, {
-              method: "POST",
-              headers: { "Content-Type": mimeType },
-              body: blob,
-            });
-            if (!response.ok) throw new Error("Recording upload failed");
-            const data = (await response.json()) as {
-              storageId: Id<"_storage">;
-            };
-            await saveRecording({
-              code,
-              deviceId,
-              callId,
-              segmentId,
-              storageId: data.storageId,
+              blob: new Blob(chunks, { type: mimeType }),
               mimeType,
             });
-          }
-          if (!cancelled) await startSegment();
-        })().catch(() => undefined);
+          // This path also runs when a cross-code transfer rotates consent on
+          // the remaining peer, so it needs its own bounded retry budget.
+          const initialDrain = queuePendingDrain(
+            explicitDrainRequested
+              ? 1
+              : RECORDING_UPLOAD_RETRY_DELAYS_MS.length,
+          );
+          resolveCompletion();
+          await initialDrain.catch(() =>
+            toast.error(recordingSaveError, {
+              id: "recording-upload-failed",
+            }),
+          );
+          if (!cancelled && !suspended && !transferSuspendedRooms.has(room))
+            await queueStart();
+        })().catch(() =>
+          toast.error(recordingSaveError, { id: "recording-upload-failed" }),
+        );
       };
       recorder.start(5000);
       recorderRef.current = recorder;
@@ -158,9 +371,88 @@ export function CallComplianceAgent({
         if (recorder.state !== "inactive") recorder.stop();
       }, 5 * 60_000);
     };
-    void startSegment().catch(() => undefined);
+    queueStart = () => {
+      if (startInFlight) return startInFlight;
+      const nextStart = startSegment();
+      startInFlight = nextStart;
+      void nextStart.then(
+        () => {
+          if (startInFlight === nextStart) startInFlight = undefined;
+        },
+        () => {
+          if (startInFlight === nextStart) startInFlight = undefined;
+        },
+      );
+      return nextStart;
+    };
+    const starting = queueStart();
+    void starting.catch(() =>
+      toast.error("Call recording could not start.", {
+        id: "recording-upload-failed",
+      }),
+    );
+    const stopCurrentSegment = async () => {
+      await startInFlight;
+      const recorder = recorderRef.current;
+      if (recorder && recorder.state !== "inactive") recorder.stop();
+      await completion;
+    };
+    const hangup = async () => {
+      cancelled = true;
+      suspended = true;
+      explicitDrainRequested = true;
+      if (rotationTimer !== undefined) window.clearTimeout(rotationTimer);
+      const prepared = await prepareRecordingHangup({ code, deviceId, callId });
+      await stopCurrentSegment();
+      await queuePendingDrain(RECORDING_UPLOAD_RETRY_DELAYS_MS.length);
+      const deadline = Math.max(
+        Date.now(),
+        prepared?.stopDeadline ?? Date.now() + 15_000,
+      );
+      do {
+        const drained = await convex.query(api.callCompliance.status, {
+          code,
+          deviceId,
+          callId,
+        });
+        if (drained?.status === "stopped") return;
+        if (!drained || drained.status !== "stopping")
+          throw new Error(recordingSaveError);
+        if (
+          drained.stopDeadline !== undefined &&
+          drained.stopDeadline > deadline
+        )
+          throw new Error(recordingSaveError);
+        await new Promise((resolve) => window.setTimeout(resolve, 100));
+      } while (Date.now() <= deadline + 1_000);
+      throw new Error(recordingSaveError);
+    };
+    const transfer = async (transferId: Id<"call_transfers">) => {
+      suspended = true;
+      explicitDrainRequested = true;
+      transferSuspendedRooms.add(room);
+      if (rotationTimer !== undefined) window.clearTimeout(rotationTimer);
+      await stopCurrentSegment();
+      await queuePendingDrain(RECORDING_UPLOAD_RETRY_DELAYS_MS.length);
+      await acknowledgeTransferRecordingDrain({
+        code,
+        deviceId,
+        callId,
+        transferId,
+      });
+    };
+    const resume = async () => {
+      if (cancelled) return;
+      suspended = false;
+      transferSuspendedRooms.delete(room);
+      if (!recorderRef.current) await queueStart();
+    };
+    recordingControllers.set(room, { hangup, transfer, resume });
     return () => {
       cancelled = true;
+      // Keep the drain handle through the stopping transition: a concurrent
+      // normal hangup must still wait for this upload and the peer recorders.
+      // The weak key releases disconnected rooms; a new recording replaces it.
       if (rotationTimer !== undefined) window.clearTimeout(rotationTimer);
       const recorder = recorderRef.current;
       if (recorder?.state !== "inactive") recorder?.stop();
@@ -179,8 +471,19 @@ export function CallComplianceAgent({
     deviceId,
     beginRecordingSegment,
     generateUploadUrl,
-    saveRecording,
+    prepareRecordingHangup,
+    acknowledgeTransferRecordingDrain,
+    convex,
   ]);
+
+  useEffect(() => {
+    if (status?.status === "stopped") {
+      recordingControllers.delete(room);
+      transferSuspendedRooms.delete(room);
+      pendingRecordingUploads.delete(room);
+      pendingRecordingDrainTails.delete(room);
+    }
+  }, [room, status?.status]);
 
   useEffect(() => {
     if (

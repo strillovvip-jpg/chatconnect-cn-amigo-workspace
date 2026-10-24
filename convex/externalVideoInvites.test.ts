@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import { convexTest } from "convex-test";
 import schema from "./schema";
 import { api, internal } from "./_generated/api";
+import { prepareInviteSession } from "./externalVideoInvites";
 
 const modules = import.meta.glob("./**/*.*s");
 
@@ -93,16 +94,21 @@ async function setup() {
 }
 
 describe("external video invites", () => {
+  test("invite session preparation is server-only", () => {
+    expect(prepareInviteSession.isInternal).toBe(true);
+  });
+
   test("full-feature authorization codes can create an external invite record", async () => {
     const t = await setup();
     const invite = await t.mutation(
-      api.externalVideoInvites.prepareInviteSession,
+      internal.externalVideoInvites.prepareInviteSession,
       {
         code: "FULL1",
         deviceId: "device-full",
         inviteId: "invite-1",
         roomName: "guest-room-1",
         operatorIdentity: "FULL1-host-1",
+        operatorViewerIdentity: "FULL1-viewer-1",
         passwordHash: "hash-1",
         passwordSalt: "salt-1",
         expiresAt: Date.now() + 60_000,
@@ -129,12 +135,13 @@ describe("external video invites", () => {
   test("limited authorization codes are rejected by the backend", async () => {
     const t = await setup();
     await expect(
-      t.mutation(api.externalVideoInvites.prepareInviteSession, {
+      t.mutation(internal.externalVideoInvites.prepareInviteSession, {
         code: "LIMIT1",
         deviceId: "device-limit",
         inviteId: "invite-2",
         roomName: "guest-room-2",
         operatorIdentity: "LIMIT1-host-1",
+        operatorViewerIdentity: "LIMIT1-viewer-1",
         passwordHash: "hash-2",
         passwordSalt: "salt-2",
         expiresAt: Date.now() + 60_000,
@@ -144,12 +151,13 @@ describe("external video invites", () => {
 
   test("guest admission is single-use and ended invites become unavailable", async () => {
     const t = await setup();
-    await t.mutation(api.externalVideoInvites.prepareInviteSession, {
+    await t.mutation(internal.externalVideoInvites.prepareInviteSession, {
       code: "FULL1",
       deviceId: "device-full",
       inviteId: "invite-3",
       roomName: "guest-room-3",
       operatorIdentity: "FULL1-host-3",
+      operatorViewerIdentity: "FULL1-viewer-3",
       passwordHash: "hash-3",
       passwordSalt: "salt-3",
       expiresAt: Date.now() + 60_000,

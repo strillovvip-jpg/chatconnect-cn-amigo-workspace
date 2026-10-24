@@ -7,11 +7,17 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
-import { assertSameTenant, requireSession, tenantIdForAllowed } from "./roles";
+import {
+  assertSameTenant,
+  isActiveAuthorizationTarget,
+  requireSession,
+  tenantIdForAllowed,
+} from "./roles";
 import { requireFeature } from "./features";
 import { internal } from "./_generated/api";
 import {
   assertCodeInTenant,
+  allowedForCode,
   codeIsInTenant,
   tenantIdForGroup,
   tenantIdForLegacyOwner,
@@ -124,12 +130,30 @@ export const createCall = mutation({
           q.eq("groupCallId", active._id).eq("userId", auth.code),
         )
         .unique();
+      if (
+        participant?.status === "blocked" ||
+        participant?.status === "removed"
+      )
+        throw new ConvexError({
+          code: "FORBIDDEN",
+          message: "您已被禁止重新加入此通话。",
+        });
+      if (
+        participant?.status === "joined" &&
+        participant.deviceId &&
+        participant.deviceId !== args.deviceId
+      )
+        throw new ConvexError({
+          code: "FORBIDDEN",
+          message: "此通话已在另一台设备上加入。",
+        });
       const identity =
         participant?.livekitIdentity ?? `${auth.code}-${crypto.randomUUID()}`;
       if (participant)
         await ctx.db.patch(participant._id, {
           status: "joined",
           joinedAt: participant.joinedAt ?? Date.now(),
+          deviceId: args.deviceId,
           livekitIdentity: identity,
         });
       else
@@ -138,6 +162,7 @@ export const createCall = mutation({
           userId: auth.code,
           status: "joined",
           joinedAt: Date.now(),
+          deviceId: args.deviceId,
           livekitIdentity: identity,
           isHost: false,
         });
@@ -171,7 +196,12 @@ export const createCall = mutation({
       .withIndex("by_group", (q) => q.eq("groupId", args.groupId))
       .collect();
     for (const item of memberships.filter((item) => item.status === "active")) {
-      if (!(await codeIsInTenant(ctx, item.userId, tenantId))) continue;
+      const memberAllowed = await allowedForCode(ctx, item.userId);
+      if (
+        !isActiveAuthorizationTarget(memberAllowed) ||
+        !(await codeIsInTenant(ctx, item.userId, tenantId))
+      )
+        continue;
       const notificationId =
         item.userId === auth.code ? undefined : crypto.randomUUID();
       await ctx.db.insert("chat_group_call_participants", {
@@ -179,6 +209,7 @@ export const createCall = mutation({
         userId: item.userId,
         status: item.userId === auth.code ? "joined" : "ringing",
         joinedAt: item.userId === auth.code ? Date.now() : undefined,
+        deviceId: item.userId === auth.code ? args.deviceId : undefined,
         livekitIdentity: item.userId === auth.code ? identity : undefined,
         isHost: item.userId === auth.code || item.role === "owner",
         notificationId,
@@ -289,6 +320,7 @@ export const authorizeJoin = mutation({
         status: "joined",
         joinedAt: Date.now(),
         leftAt: undefined,
+        deviceId: args.deviceId,
         livekitIdentity: identity,
       });
       if (participant.notificationId) {
@@ -310,6 +342,7 @@ export const authorizeJoin = mutation({
         userId: auth.code,
         status: "joined",
         joinedAt: Date.now(),
+        deviceId: args.deviceId,
         livekitIdentity: identity,
         isHost: false,
       });
@@ -539,7 +572,11 @@ export const authorizeHostAction = mutation({
         q.eq("groupCallId", args.groupCallId).eq("userId", auth.code),
       )
       .unique();
-    if (!actor?.isHost || actor.status !== "joined")
+    if (
+      !actor?.isHost ||
+      actor.status !== "joined" ||
+      actor.deviceId !== args.deviceId
+    )
       throw new ConvexError({
         code: "FORBIDDEN",
         message: "只有主持人可以管理通话。",
@@ -596,7 +633,11 @@ export const finalizeHostAction = mutation({
         q.eq("groupCallId", args.groupCallId).eq("userId", auth.code),
       )
       .unique();
-    if (!actor?.isHost || actor.status !== "joined")
+    if (
+      !actor?.isHost ||
+      actor.status !== "joined" ||
+      actor.deviceId !== args.deviceId
+    )
       throw new ConvexError({
         code: "FORBIDDEN",
         message: "只有主持人可以管理通话。",

@@ -169,6 +169,7 @@ function renderModal(faceReady = true) {
 
 describe("FaceSwapInviteModal", () => {
   beforeEach(() => {
+    vi.resetAllMocks();
     mocks.nativeGetStatus.mockResolvedValue({
       connected: false,
       roomUrl: null,
@@ -235,7 +236,7 @@ describe("FaceSwapInviteModal", () => {
 
   afterEach(() => {
     cleanup();
-    vi.clearAllMocks();
+    vi.restoreAllMocks();
   });
 
   it("contains only call creation and never contains face upload controls", () => {
@@ -392,12 +393,19 @@ describe("FaceSwapInviteModal", () => {
   });
 
   it("restores a muted native publisher when the app returns to the foreground", async () => {
+    const addEventListenerSpy = vi.spyOn(document, "addEventListener");
     renderModal(true);
     await waitFor(() =>
       expect(mocks.onFaceReadyChange).toHaveBeenCalledWith(true),
     );
     fireEvent.click(screen.getByRole("button", { name: "Create call" }));
     await screen.findByRole("button", { name: "Enter call" });
+    await waitFor(() =>
+      expect(addEventListenerSpy).toHaveBeenCalledWith(
+        "visibilitychange",
+        expect.any(Function),
+      ),
+    );
 
     Object.defineProperty(document, "visibilityState", {
       configurable: true,
@@ -417,6 +425,7 @@ describe("FaceSwapInviteModal", () => {
   });
 
   it("forces one reconnect when the backend cannot see a locally healthy publisher", async () => {
+    const addEventListenerSpy = vi.spyOn(document, "addEventListener");
     mocks.verifyHostReady
       .mockResolvedValueOnce({ ready: true })
       .mockRejectedValueOnce(
@@ -432,6 +441,12 @@ describe("FaceSwapInviteModal", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Create call" }));
     await screen.findByRole("button", { name: "Enter call" });
+    await waitFor(() =>
+      expect(addEventListenerSpy).toHaveBeenCalledWith(
+        "visibilitychange",
+        expect.any(Function),
+      ),
+    );
 
     Object.defineProperty(document, "visibilityState", {
       configurable: true,

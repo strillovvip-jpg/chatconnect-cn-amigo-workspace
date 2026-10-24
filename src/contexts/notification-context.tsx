@@ -424,33 +424,37 @@ export function GlobalNotificationProvider({
   const incomingCallerName = incomingCall
     ? localizedUiData(incomingCall.callerName, locale)
     : "";
-  const syntheticIncoming = incomingCall
-    ? {
-        notificationId: `incoming-${incomingCall.callId}`,
-        type:
-          incomingCall.callType === "video"
-            ? ("video_call" as const)
-            : ("audio_call" as const),
-        title:
-          incomingCall.callType === "video"
-            ? copy.incomingVideo
-            : copy.incomingAudio,
-        message: copy.callerMessage(
-          incomingCallerName,
-          incomingCall.callerCode,
-        ),
-        data: {
-          callId: incomingCall.callId,
-          callType: incomingCall.callType,
-          callerName: incomingCallerName,
-          callerUserId: incomingCall.callerCode,
-          source: "call",
-        },
-        priority: "urgent" as const,
-        status: "unread" as const,
-        createdAt: Date.now(),
-      }
-    : undefined;
+  const syntheticIncoming = useMemo(
+    () =>
+      incomingCall
+        ? {
+            notificationId: `incoming-${incomingCall.callId}`,
+            type:
+              incomingCall.callType === "video"
+                ? ("video_call" as const)
+                : ("audio_call" as const),
+            title:
+              incomingCall.callType === "video"
+                ? copy.incomingVideo
+                : copy.incomingAudio,
+            message: copy.callerMessage(
+              incomingCallerName,
+              incomingCall.callerCode,
+            ),
+            data: {
+              callId: incomingCall.callId,
+              callType: incomingCall.callType,
+              callerName: incomingCallerName,
+              callerUserId: incomingCall.callerCode,
+              source: "call",
+            },
+            priority: "urgent" as const,
+            status: "unread" as const,
+            createdAt: Date.now(),
+          }
+        : undefined,
+    [copy, incomingCall, incomingCallerName],
+  );
   const ringingNotificationId = incomingCall?.callId;
   const activeUrgent = ringingCall ?? syntheticIncoming ?? urgent;
   const activeUrgentCopy = activeUrgent
@@ -522,10 +526,7 @@ export function GlobalNotificationProvider({
       )
         continue;
       toasted.current.add(item.notificationId);
-      const display = notificationDisplayCopy(
-        item,
-        forceEnglishNotifications,
-      );
+      const display = notificationDisplayCopy(item, forceEnglishNotifications);
       toast(display.title, { description: display.message, duration: 6000 });
       if (
         notificationChannel === "native" &&
@@ -606,8 +607,7 @@ export function GlobalNotificationProvider({
                 chatName: details.chatName,
                 callType: details.callType,
                 mode: "p2p",
-                retrySetupOnFailure:
-                  details.localMediaMode !== "face-swap",
+                retrySetupOnFailure: details.localMediaMode !== "face-swap",
               }),
             waitBeforeRetry: (attempt) =>
               new Promise((resolve) =>
@@ -621,9 +621,7 @@ export function GlobalNotificationProvider({
                 !providerMounted.current ||
                 currentCallState.current !== "ringing" ||
                 latest?.callId !== outgoing.callId ||
-                !["accepted", "connecting", "connected"].includes(
-                  latest.status,
-                )
+                !["accepted", "connecting", "connected"].includes(latest.status)
               );
             },
             onTerminalFailure: async () => {
@@ -822,54 +820,54 @@ export function GlobalNotificationProvider({
                 );
                 return (
                   <button
-                  key={item._id}
-                  onClick={() => void openSource(item)}
-                  className={`flex w-full gap-3 border-b border-white/5 px-5 py-4 text-left ${item.status === "unread" ? "bg-blue-500/10" : ""}`}
-                >
-                  <div className="mt-1">
-                    {item.type.includes("call") ? (
-                      <Phone size={17} />
-                    ) : item.type.startsWith("friend") ? (
-                      <UserPlus size={17} />
-                    ) : (
-                      <Bell size={17} />
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="truncate text-sm font-semibold">
-                        {display.title}
-                      </span>
-                      <span className="flex shrink-0 items-center gap-1 text-[10px] text-white/35">
-                        <Clock size={10} />
-                        {timeLabel(item.createdAt, localeToHtmlLang(locale))}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-xs leading-5 text-white/60">
-                      {display.message}
-                    </p>
-                    {item.readAt && (
-                      <p className="mt-1 text-[10px] text-white/30">
-                        {copy.readAt(
-                          timeLabel(item.readAt, localeToHtmlLang(locale)),
-                        )}
-                      </p>
-                    )}
-                  </div>
-                  <span
-                    role="button"
-                    aria-label={copy.deleteNotification}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      void dismiss({
-                        ...credentials,
-                        notificationId: item.notificationId,
-                      });
-                    }}
-                    className="mt-1 rounded p-1 text-white/35 hover:text-red-400"
+                    key={item._id}
+                    onClick={() => void openSource(item)}
+                    className={`flex w-full gap-3 border-b border-white/5 px-5 py-4 text-left ${item.status === "unread" ? "bg-blue-500/10" : ""}`}
                   >
-                    <Trash2 size={15} />
-                  </span>
+                    <div className="mt-1">
+                      {item.type.includes("call") ? (
+                        <Phone size={17} />
+                      ) : item.type.startsWith("friend") ? (
+                        <UserPlus size={17} />
+                      ) : (
+                        <Bell size={17} />
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate text-sm font-semibold">
+                          {display.title}
+                        </span>
+                        <span className="flex shrink-0 items-center gap-1 text-[10px] text-white/35">
+                          <Clock size={10} />
+                          {timeLabel(item.createdAt, localeToHtmlLang(locale))}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs leading-5 text-white/60">
+                        {display.message}
+                      </p>
+                      {item.readAt && (
+                        <p className="mt-1 text-[10px] text-white/30">
+                          {copy.readAt(
+                            timeLabel(item.readAt, localeToHtmlLang(locale)),
+                          )}
+                        </p>
+                      )}
+                    </div>
+                    <span
+                      role="button"
+                      aria-label={copy.deleteNotification}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void dismiss({
+                          ...credentials,
+                          notificationId: item.notificationId,
+                        });
+                      }}
+                      className="mt-1 rounded p-1 text-white/35 hover:text-red-400"
+                    >
+                      <Trash2 size={15} />
+                    </span>
                   </button>
                 );
               })}

@@ -4,69 +4,108 @@ import {
   internalQuery,
   mutation,
   query,
+  type MutationCtx,
 } from "./_generated/server";
-import type { Id } from "./_generated/dataModel";
-import { getAdminCompanyScope, requireAdmin, requireSession } from "./roles";
-import { codeIsInTenant, tenantIdForGroup } from "./tenantBoundaries";
+import type { Doc, Id } from "./_generated/dataModel";
+import {
+  getAdminCompanyScope,
+  requireAdmin,
+  requireSession,
+  tenantIdForAllowed,
+} from "./roles";
+import { allowedForCode } from "./tenantBoundaries";
+import { constantTimeHashEqual } from "./claimCredentials";
+import { internal } from "./_generated/api";
 
 type AdminAuth = Awaited<ReturnType<typeof requireAdmin>>;
 
-async function adminCanAccessCall(
-  ctx: Parameters<typeof requireAdmin>[0],
-  auth: AdminAuth,
-  callId: string,
-  storedParticipantCodes: string[] = [],
-) {
-  const tenantId = getAdminCompanyScope(auth);
-  if (!tenantId) return true;
-
-  const participantCodes = new Set(storedParticipantCodes);
-  const call = await ctx.db
-    .query("live_calls")
-    .withIndex("by_call_id", (q) => q.eq("callId", callId))
-    .unique();
-  for (const code of call?.participantCodes ?? []) participantCodes.add(code);
-
-  const groupCall = await ctx.db
-    .query("chat_group_calls")
-    .withIndex("by_call_id", (q) => q.eq("callId", callId))
-    .unique();
-  if (groupCall) {
-    const group = await ctx.db.get(groupCall.groupId);
-    if (!group || (await tenantIdForGroup(ctx, group)) !== tenantId)
-      return false;
-    const groupParticipants = await ctx.db
-      .query("chat_group_call_participants")
-      .withIndex("by_call", (q) => q.eq("groupCallId", groupCall._id))
-      .collect();
-    for (const participant of groupParticipants)
-      participantCodes.add(participant.userId);
-  }
-
-  if (!participantCodes.size) return false;
-  const matches = await Promise.all(
-    [...participantCodes].map((code) => codeIsInTenant(ctx, code, tenantId)),
-  );
-  return matches.every(Boolean);
+function adminCanAccessTenant(auth: AdminAuth, tenantId: string | undefined) {
+  const scope = getAdminCompanyScope(auth);
+  return !scope || (!!tenantId && tenantId === scope);
 }
 
-async function assertAdminCanAccessCall(
-  ctx: Parameters<typeof requireAdmin>[0],
+function assertAdminCanAccessTenant(
   auth: AdminAuth,
-  callId: string,
-  participantCodes: string[] = [],
+  tenantId: string | undefined,
 ) {
-  if (!(await adminCanAccessCall(ctx, auth, callId, participantCodes)))
+  if (!adminCanAccessTenant(auth, tenantId))
     throw new ConvexError({
       code: "FORBIDDEN",
       message: "没有权限访问其他授权群组的通话。",
     });
 }
 
+async function resolveParticipantTenant(
+  ctx: Parameters<typeof requireAdmin>[0],
+  participantCodes: string[],
+) {
+  if (!participantCodes.length)
+    throw new ConvexError({
+      code: "NOT_FOUND",
+      message: "找不到正在进行的通话。",
+    });
+  const tenants = new Set<string>();
+  for (const code of participantCodes) {
+    const allowed = await allowedForCode(ctx, code);
+    if (!allowed || allowed.enabled === false)
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "通话参与者的授权已经失效。",
+      });
+    tenants.add(tenantIdForAllowed(allowed));
+  }
+  if (tenants.size !== 1)
+    throw new ConvexError({
+      code: "FORBIDDEN",
+      message: "不能跨授权群组建立合规记录。",
+    });
+  return [...tenants][0];
+}
+
+function requireStoredTenant(item: { tenantId?: string }) {
+  if (!item.tenantId)
+    throw new ConvexError({
+      code: "FORBIDDEN",
+      message: "旧版合规记录缺少授权群组，必须重新请求同意。",
+    });
+  return item.tenantId;
+}
+
+function assertParticipantTenant(
+  auth: Awaited<ReturnType<typeof requireSession>>,
+  item: { tenantId?: string },
+) {
+  const tenantId = requireStoredTenant(item);
+  if (tenantIdForAllowed(auth.allowed) !== tenantId)
+    throw new ConvexError({
+      code: "FORBIDDEN",
+      message: "不能访问其他授权群组的合规记录。",
+    });
+  return tenantId;
+}
+
 const RECORDING_SEGMENT_TTL_MS = 10 * 60_000;
 const RECORDING_SEGMENT_RATE_WINDOW_MS = 10 * 60_000;
 const MAX_RECORDING_SEGMENTS_PER_WINDOW = 4;
 const MAX_RECORDING_FILE_BYTES = 25 * 1024 * 1024;
+const TRANSFER_RECORDING_DRAIN_GRACE_MS = 15_000;
+
+async function hashRecordingUploadToken(
+  segmentId: Id<"call_recording_segments">,
+  token: string,
+) {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(`call-recording-upload:v1:${segmentId}:${token}`),
+  );
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+function newRecordingUploadToken() {
+  return `${crypto.randomUUID()}${crypto.randomUUID()}`.replaceAll("-", "");
+}
 
 function consentEpoch(item: {
   consentEpoch?: number;
@@ -74,6 +113,64 @@ function consentEpoch(item: {
   requestedAt: number;
 }) {
   return item.consentEpoch ?? item.activatedAt ?? item.requestedAt;
+}
+
+async function hasTransferRecordingDrainGrace(
+  ctx: Parameters<typeof requireSession>[0],
+  item: Doc<"call_compliance">,
+  segment: Doc<"call_recording_segments">,
+  participantCode: string,
+  now: number,
+) {
+  if (
+    !segment.transferDrainTransferId ||
+    !segment.transferDrainDeadline ||
+    segment.transferDrainDeadline <= now ||
+    item.status === "stopping" ||
+    item.status === "stopped" ||
+    consentEpoch(item) !== segment.consentEpoch + 1 ||
+    !item.participantCodes.includes(participantCode)
+  )
+    return false;
+  const transfer = await ctx.db.get(segment.transferDrainTransferId);
+  return Boolean(
+    transfer &&
+    transfer.status === "completed" &&
+    transfer.targetUserId !== transfer.fromUserId &&
+    transfer.callId === segment.callId &&
+    transfer.remoteUserId === participantCode &&
+    transfer.sourceRecordingDrainEpoch === segment.consentEpoch &&
+    transfer.completedAt !== undefined &&
+    now <= transfer.completedAt + TRANSFER_RECORDING_DRAIN_GRACE_MS &&
+    segment.startedAt <= transfer.completedAt &&
+    segment.transferDrainDeadline <=
+      transfer.completedAt + TRANSFER_RECORDING_DRAIN_GRACE_MS,
+  );
+}
+
+async function hasRecordingSegmentUploadAuthorization(
+  ctx: Parameters<typeof requireSession>[0],
+  item: Doc<"call_compliance">,
+  segment: Doc<"call_recording_segments">,
+  participantCode: string,
+  now: number,
+) {
+  const hasCurrentConsent =
+    (item.status === "active" ||
+      (item.status === "stopping" && (item.stopDeadline ?? 0) > now)) &&
+    consentEpoch(item) === segment.consentEpoch &&
+    item.participantCodes.includes(participantCode) &&
+    item.consentedCodes.includes(participantCode);
+  return (
+    hasCurrentConsent ||
+    (await hasTransferRecordingDrainGrace(
+      ctx,
+      item,
+      segment,
+      participantCode,
+      now,
+    ))
+  );
 }
 
 async function authorizedRecordingSegment(
@@ -112,19 +209,77 @@ async function authorizedRecordingSegment(
     .query("call_compliance")
     .withIndex("by_call", (q) => q.eq("callId", args.callId))
     .unique();
+  const now = Date.now();
   if (
     !item ||
-    item.status !== "active" ||
-    consentEpoch(item) !== segment.consentEpoch ||
-    !item.participantCodes.includes(auth.code) ||
-    !item.consentedCodes.includes(auth.code)
+    !(await hasRecordingSegmentUploadAuthorization(
+      ctx,
+      item,
+      segment,
+      auth.code,
+      now,
+    ))
   )
     throw new ConvexError({
       code: "FORBIDDEN",
       message: "录音同意已经失效。",
     });
-  return { auth, segment };
+  const tenantId = assertParticipantTenant(auth, item);
+  if (segment.tenantId !== tenantId)
+    throw new ConvexError({
+      code: "FORBIDDEN",
+      message: "录音片段的授权群组不匹配。",
+    });
+  return { auth, segment, tenantId };
 }
+
+export const recordingSegmentUploadStatus = query({
+  args: {
+    code: v.string(),
+    deviceId: v.string(),
+    callId: v.string(),
+    segmentId: v.id("call_recording_segments"),
+  },
+  handler: async (ctx, args) => {
+    const auth = await requireSession(ctx, args.code, args.deviceId);
+    const segment = await ctx.db.get(args.segmentId);
+    if (
+      !segment ||
+      segment.callId !== args.callId ||
+      segment.participantCode !== auth.code ||
+      segment.deviceId !== args.deviceId
+    )
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "录音片段凭证无效。",
+      });
+    await participant(ctx, args.code, args.deviceId, args.callId);
+    const item = await ctx.db
+      .query("call_compliance")
+      .withIndex("by_call", (q) => q.eq("callId", args.callId))
+      .unique();
+    if (!item || segment.tenantId !== assertParticipantTenant(auth, item))
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "录音片段的授权群组不匹配。",
+      });
+    const consumed = Boolean(segment.consumedAt && segment.storageId);
+    const now = Date.now();
+    return {
+      consumed,
+      uploadable:
+        !consumed &&
+        segment.expiresAt > now &&
+        (await hasRecordingSegmentUploadAuthorization(
+          ctx,
+          item,
+          segment,
+          auth.code,
+          now,
+        )),
+    };
+  },
+});
 
 type CallParticipant = {
   auth: Awaited<ReturnType<typeof requireSession>>;
@@ -202,15 +357,20 @@ async function participant(
     .withIndex("by_call_id", (q) => q.eq("callId", callId))
     .unique();
   if (groupCall?.status === "active") {
-    const joined = (
+    const joinedParticipants = (
       await ctx.db
         .query("chat_group_call_participants")
         .withIndex("by_call", (q) => q.eq("groupCallId", groupCall._id))
         .collect()
-    )
-      .filter((item) => item.status === "joined")
-      .map((item) => item.userId);
-    if (joined.includes(auth.code)) return { auth, participantCodes: joined };
+    ).filter((item) => item.status === "joined");
+    const currentParticipant = joinedParticipants.find(
+      (item) => item.userId === auth.code,
+    );
+    if (currentParticipant && currentParticipant.deviceId === deviceId)
+      return {
+        auth,
+        participantCodes: joinedParticipants.map((item) => item.userId),
+      };
   }
   if (allowMissing) return null;
   throw new ConvexError({
@@ -249,13 +409,15 @@ export const request = mutation({
         code: "NOT_FOUND",
         message: "找不到正在进行的通话。",
       });
-    await assertAdminCanAccessCall(ctx, auth, args.callId, participantCodes);
+    const tenantId = await resolveParticipantTenant(ctx, participantCodes);
+    assertAdminCanAccessTenant(auth, tenantId);
     const existing = await ctx.db
       .query("call_compliance")
       .withIndex("by_call", (q) => q.eq("callId", args.callId))
       .unique();
     const now = Date.now();
     const data = {
+      tenantId,
       participantCodes,
       consentedCodes: [] as string[],
       consentEpoch: existing ? consentEpoch(existing) + 1 : 1,
@@ -265,6 +427,7 @@ export const request = mutation({
       requestedAt: now,
       activatedAt: undefined,
       stoppedAt: undefined,
+      stopDeadline: undefined,
       translationEnabled: false,
     };
     if (existing) await ctx.db.patch(existing._id, data);
@@ -298,12 +461,17 @@ export const status = query({
       .withIndex("by_call", (q) => q.eq("callId", args.callId))
       .unique();
     if (!item || !item.participantCodes.includes(auth.code)) return null;
+    if (!item.tenantId || tenantIdForAllowed(auth.allowed) !== item.tenantId)
+      return null;
     return {
       status: item.status,
       consentedCodes: item.consentedCodes,
       translationEnabled: item.translationEnabled ?? false,
       myConsent: item.consentedCodes.includes(auth.code),
       myDecline: item.declinedCodes.includes(auth.code),
+      ...(item.status === "stopping" && item.stopDeadline !== undefined
+        ? { stopDeadline: item.stopDeadline }
+        : {}),
     };
   },
 });
@@ -335,6 +503,7 @@ export const respond = mutation({
         code: "BAD_REQUEST",
         message: "录音同意请求已失效。",
       });
+    assertParticipantTenant(auth, item);
     const consentedCodes = item.consentedCodes.filter(
       (code) => code !== auth.code,
     );
@@ -359,45 +528,6 @@ export const respond = mutation({
   },
 });
 
-export const addTranscript = mutation({
-  args: {
-    code: v.string(),
-    deviceId: v.string(),
-    callId: v.string(),
-    text: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const { auth } = await participant(
-      ctx,
-      args.code,
-      args.deviceId,
-      args.callId,
-    );
-    const item = await ctx.db
-      .query("call_compliance")
-      .withIndex("by_call", (q) => q.eq("callId", args.callId))
-      .unique();
-    const text = args.text.trim().slice(0, 500);
-    if (
-      !item ||
-      item.status !== "active" ||
-      !item.consentedCodes.includes(auth.code) ||
-      !text
-    )
-      throw new ConvexError({
-        code: "FORBIDDEN",
-        message: "不允许生成文字记录。",
-      });
-    await ctx.db.insert("call_transcripts", {
-      callId: args.callId,
-      speakerCode: auth.code,
-      speakerName: auth.session.name,
-      text,
-      createdAt: Date.now(),
-    });
-  },
-});
-
 export const authorizeTranslation = internalQuery({
   args: { code: v.string(), deviceId: v.string(), callId: v.string() },
   handler: async (ctx, args) => {
@@ -418,6 +548,7 @@ export const authorizeTranslation = internalQuery({
       !item.consentedCodes.includes(auth.code)
     )
       throw new ConvexError({ code: "FORBIDDEN", message: "翻译未开启。" });
+    assertParticipantTenant(auth, item);
     return {
       speakerCode: auth.code,
       deviceId: args.deviceId,
@@ -460,8 +591,10 @@ export const storeTranslation = internalMutation({
         code: "FORBIDDEN",
         message: "翻译同意已经失效。",
       });
+    const tenantId = assertParticipantTenant(auth, item);
     await ctx.db.insert("call_transcripts", {
       callId: args.callId,
+      tenantId,
       speakerCode: auth.code,
       speakerName: auth.session.name,
       text: args.text.slice(0, 1000),
@@ -498,7 +631,26 @@ export const beginRecordingSegment = mutation({
       !item.consentedCodes.includes(auth.code)
     )
       throw new ConvexError({ code: "FORBIDDEN", message: "不允许录音。" });
+    const tenantId = assertParticipantTenant(auth, item);
     const epoch = consentEpoch(item);
+    const activeTransfer = (
+      await ctx.db
+        .query("call_transfers")
+        .withIndex("by_call", (q) => q.eq("callId", args.callId))
+        .collect()
+    ).find(
+      (transfer) =>
+        transfer.status === "joining" &&
+        transfer.fromUserId === auth.code &&
+        transfer.fromDeviceId === args.deviceId &&
+        transfer.sourceRecordingDrainedAt !== undefined &&
+        transfer.sourceRecordingDrainEpoch === epoch,
+    );
+    if (activeTransfer)
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "转接录音已经完成交接，来源装置不能再开始新片段。",
+      });
     const clientNonce = args.clientNonce.normalize("NFKC").trim();
     if (!clientNonce || clientNonce.length > 128)
       throw new ConvexError({
@@ -538,6 +690,7 @@ export const beginRecordingSegment = mutation({
     const expiresAt = now + RECORDING_SEGMENT_TTL_MS;
     const segmentId = await ctx.db.insert("call_recording_segments", {
       callId: args.callId,
+      tenantId,
       participantCode: auth.code,
       deviceId: args.deviceId,
       consentEpoch: epoch,
@@ -558,17 +711,123 @@ export const generateUploadUrl = mutation({
   },
   handler: async (ctx, args) => {
     const { segment } = await authorizedRecordingSegment(ctx, args);
-    if (segment.uploadUrl) return segment.uploadUrl;
-    const uploadUrl = await ctx.storage.generateUploadUrl();
+    // Never expose a raw Convex storage URL. Such a URL remains usable after a
+    // call handoff or consent revocation and can create untracked orphan data.
+    // The HTTP upload endpoint rechecks this one-time token immediately before
+    // and after storing the audio.
+    const uploadToken = newRecordingUploadToken();
     await ctx.db.patch(segment._id, {
-      uploadUrl,
+      uploadUrl: undefined,
+      uploadTokenHash: await hashRecordingUploadToken(segment._id, uploadToken),
       uploadAuthorizedAt: Date.now(),
     });
-    return uploadUrl;
+    return { uploadToken };
   },
 });
 
-export const saveRecording = mutation({
+export const authorizeRecordingHttpUpload = internalQuery({
+  args: {
+    code: v.string(),
+    deviceId: v.string(),
+    callId: v.string(),
+    segmentId: v.id("call_recording_segments"),
+    uploadToken: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const { segment } = await authorizedRecordingSegment(ctx, args);
+    const expectedHash = segment.uploadTokenHash ?? "";
+    const candidateHash = await hashRecordingUploadToken(
+      segment._id,
+      args.uploadToken,
+    );
+    if (
+      !segment.uploadAuthorizedAt ||
+      !expectedHash ||
+      !constantTimeHashEqual(candidateHash, expectedHash)
+    )
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "录音上传凭证无效。",
+      });
+    return { authorized: true as const };
+  },
+});
+
+export const saveRecordingHttpUpload = internalMutation({
+  args: {
+    code: v.string(),
+    deviceId: v.string(),
+    callId: v.string(),
+    segmentId: v.id("call_recording_segments"),
+    uploadToken: v.string(),
+    storageId: v.id("_storage"),
+    mimeType: v.string(),
+    byteLength: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const { auth, segment, tenantId } = await authorizedRecordingSegment(
+      ctx,
+      args,
+    );
+    const expectedHash = segment.uploadTokenHash ?? "";
+    const candidateHash = await hashRecordingUploadToken(
+      segment._id,
+      args.uploadToken,
+    );
+    const mimeType = args.mimeType.normalize("NFKC").trim().toLowerCase();
+    const storedFile = await ctx.db.system.get("_storage", args.storageId);
+    if (
+      !segment.uploadAuthorizedAt ||
+      !expectedHash ||
+      !constantTimeHashEqual(candidateHash, expectedHash) ||
+      !mimeType.split(";", 1)[0].startsWith("audio/") ||
+      !storedFile ||
+      args.byteLength <= 0 ||
+      args.byteLength > MAX_RECORDING_FILE_BYTES ||
+      storedFile.size !== args.byteLength
+    )
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "录音上传凭证或文件无效。",
+      });
+    const [segmentUsingStorage, recordingUsingStorage] = await Promise.all([
+      ctx.db
+        .query("call_recording_segments")
+        .withIndex("by_storage_id", (q) => q.eq("storageId", args.storageId))
+        .first(),
+      ctx.db
+        .query("call_recordings")
+        .withIndex("by_storage_id", (q) => q.eq("storageId", args.storageId))
+        .first(),
+    ]);
+    if (segmentUsingStorage || recordingUsingStorage)
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "录音文件已经使用。",
+      });
+    const now = Date.now();
+    await ctx.db.patch(segment._id, {
+      storageId: args.storageId,
+      consumedAt: now,
+      uploadTokenHash: undefined,
+      transferDrainTransferId: undefined,
+      transferDrainDeadline: undefined,
+    });
+    await ctx.db.insert("call_recordings", {
+      callId: args.callId,
+      tenantId,
+      participantCode: auth.code,
+      participantName: auth.session.name,
+      storageId: args.storageId,
+      mimeType,
+      createdAt: now,
+    });
+    await finishRecordingStopIfFlushed(ctx, args.callId);
+  },
+});
+
+// Migration-only finalization: clients must use the guarded HTTP upload.
+export const saveRecording = internalMutation({
   args: {
     code: v.string(),
     deviceId: v.string(),
@@ -578,8 +837,14 @@ export const saveRecording = mutation({
     mimeType: v.string(),
   },
   handler: async (ctx, args) => {
-    const { auth, segment } = await authorizedRecordingSegment(ctx, args);
-    if (!segment.uploadUrl || !segment.uploadAuthorizedAt)
+    const { auth, segment, tenantId } = await authorizedRecordingSegment(
+      ctx,
+      args,
+    );
+    if (
+      (!segment.uploadTokenHash && !segment.uploadUrl) ||
+      !segment.uploadAuthorizedAt
+    )
       throw new ConvexError({
         code: "FORBIDDEN",
         message: "录音片段尚未取得上传权限。",
@@ -638,15 +903,167 @@ export const saveRecording = mutation({
     await ctx.db.patch(segment._id, {
       storageId: args.storageId,
       consumedAt: now,
+      uploadTokenHash: undefined,
+      transferDrainTransferId: undefined,
+      transferDrainDeadline: undefined,
     });
     await ctx.db.insert("call_recordings", {
       callId: args.callId,
+      tenantId,
       participantCode: auth.code,
       participantName: auth.session.name,
       storageId: args.storageId,
       mimeType: declaredMimeType,
       createdAt: now,
     });
+  },
+});
+
+async function finishRecordingStopIfFlushed(ctx: MutationCtx, callId: string) {
+  const item = await ctx.db
+    .query("call_compliance")
+    .withIndex("by_call", (q) => q.eq("callId", callId))
+    .unique();
+  if (!item || item.status !== "stopping") return;
+  const segments = await ctx.db
+    .query("call_recording_segments")
+    .withIndex("by_call", (q) => q.eq("callId", callId))
+    .collect();
+  const outstanding = segments.some(
+    (segment) =>
+      segment.consentEpoch === consentEpoch(item) &&
+      !segment.consumedAt &&
+      segment.expiresAt > Date.now(),
+  );
+  if (!outstanding || (item.stopDeadline ?? 0) <= Date.now())
+    await ctx.db.patch(item._id, {
+      status: "stopped",
+      stoppedAt: Date.now(),
+      stopDeadline: undefined,
+      translationEnabled: false,
+    });
+}
+
+export const finalizeRecordingStop = internalMutation({
+  args: { callId: v.string(), consentEpoch: v.number() },
+  handler: async (ctx, args) => {
+    const item = await ctx.db
+      .query("call_compliance")
+      .withIndex("by_call", (q) => q.eq("callId", args.callId))
+      .unique();
+    if (!item || consentEpoch(item) !== args.consentEpoch) return;
+    await finishRecordingStopIfFlushed(ctx, args.callId);
+  },
+});
+
+async function beginRecordingStop(
+  ctx: MutationCtx,
+  item: Doc<"call_compliance">,
+) {
+  if (item.status === "stopping") return item.stopDeadline ?? Date.now();
+  if (item.status === "stopped") return item.stoppedAt ?? Date.now();
+  const stopDeadline = Date.now() + 15_000;
+  await ctx.db.patch(item._id, {
+    status: "stopping",
+    stopDeadline,
+    translationEnabled: false,
+  });
+  await finishRecordingStopIfFlushed(ctx, item.callId);
+  await ctx.scheduler.runAfter(
+    15_000,
+    internal.callCompliance.finalizeRecordingStop,
+    { callId: item.callId, consentEpoch: consentEpoch(item) },
+  );
+  return stopDeadline;
+}
+
+export const prepareRecordingHangup = mutation({
+  args: { code: v.string(), deviceId: v.string(), callId: v.string() },
+  handler: async (ctx, args) => {
+    const { auth } = await participant(
+      ctx,
+      args.code,
+      args.deviceId,
+      args.callId,
+    );
+    const item = await ctx.db
+      .query("call_compliance")
+      .withIndex("by_call", (q) => q.eq("callId", args.callId))
+      .unique();
+    if (!item || !item.participantCodes.includes(auth.code))
+      return { stopDeadline: Date.now() };
+    assertParticipantTenant(auth, item);
+    return { stopDeadline: await beginRecordingStop(ctx, item) };
+  },
+});
+
+export const acknowledgeTransferRecordingDrain = mutation({
+  args: {
+    code: v.string(),
+    deviceId: v.string(),
+    callId: v.string(),
+    transferId: v.id("call_transfers"),
+  },
+  handler: async (ctx, args) => {
+    const { auth } = await participant(
+      ctx,
+      args.code,
+      args.deviceId,
+      args.callId,
+    );
+    const transfer = await ctx.db.get(args.transferId);
+    if (
+      !transfer ||
+      transfer.callId !== args.callId ||
+      transfer.fromUserId !== auth.code ||
+      transfer.fromDeviceId !== args.deviceId
+    )
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "录音交接凭证与来源装置不匹配。",
+      });
+    if (transfer.status !== "joining" || transfer.expiresAt <= Date.now())
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "当前转接状态不允许确认录音交接。",
+      });
+    const item = await ctx.db
+      .query("call_compliance")
+      .withIndex("by_call", (q) => q.eq("callId", args.callId))
+      .unique();
+    if (item) assertParticipantTenant(auth, item);
+    if (item?.status === "stopping")
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "录音仍在结束处理中，请等待最后片段保存。",
+      });
+    const epoch =
+      item?.status === "active" && item.consentedCodes.includes(auth.code)
+        ? consentEpoch(item)
+        : undefined;
+    if (epoch !== undefined) {
+      const segments = await ctx.db
+        .query("call_recording_segments")
+        .withIndex("by_call", (q) => q.eq("callId", args.callId))
+        .collect();
+      const outstanding = segments.some(
+        (segment) =>
+          segment.participantCode === auth.code &&
+          segment.deviceId === args.deviceId &&
+          segment.consentEpoch === epoch &&
+          !segment.consumedAt,
+      );
+      if (outstanding)
+        throw new ConvexError({
+          code: "CONFLICT",
+          message: "录音最后片段尚未保存，无法完成转接。",
+        });
+    }
+    await ctx.db.patch(transfer._id, {
+      sourceRecordingDrainedAt: Date.now(),
+      sourceRecordingDrainEpoch: epoch,
+    });
+    return { acknowledged: true as const, consentEpoch: epoch ?? null };
   },
 });
 
@@ -658,20 +1075,14 @@ export const stop = mutation({
       .query("call_compliance")
       .withIndex("by_call", (q) => q.eq("callId", args.callId))
       .unique();
-    await assertAdminCanAccessCall(
-      ctx,
-      auth,
-      args.callId,
-      item?.participantCodes,
-    );
-    if (item) {
-      const now = Date.now();
-      await ctx.db.patch(item._id, {
-        status: "stopped",
-        stoppedAt: now,
-        translationEnabled: false,
+    if (!item)
+      throw new ConvexError({
+        code: "NOT_FOUND",
+        message: "找不到合规记录。",
       });
-    }
+    assertAdminCanAccessTenant(auth, item.tenantId);
+    const now = Date.now();
+    await beginRecordingStop(ctx, item);
     await ctx.db.insert("audit_logs", {
       actorCode: auth.code,
       action: "call.recording.stop",
@@ -691,17 +1102,12 @@ export const setTranslation = mutation({
       .query("call_compliance")
       .withIndex("by_call", (q) => q.eq("callId", args.callId))
       .unique();
-    await assertAdminCanAccessCall(
-      ctx,
-      auth,
-      args.callId,
-      item?.participantCodes,
-    );
     if (!item || item.status !== "active")
       throw new ConvexError({
         code: "BAD_REQUEST",
         message: "录音尚未获得同意或通话未进行中。",
       });
+    assertAdminCanAccessTenant(auth, item.tenantId);
     await ctx.db.patch(item._id, { translationEnabled: args.enabled });
     await ctx.db.insert("audit_logs", {
       actorCode: auth.code,
@@ -722,32 +1128,35 @@ export const adminDashboard = query({
       .query("call_compliance")
       .order("desc")
       .collect();
-    const sessions = (
-      await Promise.all(
-        allSessions.map(async (session) =>
-          (await adminCanAccessCall(
-            ctx,
-            auth,
-            session.callId,
-            session.participantCodes,
-          ))
-            ? session
-            : null,
-        ),
+    const sessions = allSessions
+      .map((session) =>
+        adminCanAccessTenant(auth, session.tenantId) ? session : null,
       )
-    )
       .filter((session): session is NonNullable<typeof session> => !!session)
       .slice(0, 30);
+    const scope = getAdminCompanyScope(auth);
     return await Promise.all(
       sessions.map(async (session) => {
-        const transcripts = await ctx.db
-          .query("call_transcripts")
-          .withIndex("by_call_time", (q) => q.eq("callId", session.callId))
-          .collect();
-        const recordings = await ctx.db
-          .query("call_recordings")
-          .withIndex("by_call", (q) => q.eq("callId", session.callId))
-          .collect();
+        const transcripts = (
+          await ctx.db
+            .query("call_transcripts")
+            .withIndex("by_call_time", (q) => q.eq("callId", session.callId))
+            .collect()
+        ).filter(
+          (transcript) =>
+            !scope ||
+            (!!transcript.tenantId && transcript.tenantId === session.tenantId),
+        );
+        const recordings = (
+          await ctx.db
+            .query("call_recordings")
+            .withIndex("by_call", (q) => q.eq("callId", session.callId))
+            .collect()
+        ).filter(
+          (recording) =>
+            !scope ||
+            (!!recording.tenantId && recording.tenantId === session.tenantId),
+        );
         return {
           ...session,
           transcripts,

@@ -58,41 +58,79 @@ async function setup() {
 }
 
 describe("notification center", () => {
-  test("contact lookup accepts exactly five letters and rejects alphanumeric lookalikes", async () => {
+  test("contact lookup unconditionally accepts only an active exact five-letter code", async () => {
+    const t = await setup();
+    await t.run(async (ctx) => {
+      for (const target of [
+        { code: "CODE1", name: "Numeric Lookalike", enabled: true },
+        { code: "BLOCK", name: "Disabled User", enabled: false },
+        { code: "OLDIE", name: "Expired User", enabled: true },
+      ]) {
+        await ctx.db.insert("auth_codes", {
+          code: target.code,
+          deviceId: `device-${target.code.toLowerCase()}`,
+          name: target.name,
+          usedAt: new Date().toISOString(),
+        });
+        await ctx.db.insert("allowed_codes", {
+          code: target.code,
+          role: "user",
+          enabled: target.enabled,
+          companyId: "nyfbi",
+          expiresAt: target.code === "OLDIE" ? Date.now() - 1 : undefined,
+        });
+      }
+    });
+
+    for (const query of ["", "USER", "User B", "CODE1", "BLOCK", "OLDIE"])
+      await expect(
+        t.query(api.contacts.searchUser, {
+          requesterCode: "USERA",
+          deviceId: "device-a",
+          query,
+        }),
+      ).resolves.toEqual([]);
+    await expect(
+      t.query(api.contacts.searchUser, {
+        requesterCode: "USERA",
+        deviceId: "device-a",
+        query: "userb",
+      }),
+    ).resolves.toEqual([
+      { code: "USERB", name: "User B", department: undefined },
+    ]);
+  });
+
+  test("a direct friend request rejects malformed and inactive authorization codes", async () => {
     const t = await setup();
     await t.run(async (ctx) => {
       await ctx.db.insert("auth_codes", {
-        code: "CODE1",
-        deviceId: "device-code-1",
-        name: "Numeric Lookalike",
+        code: "RAVE",
+        deviceId: "device-rave",
+        name: "Legacy Four Letter User",
         usedAt: new Date().toISOString(),
       });
       await ctx.db.insert("allowed_codes", {
-        code: "CODE1",
+        code: "RAVE",
         role: "user",
         enabled: true,
         companyId: "nyfbi",
       });
     });
 
-    await expect(
-      t.query(api.contacts.searchUser, {
-        requesterCode: "USERA",
-        deviceId: "device-a",
-        query: "CODE1",
-        exactCodeOnly: true,
-      }),
-    ).resolves.toEqual([]);
-    await expect(
-      t.query(api.contacts.searchUser, {
-        requesterCode: "USERA",
-        deviceId: "device-a",
-        query: "userb",
-        exactCodeOnly: true,
-      }),
-    ).resolves.toEqual([
-      { code: "USERB", name: "User B", department: undefined },
-    ]);
+    for (const targetCode of ["RAVE", "CODE1", "BLOCK", "OLDIE"])
+      await expect(
+        t.mutation(api.contacts.addContact, {
+          ownerCode: "USERA",
+          deviceId: "device-a",
+          targetCode,
+        }),
+      ).rejects.toThrow();
+
+    await t.run(async (ctx) => {
+      expect(await ctx.db.query("friend_requests").collect()).toEqual([]);
+      expect(await ctx.db.query("notifications").collect()).toEqual([]);
+    });
   });
 
   test("friend invitation and acceptance use the shared notification table", async () => {

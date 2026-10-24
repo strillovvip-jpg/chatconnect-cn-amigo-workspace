@@ -3,14 +3,17 @@ import { describe, expect, test } from "vitest";
 import { api } from "./_generated/api";
 import schema from "./schema";
 import { hashClaimSecret } from "./claimCredentials";
+import type { Id } from "./_generated/dataModel";
 
 const modules = import.meta.glob("./**/*.*s");
 
 const makeCodes = (prefix: string, count: number) =>
-  Array.from(
-    { length: count },
-    (_, index) => `${prefix}${index.toString().padStart(3, "0")}`,
-  );
+  Array.from({ length: count }, (_, index) => {
+    const first = String.fromCharCode(65 + Math.floor(index / 26 ** 2));
+    const second = String.fromCharCode(65 + (Math.floor(index / 26) % 26));
+    const third = String.fromCharCode(65 + (index % 26));
+    return `${prefix}${first}${second}${third}`;
+  });
 
 const activationSecret = "A".repeat(32);
 
@@ -79,7 +82,65 @@ async function provision(
   return { result, fullCodes, limitedCodes };
 }
 
+async function uploadDocument(
+  t: Awaited<ReturnType<typeof setupRoot>>,
+  password: string,
+) {
+  const previousSite = process.env.CONVEX_SITE_URL;
+  process.env.CONVEX_SITE_URL = "https://example.convex.site";
+  try {
+    const url = new URL(
+      await t.mutation(api.caseDocuments.generateUploadUrl, { password }),
+    );
+    const response = await t.fetch(`${url.pathname}${url.search}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/pdf" },
+      body: new Blob(["company document"], { type: "application/pdf" }),
+    });
+    expect(response.status).toBe(200);
+    return (await response.json()).storageId as Id<"_storage">;
+  } finally {
+    if (previousSite === undefined) delete process.env.CONVEX_SITE_URL;
+    else process.env.CONVEX_SITE_URL = previousSite;
+  }
+}
+
 describe("company authorization provisioning", () => {
+  test("new company codes must be exactly five English letters", async () => {
+    const t = await setupRoot();
+    const validFullCodes = makeCodes("VF", 10);
+    const validLimitedCodes = makeCodes("VL", 50);
+
+    for (const invalid of [
+      {
+        adminCode: "A1234",
+        fullCodes: validFullCodes,
+        limitedCodes: validLimitedCodes,
+      },
+      {
+        adminCode: "ABCDE",
+        fullCodes: ["F1234", ...validFullCodes.slice(1)],
+        limitedCodes: validLimitedCodes,
+      },
+      {
+        adminCode: "ABCDE",
+        fullCodes: validFullCodes,
+        limitedCodes: ["ABCDEF", ...validLimitedCodes.slice(1)],
+      },
+    ]) {
+      await expect(
+        t.mutation(
+          api.roleManagement.provisionCompany,
+          await withClaimSecretHashes({
+            password: "ROOT1:root-device",
+            companyName: "Invalid codes",
+            ...invalid,
+          }),
+        ),
+      ).rejects.toThrow("exactly five letters");
+    }
+  });
+
   test("a global super administrator atomically creates one company administrator, 10 full codes, and 50 limited codes", async () => {
     const t = await setupRoot();
     const { result, fullCodes, limitedCodes } = await provision(t, {
@@ -115,9 +176,11 @@ describe("company authorization provisioning", () => {
         ),
       ).toBe(true);
 
-      const fullCode = companyCodes.find((record) => record.code === "AF000");
+      const fullCode = companyCodes.find(
+        (record) => record.code === fullCodes[0],
+      );
       const limitedCode = companyCodes.find(
-        (record) => record.code === "AL000",
+        (record) => record.code === limitedCodes[0],
       );
       const fullProfile = fullCode?.licenseProfileId
         ? await ctx.db.get(fullCode.licenseProfileId)
@@ -188,7 +251,35 @@ describe("company authorization provisioning", () => {
       }
       const acmeStorage = await ctx.storage.store(new Blob(["acme document"]));
       const betaStorage = await ctx.storage.store(new Blob(["beta document"]));
+      const acmeCase = await ctx.db.insert("cases", {
+        tenantId: "acadm",
+        caseNumber: "ACME-1",
+        title: "Acme document case",
+        status: "open",
+        priority: "medium",
+        category: "private",
+        description: "Acme only",
+        assignedCode: "ACADM",
+        assignedName: "Acme admin",
+        createdAt: new Date(now).toISOString(),
+        updatedAt: new Date(now).toISOString(),
+      });
+      const betaCase = await ctx.db.insert("cases", {
+        tenantId: "btadm",
+        caseNumber: "BETA-1",
+        title: "Beta document case",
+        status: "open",
+        priority: "medium",
+        category: "private",
+        description: "Beta only",
+        assignedCode: "BTADM",
+        assignedName: "Beta admin",
+        createdAt: new Date(now).toISOString(),
+        updatedAt: new Date(now).toISOString(),
+      });
       const acmeDocument = await ctx.db.insert("case_documents", {
+        tenantId: "acadm",
+        caseId: acmeCase,
         caseNumber: "ACME-1",
         fileName: "acme.pdf",
         storageId: acmeStorage,
@@ -197,6 +288,8 @@ describe("company authorization provisioning", () => {
         uploadedAt: new Date(now).toISOString(),
       });
       const betaDocument = await ctx.db.insert("case_documents", {
+        tenantId: "btadm",
+        caseId: betaCase,
         caseNumber: "BETA-1",
         fileName: "beta.pdf",
         storageId: betaStorage,
@@ -205,6 +298,7 @@ describe("company authorization provisioning", () => {
         uploadedAt: new Date(now).toISOString(),
       });
       await ctx.db.insert("cases", {
+        tenantId: "btadm",
         caseNumber: "BETA-SECRET",
         title: "Beta private case",
         status: "open",
@@ -312,12 +406,28 @@ describe("company authorization provisioning", () => {
         password: "ACADM:acme-admin-device",
         caseNumber: "BETA-SECRET",
         idNumber: "BETA-ID",
-        name: "Cross-tenant overwrite",
-        caseName: "Cross-tenant overwrite",
-        fileName: "forbidden.pdf",
-        storageId: ids.crossUploadStorage,
+        name: "Acme same-number case",
+        caseName: "Acme same-number case",
+        fileName: "acme-same-number.pdf",
+        storageId: await uploadDocument(t, "ACADM:acme-admin-device"),
       }),
-    ).rejects.toThrow();
+    ).resolves.toBeDefined();
+    await t.run(async (ctx) => {
+      const acmeCase = await ctx.db
+        .query("cases")
+        .withIndex("by_tenant_case_number", (q) =>
+          q.eq("tenantId", "acadm").eq("caseNumber", "BETA-SECRET"),
+        )
+        .unique();
+      const betaCase = await ctx.db
+        .query("cases")
+        .withIndex("by_tenant_case_number", (q) =>
+          q.eq("tenantId", "btadm").eq("caseNumber", "BETA-SECRET"),
+        )
+        .unique();
+      expect(acmeCase?.title).toBe("Acme same-number case");
+      expect(betaCase?.title).toBe("Beta private case");
+    });
     await expect(
       t.mutation(api.callCompliance.request, {
         password: "ACADM:acme-admin-device",
@@ -439,7 +549,7 @@ describe("company authorization provisioning", () => {
     const t = await setupRoot();
     await t.run(async (ctx) => {
       await ctx.db.insert("allowed_codes", {
-        code: "USED1",
+        code: "USEDA",
         role: "user",
         enabled: true,
       });
@@ -464,7 +574,7 @@ describe("company authorization provisioning", () => {
           password: "ROOT1:root-device",
           companyName: "Collision Filing",
           adminCode: "COADM",
-          fullCodes: ["USED1", ...makeCodes("CF", 9)],
+          fullCodes: ["USEDA", ...makeCodes("CF", 9)],
           limitedCodes: makeCodes("CL", 50),
         }),
       ),
@@ -481,6 +591,41 @@ describe("company authorization provisioning", () => {
           ["shadm", "coadm"].includes(record.companyId ?? ""),
         ),
       ).toEqual([]);
+    });
+  });
+
+  test("cannot provision a company with a permanently retired authorization code", async () => {
+    const t = await setupRoot();
+    const payload = await withClaimSecretHashes({
+      password: "ROOT1:root-device",
+      companyName: "Retired Code Filing",
+      adminCode: "RTADM",
+      fullCodes: makeCodes("RF", 10),
+      limitedCodes: makeCodes("RL", 50),
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert("authorization_code_tombstones", {
+        code: payload.fullCodes[0],
+        reason: "deleted",
+        retiredBy: "ROOT1",
+        retiredAt: Date.now(),
+      });
+    });
+
+    await expect(
+      t.mutation(api.roleManagement.provisionCompany, payload),
+    ).rejects.toThrow("永久停用");
+    await t.run(async (ctx) => {
+      expect(
+        (await ctx.db.query("allowed_codes").collect()).filter(
+          (record) => record.companyId === "rtadm",
+        ),
+      ).toHaveLength(0);
+      expect(
+        (await ctx.db.query("license_profiles").collect()).filter(
+          (record) => record.companyId === "rtadm",
+        ),
+      ).toHaveLength(0);
     });
   });
 

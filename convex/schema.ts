@@ -2,6 +2,26 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
+  file_upload_admissions: defineTable({
+    ownerCode: v.string(),
+    deviceId: v.string(),
+    sessionId: v.id("auth_codes"),
+    tenantId: v.string(),
+    purpose: v.union(
+      v.literal("document"),
+      v.literal("message"),
+      v.literal("group_message"),
+    ),
+    targetCode: v.optional(v.string()),
+    groupId: v.optional(v.id("chat_groups")),
+    tokenHash: v.string(),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+    storageId: v.optional(v.id("_storage")),
+    mimeType: v.optional(v.string()),
+    byteLength: v.optional(v.number()),
+    consumedAt: v.optional(v.number()),
+  }).index("by_storage_id", ["storageId"]),
   users: defineTable({
     tokenIdentifier: v.string(),
     name: v.optional(v.string()),
@@ -61,8 +81,24 @@ export default defineSchema({
     claimSecretHash: v.optional(v.string()),
     licenseProfileId: v.optional(v.id("license_profiles")),
     expiresAt: v.optional(v.number()),
+    // The exact expiry value whose scheduled revocation has completed.
+    expiryRevocationVersion: v.optional(v.number()),
     createdAt: v.optional(v.number()),
     updatedAt: v.optional(v.number()),
+  }).index("by_code", ["code"]),
+
+  // Authorization codes are public identity keys throughout historical
+  // messages and contacts. Once deleted they must never identify a new user.
+  authorization_code_tombstones: defineTable({
+    code: v.string(),
+    companyId: v.optional(v.string()),
+    reason: v.union(
+      v.literal("deleted"),
+      v.literal("bulk_replace"),
+      v.literal("bulk_import"),
+    ),
+    retiredBy: v.string(),
+    retiredAt: v.number(),
   }).index("by_code", ["code"]),
 
   license_profiles: defineTable({
@@ -174,6 +210,9 @@ export default defineSchema({
     .index("by_user_created", ["userId", "createdAt"]),
 
   cases: defineTable({
+    // Optional only for migration compatibility. Every current write path
+    // persists this immutable owner and scoped reads fail closed without it.
+    tenantId: v.optional(v.string()),
     caseNumber: v.string(),
     title: v.string(),
     status: v.union(
@@ -201,9 +240,12 @@ export default defineSchema({
     updatedAt: v.string(),
   })
     .index("by_case_number", ["caseNumber"])
+    .index("by_tenant_case_number", ["tenantId", "caseNumber"])
     .index("by_assigned", ["assignedCode"])
     .index("by_status", ["status"])
-    .index("by_created", ["createdAt"]),
+    .index("by_created", ["createdAt"])
+    .index("by_tenant_created", ["tenantId", "createdAt"])
+    .index("by_tenant_status", ["tenantId", "status"]),
 
   group_calls: defineTable({
     roomName: v.string(),
@@ -271,6 +313,7 @@ export default defineSchema({
     .index("by_room", ["roomName"])
     .index("by_status", ["status"])
     .index("by_callee_status", ["calleeUserId", "status"])
+    .index("by_caller_status", ["callerUserId", "status"])
     .index("by_caller", ["callerUserId"]),
 
   external_video_invites: defineTable({
@@ -279,6 +322,8 @@ export default defineSchema({
     operatorCode: v.string(),
     operatorName: v.string(),
     operatorIdentity: v.string(),
+    // Optional only for records created before viewer identities were persisted.
+    operatorViewerIdentity: v.optional(v.string()),
     tenantId: v.optional(v.string()),
     passwordHash: v.string(),
     passwordSalt: v.string(),
@@ -315,6 +360,10 @@ export default defineSchema({
 
   call_compliance: defineTable({
     callId: v.string(),
+    // Immutable ownership captured when compliance is requested. Optional only
+    // so legacy rows can be deployed safely; scoped administrators fail closed
+    // for rows that predate this field.
+    tenantId: v.optional(v.string()),
     participantCodes: v.array(v.string()),
     consentedCodes: v.array(v.string()),
     consentEpoch: v.optional(v.number()),
@@ -323,12 +372,14 @@ export default defineSchema({
       v.literal("requested"),
       v.literal("active"),
       v.literal("declined"),
+      v.literal("stopping"),
       v.literal("stopped"),
     ),
     requestedBy: v.string(),
     requestedAt: v.number(),
     activatedAt: v.optional(v.number()),
     stoppedAt: v.optional(v.number()),
+    stopDeadline: v.optional(v.number()),
     translationEnabled: v.optional(v.boolean()),
   })
     .index("by_call", ["callId"])
@@ -336,6 +387,7 @@ export default defineSchema({
 
   call_recording_segments: defineTable({
     callId: v.string(),
+    tenantId: v.optional(v.string()),
     participantCode: v.string(),
     deviceId: v.string(),
     consentEpoch: v.number(),
@@ -343,7 +395,10 @@ export default defineSchema({
     startedAt: v.number(),
     expiresAt: v.number(),
     uploadUrl: v.optional(v.string()),
+    uploadTokenHash: v.optional(v.string()),
     uploadAuthorizedAt: v.optional(v.number()),
+    transferDrainTransferId: v.optional(v.id("call_transfers")),
+    transferDrainDeadline: v.optional(v.number()),
     storageId: v.optional(v.id("_storage")),
     consumedAt: v.optional(v.number()),
   })
@@ -366,6 +421,7 @@ export default defineSchema({
 
   call_transcripts: defineTable({
     callId: v.string(),
+    tenantId: v.optional(v.string()),
     speakerCode: v.string(),
     speakerName: v.string(),
     text: v.string(),
@@ -377,6 +433,7 @@ export default defineSchema({
 
   call_recordings: defineTable({
     callId: v.string(),
+    tenantId: v.optional(v.string()),
     participantCode: v.string(),
     participantName: v.string(),
     storageId: v.id("_storage"),
@@ -396,6 +453,8 @@ export default defineSchema({
     targetIdentity: v.optional(v.string()),
     sourceIdentities: v.optional(v.array(v.string())),
     targetDeviceId: v.optional(v.string()),
+    sourceRecordingDrainedAt: v.optional(v.number()),
+    sourceRecordingDrainEpoch: v.optional(v.number()),
     cleanupStatus: v.optional(
       v.union(
         v.literal("pending"),
@@ -492,6 +551,10 @@ export default defineSchema({
   chat_group_call_participants: defineTable({
     groupCallId: v.id("chat_group_calls"),
     userId: v.string(),
+    // Set only when the participant actually joins. Compliance actions are
+    // bound to this device so another session for the same code cannot act on
+    // behalf of the joined participant.
+    deviceId: v.optional(v.string()),
     status: v.union(
       v.literal("invited"),
       v.literal("ringing"),
@@ -551,6 +614,12 @@ export default defineSchema({
   }).index("by_room", ["roomId"]),
 
   case_documents: defineTable({
+    // Optional only for migration compatibility. Scoped callers never infer
+    // ownership for legacy rows that predate this immutable tenant field.
+    tenantId: v.optional(v.string()),
+    // Immutable case anchor. Optional only until the guarded release migration
+    // links legacy documents; reads never fall back to the mutable caseNumber.
+    caseId: v.optional(v.id("cases")),
     caseNumber: v.string(),
     idNumber: v.optional(v.string()),
     idNumberHash: v.optional(v.string()),
@@ -561,6 +630,10 @@ export default defineSchema({
     uploadedAt: v.string(),
   })
     .index("by_case_number", ["caseNumber"])
+    .index("by_case_id", ["caseId"])
+    .index("by_tenant_case_id", ["tenantId", "caseId"])
+    .index("by_tenant_case_number", ["tenantId", "caseNumber"])
+    .index("by_tenant_uploaded", ["tenantId", "uploadedAt"])
     .index("by_id_number", ["idNumber"]),
 
   case_access_grants: defineTable({

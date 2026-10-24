@@ -60,9 +60,7 @@ export const create = mutation({
         message: "A helper nonce is required.",
       });
 
-    const origin = productionOriginForTenant(
-      tenantIdForAllowed(auth.allowed),
-    );
+    const origin = productionOriginForTenant(tenantIdForAllowed(auth.allowed));
     if (!origin)
       throw new ConvexError({
         code: "FORBIDDEN",
@@ -110,6 +108,31 @@ export const consume = mutation({
       record.expiresAt <= Date.now()
     )
       throw invalidAssertion();
+
+    try {
+      const auth = await requireSession(
+        ctx,
+        record.authorizationCode,
+        record.deviceId,
+      );
+      const license = await effectiveFeatures(ctx, auth.allowed);
+      const { canAIFace, canVideoCall, canVideoSource } = license.features;
+      const currentOrigin = productionOriginForTenant(
+        tenantIdForAllowed(auth.allowed),
+      );
+      if (
+        !canAIFace ||
+        !canVideoCall ||
+        !canVideoSource ||
+        !currentOrigin ||
+        currentOrigin !== record.allowedOrigin
+      )
+        throw invalidAssertion();
+    } catch {
+      // Assertions are bearer credentials. Never reveal whether a code was
+      // deleted, disabled, rebound to another device, or lost a feature.
+      throw invalidAssertion();
+    }
 
     const consumedAt = Date.now();
     await ctx.db.patch(record._id, { consumedAt });

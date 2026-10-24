@@ -329,6 +329,27 @@ describe("atomic authorization-code replacement", () => {
         claimSecretHash: await hashClaimSecret(code, importedActivationSecret),
       })),
     );
+    await t.run(async (ctx) => {
+      await ctx.db.insert("allowed_codes", {
+        code: codes[0],
+        role: "user",
+        enabled: true,
+      });
+      await ctx.db.insert("auth_codes", {
+        code: codes[0],
+        deviceId: "pre-import-device",
+        name: "Pre-import user",
+        usedAt: new Date().toISOString(),
+      });
+      await ctx.db.insert("push_subscriptions", {
+        userId: codes[0],
+        endpoint: "https://push.example/pre-import",
+        p256dh: "pre-import-key",
+        auth: "pre-import-auth",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
 
     await t.mutation(internal.authCodes.importAllowedCodes, {
       password: "replace-secret",
@@ -348,7 +369,230 @@ describe("atomic authorization-code replacement", () => {
       expect(imported).toHaveLength(50);
       expect(imported[0].claimSecretHash).toMatch(/^[a-f0-9]{64}$/);
       expect(JSON.stringify(imported)).not.toContain(importedActivationSecret);
+      expect(
+        (await ctx.db.query("push_subscriptions").collect()).some(
+          (record) => record.userId === codes[0],
+        ),
+      ).toBe(false);
+      expect(
+        await ctx.db
+          .query("authorization_code_tombstones")
+          .withIndex("by_code", (q) => q.eq("code", "OLD01"))
+          .first(),
+      ).toMatchObject({ code: "OLD01", reason: "bulk_import" });
     });
+
+    const attemptedReuse = ["OLD01", ...codes.slice(1)];
+    await expect(
+      t.mutation(internal.authCodes.importAllowedCodes, {
+        password: "replace-secret",
+        codes: await Promise.all(
+          attemptedReuse.map(async (code) => ({
+            code,
+            role: "user" as const,
+            claimSecretHash: await hashClaimSecret(
+              code,
+              importedActivationSecret,
+            ),
+          })),
+        ),
+      }),
+    ).rejects.toThrow("永久停用");
+  });
+
+  test("authorization-set replacement tombstones removed codes and cannot resurrect them", async () => {
+    const { t } = await setup();
+    const firstFullCodes = makeCodes("F");
+    const firstLimitedCodes = makeCodes("L");
+    const administrators = [{ code: "ROOT1", role: "super_admin" as const }];
+    await t.mutation(internal.authCodes.replaceAuthorizationCodes, {
+      password: "replace-secret",
+      fullCodes: firstFullCodes,
+      limitedCodes: firstLimitedCodes,
+      administrators,
+      claimSecretHashes: await claimSecretHashesFor([
+        ...firstFullCodes,
+        ...firstLimitedCodes,
+        "ROOT1",
+      ]),
+    });
+    await t.run(async (ctx) => {
+      expect(
+        await ctx.db
+          .query("authorization_code_tombstones")
+          .withIndex("by_code", (q) => q.eq("code", "OLD01"))
+          .first(),
+      ).toMatchObject({ code: "OLD01", reason: "bulk_replace" });
+    });
+
+    const attemptedFullCodes = ["OLD01", ...makeCodes("N").slice(1)];
+    const nextLimitedCodes = makeCodes("M");
+    await expect(
+      t.mutation(internal.authCodes.replaceAuthorizationCodes, {
+        password: "replace-secret",
+        fullCodes: attemptedFullCodes,
+        limitedCodes: nextLimitedCodes,
+        administrators,
+        claimSecretHashes: await claimSecretHashesFor([
+          ...attemptedFullCodes,
+          ...nextLimitedCodes,
+          "ROOT1",
+        ]),
+      }),
+    ).rejects.toThrow("永久停用");
+  });
+
+  test("authorization-set replacement clears delivery state for retained codes whose credential rotates", async () => {
+    const { t, profileIds } = await setup();
+    const fullCodes = makeCodes("F");
+    const limitedCodes = makeCodes("L");
+    await t.run(async (ctx) => {
+      await ctx.db.insert("allowed_codes", {
+        code: fullCodes[0],
+        role: "user",
+        enabled: true,
+        licenseProfileId: profileIds.full,
+      });
+      await ctx.db.insert("auth_codes", {
+        code: fullCodes[0],
+        deviceId: "retained-device",
+        name: "Retained user",
+        usedAt: new Date().toISOString(),
+      });
+      await ctx.db.insert("push_subscriptions", {
+        userId: fullCodes[0],
+        endpoint: "https://push.example/retained",
+        p256dh: "retained-key",
+        auth: "retained-auth",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+
+    await t.mutation(internal.authCodes.replaceAuthorizationCodes, {
+      password: "replace-secret",
+      fullCodes,
+      limitedCodes,
+      administrators: [{ code: "ROOT1", role: "super_admin" }],
+      claimSecretHashes: await claimSecretHashesFor([
+        ...fullCodes,
+        ...limitedCodes,
+        "ROOT1",
+      ]),
+    });
+
+    await t.run(async (ctx) => {
+      expect(
+        (await ctx.db.query("push_subscriptions").collect()).some(
+          (record) => record.userId === fullCodes[0],
+        ),
+      ).toBe(false);
+      expect(
+        (await ctx.db.query("auth_codes").collect()).some(
+          (record) => record.code === fullCodes[0],
+        ),
+      ).toBe(false);
+      expect(
+        await ctx.db
+          .query("authorization_code_tombstones")
+          .withIndex("by_code", (q) => q.eq("code", fullCodes[0]))
+          .first(),
+      ).toBeNull();
+    });
+  });
+
+  test("bulk import revokes sessions for authorization codes removed from the allowlist", async () => {
+    const { t, profileIds } = await setup();
+    const removedCode = "SAFE1";
+    const removedSecret = "B".repeat(32);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("allowed_codes", {
+        code: removedCode,
+        role: "user",
+        enabled: true,
+        claimSecretHash: await hashClaimSecret(removedCode, removedSecret),
+        licenseProfileId: profileIds.full,
+      });
+      await ctx.db.insert("contacts", {
+        ownerCode: removedCode,
+        targetCode: "I0000",
+        targetName: "Imported user",
+        addedAt: new Date().toISOString(),
+      });
+    });
+    await t.mutation(api.authCodes.claimCode, {
+      code: `${removedCode}.${removedSecret}`,
+      deviceId: "removed-device",
+      deviceType: "desktop",
+      deviceContext: "browser",
+      name: "Removed User",
+    });
+
+    const codes = makeCodes("I");
+    await t.mutation(internal.authCodes.importAllowedCodes, {
+      password: "replace-secret",
+      codes: await Promise.all(
+        codes.map(async (code) => ({
+          code,
+          role: "user" as const,
+          claimSecretHash: await hashClaimSecret(
+            code,
+            importedActivationSecret,
+          ),
+        })),
+      ),
+    });
+
+    await expect(
+      t.query(api.authCodes.getSessionRole, {
+        code: removedCode,
+        deviceId: "removed-device",
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      t.query(api.messages.listMessages, {
+        myCode: removedCode,
+        theirCode: codes[0],
+        deviceId: "removed-device",
+        paginationOpts: { numItems: 20, cursor: null },
+      }),
+    ).rejects.toThrow("有效的登录会话");
+    await t.run(async (ctx) => {
+      expect(
+        (await ctx.db.query("auth_codes").collect()).some(
+          (session) => session.code === removedCode,
+        ),
+      ).toBe(false);
+    });
+  });
+});
+
+describe("authorization session allowlist enforcement", () => {
+  test("rejects an otherwise device-bound session when its allowlist record is missing", async () => {
+    const { t } = await setup();
+    await t.run(async (ctx) => {
+      const allowed = await ctx.db
+        .query("allowed_codes")
+        .withIndex("by_code", (q) => q.eq("code", "OLD01"))
+        .unique();
+      if (!allowed) throw new Error("test fixture allowlist record missing");
+      await ctx.db.delete(allowed._id);
+    });
+
+    await expect(
+      t.query(api.authCodes.getSessionRole, {
+        code: "OLD01",
+        deviceId: "old-device",
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      t.query(api.messages.listMessages, {
+        myCode: "OLD01",
+        theirCode: "FRIEND",
+        deviceId: "old-device",
+        paginationOpts: { numItems: 20, cursor: null },
+      }),
+    ).rejects.toThrow("有效的登录会话");
   });
 });
 
@@ -559,13 +803,14 @@ describe("authorization-code claim credentials", () => {
   });
 
   test("new devices still require the secret while an already-bound legacy device remains compatible", async () => {
-    const { t } = await setup();
+    const { t, profileIds } = await setup();
     await t.run(async (ctx) => {
       await ctx.db.insert("allowed_codes", {
         code: "SAFE1",
         role: "user",
         enabled: true,
         maxDevices: 2,
+        licenseProfileId: profileIds.full,
         claimSecretHash: activationSecretHash,
       });
       await ctx.db.insert("auth_codes", {
@@ -631,5 +876,69 @@ describe("authorization-code claim credentials", () => {
     await expect(attempt("NOPE1.AAAAAAAAAAAAAAAAAAAAAAAAAA")).rejects.toThrow(
       "授权凭证无效",
     );
+  });
+
+  test("a disabled code cannot create a fresh session with its valid activation secret", async () => {
+    const { t } = await setup();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("allowed_codes", {
+        code: "SAFE1",
+        role: "user",
+        enabled: false,
+        claimSecretHash: activationSecretHash,
+      });
+    });
+
+    await expect(
+      t.mutation(api.authCodes.claimCode, {
+        code: `SAFE1.${activationSecret}`,
+        deviceId: "fresh-device",
+        deviceType: "desktop",
+        deviceContext: "browser",
+        name: "Disabled User",
+      }),
+    ).rejects.toThrow("此授权码已停用");
+    await t.run(async (ctx) => {
+      expect(
+        await ctx.db
+          .query("auth_codes")
+          .withIndex("by_code", (q) => q.eq("code", "SAFE1"))
+          .first(),
+      ).toBeNull();
+    });
+  });
+
+  test("authorization-code usage status requires that code's bound device session", async () => {
+    const { t } = await setup();
+    await t.run(async (ctx) => {
+      await ctx.db.insert("allowed_codes", {
+        code: "SAFE1",
+        role: "user",
+        enabled: true,
+      });
+      await ctx.db.insert("auth_codes", {
+        code: "SAFE1",
+        deviceId: "bound-device",
+        deviceIds: ["bound-device"],
+        name: "Protected User",
+        usedAt: new Date().toISOString(),
+      });
+    });
+
+    await expect(
+      t.query(api.authCodes.getCodeStatus, { code: "SAFE1" } as never),
+    ).rejects.toThrow();
+    await expect(
+      t.query(api.authCodes.getCodeStatus, {
+        code: "SAFE1",
+        deviceId: "wrong-device",
+      } as never),
+    ).rejects.toThrow();
+    await expect(
+      t.query(api.authCodes.getCodeStatus, {
+        code: "SAFE1",
+        deviceId: "bound-device",
+      } as never),
+    ).resolves.toEqual({ used: true });
   });
 });

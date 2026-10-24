@@ -7,7 +7,12 @@ import {
 } from "./_generated/server";
 import type { MutationCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
-import { assertSameTenant, requireSession, tenantIdForAllowed } from "./roles";
+import {
+  assertActiveAuthorizationTarget,
+  assertSameTenant,
+  requireSession,
+  tenantIdForAllowed,
+} from "./roles";
 import { effectiveFeatures, requireFeature } from "./features";
 import { internal } from "./_generated/api";
 import { TRANSFER_CLEANUP_RETRY_OFFSETS_MS } from "./transferCleanupPolicy";
@@ -117,6 +122,7 @@ const activeCallStatusValues = [
 ] as const;
 const activeCallStatuses = new Set<string>(activeCallStatusValues);
 const TRANSFER_JOIN_TIMEOUT_MS = 90_000;
+const TRANSFER_RECORDING_DRAIN_GRACE_MS = 15_000;
 function activeStatusesForBusyCheck(status: string) {
   return activeCallStatuses.has(status);
 }
@@ -140,8 +146,7 @@ async function scheduleTransferCleanupRetries(
     cleanupError: undefined,
     cleanupUpdatedAt: now,
   });
-  for (const [attempt, offsetMs] of
-    TRANSFER_CLEANUP_RETRY_OFFSETS_MS.entries())
+  for (const [attempt, offsetMs] of TRANSFER_CLEANUP_RETRY_OFFSETS_MS.entries())
     await ctx.scheduler.runAt(
       now + offsetMs,
       internal.calls.retryTransferCleanup,
@@ -151,6 +156,44 @@ async function scheduleTransferCleanupRetries(
 
 type DbCtx = Parameters<typeof requireSession>[0];
 type TenantAuth = { allowed?: { companyId?: string } | null };
+
+function complianceConsentEpoch(item: {
+  consentEpoch?: number;
+  activatedAt?: number;
+  requestedAt: number;
+}) {
+  return item.consentEpoch ?? item.activatedAt ?? item.requestedAt;
+}
+
+async function requireTransferRecordingDrain(
+  ctx: DbCtx,
+  transfer: Doc<"call_transfers">,
+) {
+  const compliance = await ctx.db
+    .query("call_compliance")
+    .withIndex("by_call", (q) => q.eq("callId", transfer.callId))
+    .unique();
+  if (compliance?.status === "stopping")
+    throw new ConvexError({
+      code: "CONFLICT",
+      message: "录音仍在结束处理中，请等待最后片段保存。",
+    });
+  if (
+    !compliance ||
+    compliance.status !== "active" ||
+    !compliance.consentedCodes.includes(transfer.fromUserId)
+  )
+    return;
+  if (
+    !transfer.fromDeviceId ||
+    transfer.sourceRecordingDrainedAt === undefined ||
+    transfer.sourceRecordingDrainEpoch !== complianceConsentEpoch(compliance)
+  )
+    throw new ConvexError({
+      code: "CONFLICT",
+      message: "等待来源装置保存最后录音片段。",
+    });
+}
 
 async function codesMatchAuthTenant(
   ctx: DbCtx,
@@ -260,6 +303,7 @@ export const prepareP2P = mutation({
       .query("allowed_codes")
       .withIndex("by_code", (q) => q.eq("code", peerCode))
       .unique();
+    assertActiveAuthorizationTarget(peerAllowed);
     assertSameTenant(auth.allowed, peerAllowed);
     if (callerMediaMode === "face-swap") {
       await requireFeature(ctx, args.code, args.deviceId, "canVideoSource");
@@ -1169,6 +1213,11 @@ export const initiateTransfer = mutation({
         message: "找不到当前通话对象。",
       });
     const targetCode = args.targetCode.normalize("NFKC").trim().toUpperCase();
+    if (!/^[A-Z]{5}$/.test(targetCode))
+      throw new ConvexError({
+        code: "BAD_REQUEST",
+        message: "Transfer target code must contain exactly five letters.",
+      });
     if (targetCode === remote)
       throw new ConvexError({
         code: "BAD_REQUEST",
@@ -1201,12 +1250,8 @@ export const initiateTransfer = mutation({
       .query("allowed_codes")
       .withIndex("by_code", (q) => q.eq("code", targetCode))
       .unique();
+    assertActiveAuthorizationTarget(allowed);
     assertSameTenant(auth.allowed, allowed);
-    if (allowed?.enabled === false)
-      throw new ConvexError({
-        code: "FORBIDDEN",
-        message: "转接目标的授权码已停用。",
-      });
     const targetLicense = await effectiveFeatures(ctx, allowed);
     if (!targetLicense.features.canTransferCall)
       throw new ConvexError({
@@ -1263,8 +1308,8 @@ export const initiateTransfer = mutation({
       notificationId,
       userId: targetCode,
       type: "call_transfer",
-      title: "通话转接请求",
-      message: `${auth.session.name} 向您发送了通话转接请求`,
+      title: "Call transfer request",
+      message: `${auth.session.name} sent you a call transfer request.`,
       data: {
         transferId,
         callId: call.callId,
@@ -1279,8 +1324,8 @@ export const initiateTransfer = mutation({
     });
     await ctx.scheduler.runAfter(0, internal.push.send, {
       userId: targetCode,
-      title: "通话转接请求",
-      message: `${auth.session.name} 向您发送了通话转接请求`,
+      title: "Call transfer request",
+      message: `${auth.session.name} sent you a call transfer request.`,
       url: "/consultation",
       type: "call_transfer",
       data: {
@@ -1677,6 +1722,8 @@ export const authorizeTransferCompletion = internalQuery({
         code: "CONFLICT",
         message: "原通话已结束，无法完成转接。",
       });
+    if (transfer.status === "joining")
+      await requireTransferRecordingDrain(ctx, transfer);
     return {
       roomName: transfer.roomName,
       callId: transfer.callId,
@@ -1761,6 +1808,7 @@ export const confirmTransferJoined = internalMutation({
       };
     }
     await requireCallInAuthTenant(ctx, auth, call);
+    await requireTransferRecordingDrain(ctx, transfer);
     const sourceIdentities = Array.from(
       new Set([
         ...args.sourceIdentities,
@@ -1832,16 +1880,45 @@ export const confirmTransferJoined = internalMutation({
         .withIndex("by_call", (q) => q.eq("callId", transfer.callId))
         .unique();
       if (compliance && compliance.status !== "stopped") {
+        const previousConsentEpoch = complianceConsentEpoch(compliance);
+        if (
+          compliance.status === "active" &&
+          compliance.consentedCodes.includes(transfer.remoteUserId) &&
+          transfer.sourceRecordingDrainEpoch === previousConsentEpoch &&
+          remoteDeviceId
+        ) {
+          const remoteSegments = await ctx.db
+            .query("call_recording_segments")
+            .withIndex("by_call_participant_device_epoch_started", (q) =>
+              q
+                .eq("callId", transfer.callId)
+                .eq("participantCode", transfer.remoteUserId)
+                .eq("deviceId", remoteDeviceId)
+                .eq("consentEpoch", previousConsentEpoch),
+            )
+            .collect();
+          for (const segment of remoteSegments)
+            if (
+              !segment.consumedAt &&
+              !segment.storageId &&
+              segment.startedAt <= now &&
+              segment.expiresAt > now
+            )
+              await ctx.db.patch(segment._id, {
+                transferDrainTransferId: transfer._id,
+                transferDrainDeadline: Math.min(
+                  segment.expiresAt,
+                  now + TRANSFER_RECORDING_DRAIN_GRACE_MS,
+                ),
+              });
+        }
         const declinedCodes = compliance.declinedCodes.filter(
           (code) => code === transfer.remoteUserId,
         );
         await ctx.db.patch(compliance._id, {
           participantCodes: [transfer.remoteUserId, transfer.targetUserId],
           consentedCodes: [],
-          consentEpoch:
-            (compliance.consentEpoch ??
-              compliance.activatedAt ??
-              compliance.requestedAt) + 1,
+          consentEpoch: previousConsentEpoch + 1,
           declinedCodes,
           status: declinedCodes.length ? "declined" : "requested",
           requestedAt: now,

@@ -3,6 +3,7 @@ import { convexTest } from "convex-test";
 import schema from "./schema";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import { saveRecording } from "./callCompliance";
 
 const modules = import.meta.glob("./**/*.*s");
 const fullFeatures = {
@@ -119,7 +120,7 @@ async function completeRecordingSegment(
     segmentId: segment.segmentId,
   });
   const storageId = await storeRecordingFile(t, clientNonce);
-  await t.mutation(api.callCompliance.saveRecording, {
+  await t.mutation(internal.callCompliance.saveRecording, {
     code,
     deviceId,
     callId: "call-1",
@@ -152,6 +153,21 @@ async function activateRecording(
   });
 }
 
+async function finishStopDeadline(t: Awaited<ReturnType<typeof setup>>) {
+  const epoch = await t.run(async (ctx) => {
+    const item = await ctx.db
+      .query("call_compliance")
+      .withIndex("by_call", (q) => q.eq("callId", "call-1"))
+      .unique();
+    await ctx.db.patch(item!._id, { stopDeadline: Date.now() - 1 });
+    return item!.consentEpoch ?? item!.activatedAt ?? item!.requestedAt;
+  });
+  await t.mutation(internal.callCompliance.finalizeRecordingStop, {
+    callId: "call-1",
+    consentEpoch: epoch,
+  });
+}
+
 async function transferAliceToCarol(t: Awaited<ReturnType<typeof setup>>) {
   const transferId = await t.mutation(api.callState.initiateTransfer, {
     code: "ALICE",
@@ -171,12 +187,19 @@ async function transferAliceToCarol(t: Awaited<ReturnType<typeof setup>>) {
     transferId,
     targetIdentity: "CAROL-browser",
   });
+  await t.mutation(api.callCompliance.acknowledgeTransferRecordingDrain, {
+    code: "ALICE",
+    deviceId: "alice-device",
+    callId: "call-1",
+    transferId,
+  });
   await t.mutation(internal.callState.confirmTransferJoined, {
     code: "CAROL",
     deviceId: "carol-device",
     transferId,
     sourceIdentities: ["ALICE-browser"],
   });
+  return transferId;
 }
 
 async function transferAliceToOwnMobile(t: Awaited<ReturnType<typeof setup>>) {
@@ -198,6 +221,12 @@ async function transferAliceToOwnMobile(t: Awaited<ReturnType<typeof setup>>) {
     transferId,
     targetIdentity: "ALICE-mobile",
   });
+  await t.mutation(api.callCompliance.acknowledgeTransferRecordingDrain, {
+    code: "ALICE",
+    deviceId: "alice-device",
+    callId: "call-1",
+    transferId,
+  });
   await t.mutation(internal.callState.confirmTransferJoined, {
     code: "ALICE",
     deviceId: "alice-mobile",
@@ -206,7 +235,125 @@ async function transferAliceToOwnMobile(t: Awaited<ReturnType<typeof setup>>) {
   });
 }
 
+async function stageAliceTransfer(
+  t: Awaited<ReturnType<typeof setup>>,
+  targetCode: "ALICE" | "CAROL",
+  targetDeviceId: "alice-mobile" | "carol-device",
+  targetIdentity: string,
+) {
+  const transferId = await t.mutation(api.callState.initiateTransfer, {
+    code: "ALICE",
+    deviceId: "alice-device",
+    callId: "call-1",
+    targetCode,
+  });
+  await t.mutation(api.callState.respondTransfer, {
+    code: targetCode,
+    deviceId: targetDeviceId,
+    transferId,
+    accept: true,
+  });
+  await t.mutation(internal.callState.authorizeTransferJoin, {
+    code: targetCode,
+    deviceId: targetDeviceId,
+    transferId,
+    targetIdentity,
+  });
+  return transferId;
+}
+
 describe("consent-gated call recording", () => {
+  test("raw-storage recording finalization is not a public client mutation", () => {
+    expect(
+      (saveRecording as unknown as { isInternal?: boolean }).isInternal,
+    ).toBe(true);
+  });
+
+  test("admin Stop flushes an existing short segment, forbids new capture, and then stops", async () => {
+    const t = await setup();
+    await activateRecording(t);
+    const auth = { code: "ALICE", deviceId: "alice-device", callId: "call-1" };
+    const segment = await t.mutation(api.callCompliance.beginRecordingSegment, {
+      ...auth,
+      clientNonce: "short-admin-stop",
+    });
+    await t.mutation(api.callCompliance.stop, {
+      password: "ADMIN:admin-device",
+      callId: "call-1",
+    });
+    expect((await t.query(api.callCompliance.status, auth))?.status).toBe(
+      "stopping",
+    );
+    await expect(
+      t.mutation(api.callCompliance.beginRecordingSegment, {
+        ...auth,
+        clientNonce: "after-stop",
+      }),
+    ).rejects.toThrow();
+    const ticket = await t.mutation(api.callCompliance.generateUploadUrl, {
+      ...auth,
+      segmentId: segment.segmentId,
+    });
+    const response = await t.fetch("/api/call-recordings/upload", {
+      method: "POST",
+      headers: {
+        "Content-Type": "audio/webm",
+        "X-Authorization-Code": auth.code,
+        "X-Device-Id": auth.deviceId,
+        "X-Call-Id": auth.callId,
+        "X-Recording-Segment-Id": segment.segmentId,
+        "X-Recording-Upload-Token": ticket.uploadToken,
+      },
+      body: new Blob(["final short segment"], { type: "audio/webm" }),
+    });
+    expect(response.status).toBe(200);
+    expect((await t.query(api.callCompliance.status, auth))?.status).toBe(
+      "stopped",
+    );
+    expect(
+      await t.run((ctx) => ctx.db.query("call_recordings").collect()),
+    ).toHaveLength(1);
+  });
+
+  test("admin Stop finalization never permits a revoked device", async () => {
+    const t = await setup();
+    await activateRecording(t);
+    const auth = { code: "ALICE", deviceId: "alice-device", callId: "call-1" };
+    const segment = await t.mutation(api.callCompliance.beginRecordingSegment, {
+      ...auth,
+      clientNonce: "revoked-during-flush",
+    });
+    const ticket = await t.mutation(api.callCompliance.generateUploadUrl, {
+      ...auth,
+      segmentId: segment.segmentId,
+    });
+    await t.mutation(api.callCompliance.stop, {
+      password: "ADMIN:admin-device",
+      callId: "call-1",
+    });
+    await t.mutation(api.roleManagement.setEnabled, {
+      password: "ADMIN:admin-device",
+      targetCode: "ALICE",
+      enabled: false,
+    });
+    const response = await t.fetch("/api/call-recordings/upload", {
+      method: "POST",
+      headers: {
+        "Content-Type": "audio/webm",
+        "X-Authorization-Code": auth.code,
+        "X-Device-Id": auth.deviceId,
+        "X-Call-Id": auth.callId,
+        "X-Recording-Segment-Id": segment.segmentId,
+        "X-Recording-Upload-Token": ticket.uploadToken,
+      },
+      body: new Blob(["must not save"], { type: "audio/webm" }),
+    });
+    expect(response.status).toBe(403);
+    expect(
+      await t.run((ctx) => ctx.db.query("call_recordings").collect()),
+    ).toHaveLength(0);
+  });
+
   test("an administrator can request and every participant must consent", async () => {
     const t = await setup();
     await t.mutation(api.callCompliance.request, {
@@ -304,35 +451,243 @@ describe("consent-gated call recording", () => {
     ).toBe("declined");
   });
 
-  test("a different-code transfer invalidates every old-epoch capability even after upload was authorized", async () => {
+  test("a cross-code transfer cannot replace the source until its current recording segment is saved and acknowledged", async () => {
     const t = await setup();
     await activateRecording(t);
     const segment = await t.mutation(api.callCompliance.beginRecordingSegment, {
       code: "ALICE",
       deviceId: "alice-device",
       callId: "call-1",
-      clientNonce: "source-generation-1",
+      clientNonce: "cross-code-final-segment",
     });
-    const remoteSegment = await t.mutation(
-      api.callCompliance.beginRecordingSegment,
-      {
+    const transferId = await stageAliceTransfer(
+      t,
+      "CAROL",
+      "carol-device",
+      "CAROL-browser",
+    );
+
+    await expect(
+      t.query(internal.callState.authorizeTransferCompletion, {
+        code: "CAROL",
+        deviceId: "carol-device",
+        transferId,
+      }),
+    ).rejects.toThrow("录音");
+    await expect(
+      t.mutation(internal.callState.confirmTransferJoined, {
+        code: "CAROL",
+        deviceId: "carol-device",
+        transferId,
+        sourceIdentities: ["ALICE-browser"],
+      }),
+    ).rejects.toThrow("录音");
+    expect(
+      await t.run(async (ctx) => {
+        const call = await ctx.db
+          .query("live_calls")
+          .withIndex("by_call_id", (q) => q.eq("callId", "call-1"))
+          .unique();
+        return call?.participantCodes;
+      }),
+    ).toEqual(["ALICE", "BOBXX"]);
+    await expect(
+      t.mutation(api.callCompliance.acknowledgeTransferRecordingDrain, {
+        code: "CAROL",
+        deviceId: "carol-device",
+        callId: "call-1",
+        transferId,
+      }),
+    ).rejects.toThrow("来源装置");
+    await expect(
+      t.mutation(api.callCompliance.acknowledgeTransferRecordingDrain, {
+        code: "ALICE",
+        deviceId: "alice-device",
+        callId: "call-1",
+        transferId,
+      }),
+    ).rejects.toThrow("录音");
+
+    await t.mutation(api.callCompliance.generateUploadUrl, {
+      code: "ALICE",
+      deviceId: "alice-device",
+      callId: "call-1",
+      segmentId: segment.segmentId,
+    });
+    const storageId = await storeRecordingFile(t, "cross-code-final-audio");
+    await t.mutation(internal.callCompliance.saveRecording, {
+      code: "ALICE",
+      deviceId: "alice-device",
+      callId: "call-1",
+      segmentId: segment.segmentId,
+      storageId,
+      mimeType: "audio/webm",
+    });
+    await expect(
+      t.mutation(api.callCompliance.acknowledgeTransferRecordingDrain, {
+        code: "ALICE",
+        deviceId: "alice-device",
+        callId: "call-1",
+        transferId,
+      }),
+    ).resolves.toMatchObject({ acknowledged: true });
+    await expect(
+      t.mutation(internal.callState.confirmTransferJoined, {
+        code: "CAROL",
+        deviceId: "carol-device",
+        transferId,
+        sourceIdentities: ["ALICE-browser"],
+      }),
+    ).resolves.toMatchObject({ completed: true });
+  });
+
+  test("a same-code handoff freezes only the old recorder after its drain acknowledgement", async () => {
+    const t = await setup();
+    await activateRecording(t);
+    const segment = await completeRecordingSegment(
+      t,
+      "ALICE",
+      "alice-device",
+      "same-code-final-segment",
+    );
+    const transferId = await stageAliceTransfer(
+      t,
+      "ALICE",
+      "alice-mobile",
+      "ALICE-mobile",
+    );
+
+    await expect(
+      t.mutation(api.callCompliance.acknowledgeTransferRecordingDrain, {
+        code: "ALICE",
+        deviceId: "alice-device",
+        callId: "call-1",
+        transferId,
+      }),
+    ).resolves.toMatchObject({ acknowledged: true });
+    await expect(
+      t.mutation(api.callCompliance.beginRecordingSegment, {
+        code: "ALICE",
+        deviceId: "alice-device",
+        callId: "call-1",
+        clientNonce: "old-device-after-ack",
+      }),
+    ).rejects.toThrow("转接");
+    await expect(
+      t.mutation(internal.callState.confirmTransferJoined, {
+        code: "ALICE",
+        deviceId: "alice-mobile",
+        transferId,
+        sourceIdentities: ["ALICE-browser"],
+      }),
+    ).resolves.toMatchObject({ completed: true });
+    expect(
+      (await t.run((ctx) => ctx.db.get(segment.segmentId)))?.consumedAt,
+    ).toEqual(expect.any(Number));
+  });
+
+  test("a recording-drain acknowledgement cannot carry into a replacement transfer attempt", async () => {
+    const t = await setup();
+    await activateRecording(t);
+    const firstTransferId = await stageAliceTransfer(
+      t,
+      "CAROL",
+      "carol-device",
+      "CAROL-first",
+    );
+    await t.mutation(api.callCompliance.acknowledgeTransferRecordingDrain, {
+      code: "ALICE",
+      deviceId: "alice-device",
+      callId: "call-1",
+      transferId: firstTransferId,
+    });
+    await t.mutation(api.callState.cancelTransfer, {
+      code: "ALICE",
+      deviceId: "alice-device",
+      transferId: firstTransferId,
+    });
+    await expect(
+      t.mutation(api.callCompliance.acknowledgeTransferRecordingDrain, {
+        code: "ALICE",
+        deviceId: "alice-device",
+        callId: "call-1",
+        transferId: firstTransferId,
+      }),
+    ).rejects.toThrow("状态");
+
+    const secondTransferId = await stageAliceTransfer(
+      t,
+      "CAROL",
+      "carol-device",
+      "CAROL-second",
+    );
+    await expect(
+      t.mutation(internal.callState.confirmTransferJoined, {
+        code: "CAROL",
+        deviceId: "carol-device",
+        transferId: secondTransferId,
+        sourceIdentities: ["ALICE-browser"],
+      }),
+    ).rejects.toThrow("录音");
+  });
+
+  test("a different-code transfer grants only the remaining peer's already-open segments a short old-epoch drain", async () => {
+    const t = await setup();
+    await activateRecording(t);
+    const [remoteSegment, expiringSegment, resetSegment] = await Promise.all(
+      [
+        "remote-generation-1",
+        "remote-generation-expiring",
+        "remote-generation-reset",
+      ].map((clientNonce) =>
+        t.mutation(api.callCompliance.beginRecordingSegment, {
+          code: "BOBXX",
+          deviceId: "bob-device",
+          callId: "call-1",
+          clientNonce,
+        }),
+      ),
+    );
+    const uploadTokens = new Map<string, string>();
+    for (const segment of [remoteSegment, expiringSegment, resetSegment]) {
+      const ticket = await t.mutation(api.callCompliance.generateUploadUrl, {
         code: "BOBXX",
         deviceId: "bob-device",
         callId: "call-1",
-        clientNonce: "remote-generation-1",
-      },
+        segmentId: segment.segmentId,
+      });
+      uploadTokens.set(segment.segmentId, ticket.uploadToken);
+    }
+    const wrongDeviceSegmentId = await t.run((ctx) =>
+      ctx.db.insert("call_recording_segments", {
+        callId: "call-1",
+        tenantId: "nyfbi",
+        participantCode: "BOBXX",
+        deviceId: "bob-old-device",
+        consentEpoch: 1,
+        clientNonce: "wrong-device-old-epoch",
+        startedAt: Date.now(),
+        expiresAt: Date.now() + 600_000,
+      }),
     );
-    await t.mutation(api.callCompliance.generateUploadUrl, {
-      code: "BOBXX",
+    const transferId = await transferAliceToCarol(t);
+    const graceDeadline = (
+      await t.run((ctx) => ctx.db.get(remoteSegment.segmentId))
+    )?.transferDrainDeadline;
+    expect(
+      await t.run((ctx) => ctx.db.get(remoteSegment.segmentId)),
+    ).toMatchObject({
+      transferDrainTransferId: transferId,
+      transferDrainDeadline: expect.any(Number),
+      participantCode: "BOBXX",
       deviceId: "bob-device",
-      callId: "call-1",
-      segmentId: remoteSegment.segmentId,
+      consentEpoch: 1,
     });
-    const oldRemoteStorageId = await t.run((ctx) =>
-      ctx.storage.store(new Blob(["old remote segment"])),
-    );
-
-    await transferAliceToCarol(t);
+    expect(graceDeadline).toBeGreaterThan(Date.now());
+    expect(graceDeadline).toBeLessThanOrEqual(Date.now() + 15_000);
+    expect(
+      await t.run((ctx) => ctx.db.get(wrongDeviceSegmentId)),
+    ).not.toHaveProperty("transferDrainTransferId");
 
     await expect(
       t.mutation(api.callCompliance.beginRecordingSegment, {
@@ -342,22 +697,95 @@ describe("consent-gated call recording", () => {
         clientNonce: "remote-generation-after-transfer",
       }),
     ).rejects.toThrow("不允许录音");
+    await t.mutation(api.callCompliance.respond, {
+      code: "BOBXX",
+      deviceId: "bob-device",
+      callId: "call-1",
+      consent: true,
+    });
+    await t.mutation(api.callCompliance.respond, {
+      code: "CAROL",
+      deviceId: "carol-device",
+      callId: "call-1",
+      consent: true,
+    });
     await expect(
-      t.mutation(api.callCompliance.generateUploadUrl, {
-        code: "ALICE",
-        deviceId: "alice-device",
-        callId: "call-1",
-        segmentId: segment.segmentId,
-      }),
-    ).rejects.toThrow("不是此通话的参与者");
-    await expect(
-      t.mutation(api.callCompliance.saveRecording, {
+      t.query(api.callCompliance.recordingSegmentUploadStatus, {
         code: "BOBXX",
         deviceId: "bob-device",
         callId: "call-1",
         segmentId: remoteSegment.segmentId,
-        storageId: oldRemoteStorageId,
-        mimeType: "audio/webm",
+      }),
+    ).resolves.toEqual({ consumed: false, uploadable: true });
+    const graceUpload = await t.fetch("/api/call-recordings/upload", {
+      method: "POST",
+      headers: {
+        "Content-Type": "audio/webm",
+        "X-Authorization-Code": "BOBXX",
+        "X-Device-Id": "bob-device",
+        "X-Call-Id": "call-1",
+        "X-Recording-Segment-Id": remoteSegment.segmentId,
+        "X-Recording-Upload-Token": uploadTokens.get(remoteSegment.segmentId)!,
+      },
+      body: new Blob(["old remote segment"], { type: "audio/webm" }),
+    });
+    expect(graceUpload.status).toBe(200);
+    await expect(
+      t.query(api.callCompliance.recordingSegmentUploadStatus, {
+        code: "BOBXX",
+        deviceId: "bob-device",
+        callId: "call-1",
+        segmentId: remoteSegment.segmentId,
+      }),
+    ).resolves.toEqual({ consumed: true, uploadable: false });
+
+    await t.run((ctx) =>
+      ctx.db.patch(expiringSegment.segmentId, {
+        transferDrainDeadline: Date.now() - 1,
+      }),
+    );
+    await expect(
+      t.query(api.callCompliance.recordingSegmentUploadStatus, {
+        code: "BOBXX",
+        deviceId: "bob-device",
+        callId: "call-1",
+        segmentId: expiringSegment.segmentId,
+      }),
+    ).resolves.toEqual({ consumed: false, uploadable: false });
+    await expect(
+      t.mutation(api.callCompliance.generateUploadUrl, {
+        code: "BOBXX",
+        deviceId: "bob-device",
+        callId: "call-1",
+        segmentId: expiringSegment.segmentId,
+      }),
+    ).rejects.toThrow("录音同意已经失效");
+    const expiredUpload = await t.fetch("/api/call-recordings/upload", {
+      method: "POST",
+      headers: {
+        "Content-Type": "audio/webm",
+        "X-Authorization-Code": "BOBXX",
+        "X-Device-Id": "bob-device",
+        "X-Call-Id": "call-1",
+        "X-Recording-Segment-Id": expiringSegment.segmentId,
+        "X-Recording-Upload-Token": uploadTokens.get(
+          expiringSegment.segmentId,
+        )!,
+      },
+      body: new Blob(["expired remote segment"], { type: "audio/webm" }),
+    });
+    expect(expiredUpload.status).toBe(403);
+
+    await t.mutation(api.callCompliance.request, {
+      password: "ADMIN:admin-device",
+      callId: "call-1",
+    });
+    await expect(
+      t.mutation(api.callCompliance.generateUploadUrl, {
+        code: "BOBXX",
+        deviceId: "bob-device",
+        callId: "call-1",
+        segmentId: resetSegment.segmentId,
       }),
     ).rejects.toThrow("录音同意已经失效");
 
@@ -390,7 +818,7 @@ describe("consent-gated call recording", () => {
       ]),
     );
     expect(oldSegmentRecord?.consentEpoch).toBe(1);
-    expect(nextSegmentRecord?.consentEpoch).toBe(2);
+    expect(nextSegmentRecord?.consentEpoch).toBe(3);
     await expect(
       t.mutation(api.callCompliance.generateUploadUrl, {
         code: "BOBXX",
@@ -398,56 +826,190 @@ describe("consent-gated call recording", () => {
         callId: "call-1",
         segmentId: nextRemoteSegment.segmentId,
       }),
-    ).resolves.toEqual(expect.any(String));
+    ).resolves.toEqual({
+      uploadToken: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
   });
 
-  test("a same-code device handoff rejects old-device capabilities and permits the new device", async () => {
+  test("authorization revocation or call cleanup cancels a transfer drain grace", async () => {
     const t = await setup();
     await activateRecording(t);
-    const pendingGenerate = await t.mutation(
-      api.callCompliance.beginRecordingSegment,
-      {
-        code: "ALICE",
-        deviceId: "alice-device",
-        callId: "call-1",
-        clientNonce: "old-device-generate",
-      },
+    const [revokedSegment, cleanedSegment] = await Promise.all(
+      ["remote-revoked", "remote-cleaned"].map((clientNonce) =>
+        t.mutation(api.callCompliance.beginRecordingSegment, {
+          code: "BOBXX",
+          deviceId: "bob-device",
+          callId: "call-1",
+          clientNonce,
+        }),
+      ),
     );
-    const pendingSave = await t.mutation(
-      api.callCompliance.beginRecordingSegment,
-      {
-        code: "ALICE",
-        deviceId: "alice-device",
+    await transferAliceToCarol(t);
+
+    await t.run(async (ctx) => {
+      const allowed = await ctx.db
+        .query("allowed_codes")
+        .withIndex("by_code", (q) => q.eq("code", "BOBXX"))
+        .unique();
+      await ctx.db.patch(allowed!._id, { enabled: false });
+    });
+    await expect(
+      t.query(api.callCompliance.recordingSegmentUploadStatus, {
+        code: "BOBXX",
+        deviceId: "bob-device",
         callId: "call-1",
-        clientNonce: "old-device-save",
-      },
-    );
-    await t.mutation(api.callCompliance.generateUploadUrl, {
+        segmentId: revokedSegment.segmentId,
+      }),
+    ).rejects.toThrow("停用");
+
+    await t.run(async (ctx) => {
+      const allowed = await ctx.db
+        .query("allowed_codes")
+        .withIndex("by_code", (q) => q.eq("code", "BOBXX"))
+        .unique();
+      const call = await ctx.db
+        .query("live_calls")
+        .withIndex("by_call_id", (q) => q.eq("callId", "call-1"))
+        .unique();
+      await ctx.db.patch(allowed!._id, { enabled: true });
+      await ctx.db.patch(call!._id, { status: "ended", endedAt: Date.now() });
+    });
+    await expect(
+      t.query(api.callCompliance.recordingSegmentUploadStatus, {
+        code: "BOBXX",
+        deviceId: "bob-device",
+        callId: "call-1",
+        segmentId: cleanedSegment.segmentId,
+      }),
+    ).rejects.toThrow("不是此通话的参与者");
+  });
+
+  test("recording upload authorization never exposes a raw storage URL and expires after the Stop drain deadline", async () => {
+    const t = await setup();
+    await activateRecording(t);
+    const segment = await t.mutation(api.callCompliance.beginRecordingSegment, {
       code: "ALICE",
       deviceId: "alice-device",
       callId: "call-1",
-      segmentId: pendingSave.segmentId,
+      clientNonce: "http-proxy-ticket",
     });
-    const storageId = await storeRecordingFile(t, "old device recording");
+    const ticket = await t.mutation(api.callCompliance.generateUploadUrl, {
+      code: "ALICE",
+      deviceId: "alice-device",
+      callId: "call-1",
+      segmentId: segment.segmentId,
+    });
+    const storedSegment = await t.run((ctx) => ctx.db.get(segment.segmentId));
+    expect(storedSegment?.uploadUrl).toBeUndefined();
+    expect(storedSegment?.uploadTokenHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(storedSegment?.uploadTokenHash).not.toBe(ticket.uploadToken);
+    await expect(
+      t.query(internal.callCompliance.authorizeRecordingHttpUpload, {
+        code: "ALICE",
+        deviceId: "alice-device",
+        callId: "call-1",
+        segmentId: segment.segmentId,
+        uploadToken: ticket.uploadToken,
+      }),
+    ).resolves.toEqual({ authorized: true });
+
+    await t.mutation(api.callCompliance.stop, {
+      password: "ADMIN:admin-device",
+      callId: "call-1",
+    });
+    await finishStopDeadline(t);
+    await expect(
+      t.query(internal.callCompliance.authorizeRecordingHttpUpload, {
+        code: "ALICE",
+        deviceId: "alice-device",
+        callId: "call-1",
+        segmentId: segment.segmentId,
+        uploadToken: ticket.uploadToken,
+      }),
+    ).rejects.toThrow("录音同意已经失效");
+    const storageBefore = await t.run((ctx) =>
+      ctx.db.system.query("_storage").collect(),
+    );
+    const rejectedUpload = await t.fetch("/api/call-recordings/upload", {
+      method: "POST",
+      headers: {
+        "Content-Type": "audio/webm",
+        "X-Authorization-Code": "ALICE",
+        "X-Device-Id": "alice-device",
+        "X-Call-Id": "call-1",
+        "X-Recording-Segment-Id": segment.segmentId,
+        "X-Recording-Upload-Token": ticket.uploadToken,
+      },
+      body: new Blob(["must not be stored"], { type: "audio/webm" }),
+    });
+    expect(rejectedUpload.status).toBe(403);
+    const storageAfter = await t.run((ctx) =>
+      ctx.db.system.query("_storage").collect(),
+    );
+    expect(storageAfter).toHaveLength(storageBefore.length);
+  });
+
+  test("the guarded HTTP endpoint stores and finalizes one authorized audio segment", async () => {
+    const t = await setup();
+    await activateRecording(t);
+    const segment = await t.mutation(api.callCompliance.beginRecordingSegment, {
+      code: "ALICE",
+      deviceId: "alice-device",
+      callId: "call-1",
+      clientNonce: "http-proxy-success",
+    });
+    const ticket = await t.mutation(api.callCompliance.generateUploadUrl, {
+      code: "ALICE",
+      deviceId: "alice-device",
+      callId: "call-1",
+      segmentId: segment.segmentId,
+    });
+    const response = await t.fetch("/api/call-recordings/upload", {
+      method: "POST",
+      headers: {
+        "Content-Type": "audio/webm",
+        "X-Authorization-Code": "ALICE",
+        "X-Device-Id": "alice-device",
+        "X-Call-Id": "call-1",
+        "X-Recording-Segment-Id": segment.segmentId,
+        "X-Recording-Upload-Token": ticket.uploadToken,
+      },
+      body: new Blob(["authorized audio"], { type: "audio/webm" }),
+    });
+    expect(response.status).toBe(200);
+    const payload = (await response.json()) as { storageId?: string };
+    expect(payload.storageId).toEqual(expect.any(String));
+    const [storedSegment, recordings] = await t.run(async (ctx) =>
+      Promise.all([
+        ctx.db.get(segment.segmentId),
+        ctx.db
+          .query("call_recordings")
+          .withIndex("by_call", (q) => q.eq("callId", "call-1"))
+          .collect(),
+      ]),
+    );
+    expect(storedSegment?.consumedAt).toEqual(expect.any(Number));
+    expect(storedSegment?.uploadTokenHash).toBeUndefined();
+    expect(recordings).toHaveLength(1);
+    expect(recordings[0]).toMatchObject({
+      tenantId: "nyfbi",
+      participantCode: "ALICE",
+      storageId: payload.storageId,
+    });
+  });
+
+  test("a same-code device handoff rejects the old recorder and permits the new device", async () => {
+    const t = await setup();
+    await activateRecording(t);
 
     await transferAliceToOwnMobile(t);
 
     await expect(
-      t.mutation(api.callCompliance.generateUploadUrl, {
+      t.mutation(api.callCompliance.beginRecordingSegment, {
         code: "ALICE",
         deviceId: "alice-device",
         callId: "call-1",
-        segmentId: pendingGenerate.segmentId,
-      }),
-    ).rejects.toThrow("另一台设备接手");
-    await expect(
-      t.mutation(api.callCompliance.saveRecording, {
-        code: "ALICE",
-        deviceId: "alice-device",
-        callId: "call-1",
-        segmentId: pendingSave.segmentId,
-        storageId,
-        mimeType: "audio/webm",
+        clientNonce: "old-device-after-handoff",
       }),
     ).rejects.toThrow("另一台设备接手");
     await expect(
@@ -605,7 +1167,7 @@ describe("consent-gated call recording", () => {
       }),
     ).rejects.toThrow("不是此通话的参与者");
     await expect(
-      t.mutation(api.callCompliance.saveRecording, {
+      t.mutation(internal.callCompliance.saveRecording, {
         code: "ALICE",
         deviceId: "alice-device",
         callId: "call-1",
@@ -660,7 +1222,7 @@ describe("consent-gated call recording", () => {
       storeRecordingFile(t, "old recorder"),
       storeRecordingFile(t, "new recorder"),
     ]);
-    await t.mutation(api.callCompliance.saveRecording, {
+    await t.mutation(internal.callCompliance.saveRecording, {
       code: "ALICE",
       deviceId: "alice-device",
       callId: "call-1",
@@ -674,7 +1236,7 @@ describe("consent-gated call recording", () => {
     expect(untouchedSecondSegment).not.toHaveProperty("consumedAt");
     expect(untouchedSecondSegment).not.toHaveProperty("storageId");
     await expect(
-      t.mutation(api.callCompliance.saveRecording, {
+      t.mutation(internal.callCompliance.saveRecording, {
         code: "ALICE",
         deviceId: "alice-device",
         callId: "call-1",
@@ -685,7 +1247,7 @@ describe("consent-gated call recording", () => {
     ).resolves.toBeNull();
   });
 
-  test("re-requesting consent and stopping recording immediately invalidate unfinished capabilities", async () => {
+  test("re-requesting consent immediately invalidates capabilities and Stop invalidates them after its drain deadline", async () => {
     const t = await setup();
     await activateRecording(t);
     const beforeRequestReset = await t.mutation(
@@ -752,8 +1314,9 @@ describe("consent-gated call recording", () => {
       password: "ADMIN:admin-device",
       callId: "call-1",
     });
+    await finishStopDeadline(t);
     await expect(
-      t.mutation(api.callCompliance.saveRecording, {
+      t.mutation(internal.callCompliance.saveRecording, {
         code: "ALICE",
         deviceId: "alice-device",
         callId: "call-1",
@@ -799,6 +1362,7 @@ describe("consent-gated call recording", () => {
         callId: "call-1",
       }),
     ).resolves.toBeNull();
+    await finishStopDeadline(t);
     await expect(
       t.mutation(api.callCompliance.generateUploadUrl, {
         code: "ALICE",
@@ -841,9 +1405,9 @@ describe("consent-gated call recording", () => {
     });
     const storageId = await storeRecordingFile(t, "old epoch recording");
 
-    await expect(transferAliceToCarol(t)).resolves.toBeUndefined();
+    await expect(transferAliceToCarol(t)).resolves.toEqual(expect.any(String));
     await expect(
-      t.mutation(api.callCompliance.saveRecording, {
+      t.mutation(internal.callCompliance.saveRecording, {
         code: "BOBXX",
         deviceId: "bob-device",
         callId: "call-1",
@@ -851,7 +1415,7 @@ describe("consent-gated call recording", () => {
         storageId,
         mimeType: "audio/webm",
       }),
-    ).rejects.toThrow("录音同意已经失效");
+    ).resolves.toBeNull();
   });
 
   test("a segment capability is bound to call and device, requires an upload grant, and is single use", async () => {
@@ -875,7 +1439,7 @@ describe("consent-gated call recording", () => {
       }),
     ).rejects.toThrow("录音片段凭证无效");
     await expect(
-      t.mutation(api.callCompliance.saveRecording, {
+      t.mutation(internal.callCompliance.saveRecording, {
         code: "ALICE",
         deviceId: "alice-device",
         callId: "call-1",
@@ -892,7 +1456,7 @@ describe("consent-gated call recording", () => {
       segmentId: segment.segmentId,
     });
     await expect(
-      t.mutation(api.callCompliance.saveRecording, {
+      t.mutation(internal.callCompliance.saveRecording, {
         code: "ALICE",
         deviceId: "alice-device",
         callId: "wrong-call",
@@ -902,7 +1466,7 @@ describe("consent-gated call recording", () => {
       }),
     ).rejects.toThrow("录音片段凭证无效");
     await expect(
-      t.mutation(api.callCompliance.saveRecording, {
+      t.mutation(internal.callCompliance.saveRecording, {
         code: "ALICE",
         deviceId: "alice-device",
         callId: "call-1",
@@ -912,7 +1476,7 @@ describe("consent-gated call recording", () => {
       }),
     ).resolves.toBeNull();
     await expect(
-      t.mutation(api.callCompliance.saveRecording, {
+      t.mutation(internal.callCompliance.saveRecording, {
         code: "ALICE",
         deviceId: "alice-device",
         callId: "call-1",
@@ -946,7 +1510,7 @@ describe("consent-gated call recording", () => {
         segmentId: segment.segmentId,
       });
     const sharedStorageId = await storeRecordingFile(t, "shared recording");
-    await t.mutation(api.callCompliance.saveRecording, {
+    await t.mutation(internal.callCompliance.saveRecording, {
       code: "ALICE",
       deviceId: "alice-device",
       callId: "call-1",
@@ -963,7 +1527,7 @@ describe("consent-gated call recording", () => {
       await ctx.db.delete(recording._id);
     });
     await expect(
-      t.mutation(api.callCompliance.saveRecording, {
+      t.mutation(internal.callCompliance.saveRecording, {
         code: "ALICE",
         deviceId: "alice-device",
         callId: "call-1",
@@ -997,7 +1561,7 @@ describe("consent-gated call recording", () => {
       segmentId: third.segmentId,
     });
     await expect(
-      t.mutation(api.callCompliance.saveRecording, {
+      t.mutation(internal.callCompliance.saveRecording, {
         code: "ALICE",
         deviceId: "alice-device",
         callId: "call-1",
@@ -1037,7 +1601,7 @@ describe("consent-gated call recording", () => {
       "image/png",
     );
     await expect(
-      t.mutation(api.callCompliance.saveRecording, {
+      t.mutation(internal.callCompliance.saveRecording, {
         code: "ALICE",
         deviceId: "alice-device",
         callId: "call-1",
@@ -1053,7 +1617,7 @@ describe("consent-gated call recording", () => {
       "audio/ogg",
     );
     await expect(
-      t.mutation(api.callCompliance.saveRecording, {
+      t.mutation(internal.callCompliance.saveRecording, {
         code: "ALICE",
         deviceId: "alice-device",
         callId: "call-1",
@@ -1070,7 +1634,7 @@ describe("consent-gated call recording", () => {
       100 * 1024 * 1024,
     );
     await expect(
-      t.mutation(api.callCompliance.saveRecording, {
+      t.mutation(internal.callCompliance.saveRecording, {
         code: "ALICE",
         deviceId: "alice-device",
         callId: "call-1",
@@ -1106,7 +1670,7 @@ describe("consent-gated call recording", () => {
       }),
     ).rejects.toThrow("已经过期");
     await expect(
-      t.mutation(api.callCompliance.saveRecording, {
+      t.mutation(internal.callCompliance.saveRecording, {
         code: "ALICE",
         deviceId: "alice-device",
         callId: "call-1",

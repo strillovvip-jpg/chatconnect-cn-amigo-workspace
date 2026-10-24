@@ -138,21 +138,21 @@ async function setupTenantUsers() {
   await t.run(async (ctx) => {
     for (const user of [
       {
-        code: "AIF01",
+        code: "AIFFA",
         deviceId: "device-ai-full",
         name: "Aichijp Full",
         companyId: "aichijp",
         licenseProfileId: profiles.full,
       },
       {
-        code: "AIL01",
+        code: "AILLA",
         deviceId: "device-ai-limited",
         name: "Aichijp Limited",
         companyId: "aichijp",
         licenseProfileId: profiles.limited,
       },
       {
-        code: "NYF01",
+        code: "NYFFA",
         deviceId: "device-ny-full",
         name: "Nyfbi Full",
         companyId: "nyfbi",
@@ -480,18 +480,18 @@ describe("tenant communication boundaries", () => {
 
     await expect(
       t.query(api.contacts.searchUser, {
-        requesterCode: "AIF01",
+        requesterCode: "AIFFA",
         deviceId: "device-ai-full",
-        query: "AIL01",
+        query: "AILLA",
       }),
     ).resolves.toEqual([
-      { code: "AIL01", name: "Aichijp Limited", department: undefined },
+      { code: "AILLA", name: "Aichijp Limited", department: undefined },
     ]);
     await expect(
       t.query(api.contacts.searchUser, {
-        requesterCode: "AIF01",
+        requesterCode: "AIFFA",
         deviceId: "device-ai-full",
-        query: "NYF01",
+        query: "NYFFA",
       }),
     ).resolves.toEqual([]);
   });
@@ -501,9 +501,9 @@ describe("tenant communication boundaries", () => {
 
     await expect(
       t.query(api.contacts.searchUser, {
-        requesterCode: "AIF01",
+        requesterCode: "AIFFA",
         deviceId: "device-ai-full",
-        query: "AIL",
+        query: "Aichijp Limited",
       }),
     ).resolves.toEqual([]);
   });
@@ -513,29 +513,26 @@ describe("tenant communication boundaries", () => {
 
     await expect(
       t.query(api.contacts.searchUser, {
-        requesterCode: "AIF01",
+        requesterCode: "AIFFA",
         deviceId: "device-ai-full",
         query: "Aichijp Limited",
-        exactCodeOnly: true,
       }),
     ).resolves.toEqual([]);
     await expect(
       t.query(api.contacts.searchUser, {
-        requesterCode: "AIF01",
+        requesterCode: "AIFFA",
         deviceId: "device-ai-full",
-        query: "AIL0",
-        exactCodeOnly: true,
+        query: "AILL",
       }),
     ).resolves.toEqual([]);
     await expect(
       t.query(api.contacts.searchUser, {
-        requesterCode: "AIF01",
+        requesterCode: "AIFFA",
         deviceId: "device-ai-full",
-        query: "ail01",
-        exactCodeOnly: true,
+        query: "ailla",
       }),
     ).resolves.toEqual([
-      { code: "AIL01", name: "Aichijp Limited", department: undefined },
+      { code: "AILLA", name: "Aichijp Limited", department: undefined },
     ]);
   });
 
@@ -544,9 +541,9 @@ describe("tenant communication boundaries", () => {
 
     await expect(
       t.mutation(api.contacts.addContact, {
-        ownerCode: "AIF01",
+        ownerCode: "AIFFA",
         deviceId: "device-ai-full",
-        targetCode: "NYF01",
+        targetCode: "NYFFA",
       }),
     ).rejects.toThrow();
   });
@@ -556,9 +553,9 @@ describe("tenant communication boundaries", () => {
 
     await expect(
       t.mutation(api.callState.prepareP2P, {
-        code: "AIF01",
+        code: "AIFFA",
         deviceId: "device-ai-full",
-        theirCode: "NYF01",
+        theirCode: "NYFFA",
         callType: "video",
       }),
     ).rejects.toThrow();
@@ -573,10 +570,10 @@ describe("tenant communication boundaries", () => {
 
     await expect(
       t.mutation(api.groups.create, {
-        code: "AIF01",
+        code: "AIFFA",
         deviceId: "device-ai-full",
         name: "Tenant group",
-        memberCodes: ["NYF01"],
+        memberCodes: ["NYFFA"],
       }),
     ).rejects.toThrow();
     await t.run(async (ctx) => {
@@ -654,6 +651,7 @@ describe("site-scoped super administrators", () => {
           sentAt: new Date().toISOString(),
         });
         await ctx.db.insert("cases", {
+          tenantId: fixture.tenant,
           caseNumber: `${fixture.tenant}-case`,
           title: `${fixture.tenant} case`,
           status: "open",

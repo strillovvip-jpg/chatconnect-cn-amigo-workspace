@@ -406,9 +406,7 @@ describe("transferred P2P LiveKit handoff", () => {
     const expectedAttempts = TRANSFER_CLEANUP_RETRY_OFFSETS_MS.map(
       (_, attempt) => attempt,
     );
-    expect(await scheduledTransferCleanupAttempts(t)).toEqual(
-      expectedAttempts,
-    );
+    expect(await scheduledTransferCleanupAttempts(t)).toEqual(expectedAttempts);
 
     removeParticipant.mockClear();
     delete process.env.LIVEKIT_URL;
@@ -418,9 +416,7 @@ describe("transferred P2P LiveKit handoff", () => {
         attempt: 0,
       }),
     ).rejects.toThrow("LIVEKIT_URL");
-    expect(await scheduledTransferCleanupAttempts(t)).toEqual(
-      expectedAttempts,
-    );
+    expect(await scheduledTransferCleanupAttempts(t)).toEqual(expectedAttempts);
     process.env.LIVEKIT_URL = "https://livekit.example.test";
     await t.action(internal.calls.retryTransferCleanup, {
       transferId,
@@ -673,6 +669,18 @@ describe("external face-swap invite host credentials", () => {
     expect(viewer.video).toMatchObject({
       canPublish: false,
       canSubscribe: true,
+    });
+    await expect(
+      t.run(async (ctx) =>
+        ctx.db
+          .query("external_video_invites")
+          .withIndex("by_invite_id", (q) => q.eq("inviteId", created.inviteId))
+          .unique(),
+      ),
+    ).resolves.toMatchObject({
+      roomName: created.roomName,
+      operatorIdentity: created.operatorIdentity,
+      operatorViewerIdentity: created.operatorViewerIdentity,
     });
   });
 

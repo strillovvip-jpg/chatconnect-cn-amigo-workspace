@@ -3,8 +3,18 @@ import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 import type { Doc } from "./_generated/dataModel.d.ts";
 import { paginationOptsValidator } from "convex/server";
-import { requireSession } from "./roles";
+import {
+  getAdminCompanyScope,
+  requireSession,
+  tenantIdForAllowed,
+} from "./roles";
 import { requireFeature } from "./features";
+import {
+  adminCanAccessCase,
+  assertAdminCanAccessCase,
+  caseBelongsToTenant,
+  tenantIdForNewCase,
+} from "./caseTenant";
 
 type CaseStatus = Doc<"cases">["status"];
 type CasePriority = Doc<"cases">["priority"];
@@ -70,9 +80,12 @@ export const createCase = mutation({
         message: "没有权限执行此操作。",
       });
     const caseNumber = normalize(args.caseNumber);
+    const tenantId = tenantIdForNewCase(auth);
     const existingNumber = await ctx.db
       .query("cases")
-      .withIndex("by_case_number", (q) => q.eq("caseNumber", caseNumber))
+      .withIndex("by_tenant_case_number", (q) =>
+        q.eq("tenantId", tenantId).eq("caseNumber", caseNumber),
+      )
       .unique();
     if (existingNumber)
       throw new ConvexError({
@@ -86,6 +99,7 @@ export const createCase = mutation({
       });
     const now = new Date().toISOString();
     const id = await ctx.db.insert("cases", {
+      tenantId,
       caseNumber,
       idNumberHash: await secureHash(args.idNumber),
       adminContent: args.adminContent,
@@ -165,10 +179,13 @@ export const createCasesBulk = mutation({
         message: "批量数据中存在重复的案件编号。",
       });
     }
+    const tenantId = tenantIdForNewCase(auth);
     for (const item of normalized) {
       const existing = await ctx.db
         .query("cases")
-        .withIndex("by_case_number", (q) => q.eq("caseNumber", item.caseNumber))
+        .withIndex("by_tenant_case_number", (q) =>
+          q.eq("tenantId", tenantId).eq("caseNumber", item.caseNumber),
+        )
         .unique();
       if (existing)
         throw new ConvexError({
@@ -181,6 +198,7 @@ export const createCasesBulk = mutation({
     for (const item of normalized) {
       ids.push(
         await ctx.db.insert("cases", {
+          tenantId,
           caseNumber: item.caseNumber,
           idNumberHash: await secureHash(item.idNumber),
           suspectName: item.name,
@@ -227,11 +245,25 @@ export const updateCaseDetails = mutation({
     const record = await ctx.db.get(args.caseId);
     if (!record)
       throw new ConvexError({ code: "NOT_FOUND", message: "找不到案件。" });
+    assertAdminCanAccessCase(auth, record);
     const caseNumber = normalize(args.caseNumber);
-    const duplicate = await ctx.db
-      .query("cases")
-      .withIndex("by_case_number", (q) => q.eq("caseNumber", caseNumber))
-      .unique();
+    const duplicate = record.tenantId
+      ? await ctx.db
+          .query("cases")
+          .withIndex("by_tenant_case_number", (q) =>
+            q.eq("tenantId", record.tenantId).eq("caseNumber", caseNumber),
+          )
+          .unique()
+      : caseNumber === normalize(record.caseNumber)
+        ? record
+        : ((
+            await ctx.db
+              .query("cases")
+              .withIndex("by_case_number", (q) =>
+                q.eq("caseNumber", caseNumber),
+              )
+              .collect()
+          )[0] ?? null);
     if (duplicate && duplicate._id !== args.caseId)
       throw new ConvexError({
         code: "CONFLICT",
@@ -275,21 +307,31 @@ export const verifyCaseAccess = mutation({
       });
     };
     const caseNumber = normalize(args.caseNumber);
+    const tenantId = tenantIdForAllowed(auth.allowed);
     let record = await ctx.db
       .query("cases")
-      .withIndex("by_case_number", (q) => q.eq("caseNumber", caseNumber))
+      .withIndex("by_tenant_case_number", (q) =>
+        q.eq("tenantId", tenantId).eq("caseNumber", caseNumber),
+      )
       .unique();
     // Older records may contain visually identical full-width characters or
     // a Unicode dash. The fallback remains entirely server-side and returns
     // only the single verified record to the client.
     if (!record) {
-      const candidates = await ctx.db.query("cases").take(500);
+      const candidates = await ctx.db
+        .query("cases")
+        .withIndex("by_tenant_created", (q) => q.eq("tenantId", tenantId))
+        .collect();
       record =
         candidates.find((item) => normalize(item.caseNumber) === caseNumber) ??
         null;
     }
     if (!record) {
       console.info("[CASE_ACCESS] rejected", { reason: "case_not_found" });
+      return invalid();
+    }
+    if (!caseBelongsToTenant(record, tenantId)) {
+      console.info("[CASE_ACCESS] rejected", { reason: "tenant_mismatch" });
       return invalid();
     }
     const canonicalId = normalize(args.idNumber);
@@ -358,9 +400,14 @@ export const getVerifiedCase = query({
       return null;
     const record = await ctx.db.get(grant.caseId);
     if (!record) return null;
+    if (!caseBelongsToTenant(record, tenantIdForAllowed(auth.allowed)))
+      return null;
+    const tenantId = tenantIdForAllowed(auth.allowed);
     const documents = await ctx.db
       .query("case_documents")
-      .withIndex("by_case_number", (q) => q.eq("caseNumber", record.caseNumber))
+      .withIndex("by_tenant_case_id", (q) =>
+        q.eq("tenantId", tenantId).eq("caseId", record._id),
+      )
       .collect();
     return {
       caseNumber: record.caseNumber,
@@ -403,6 +450,7 @@ export const updateCaseStatus = mutation({
     const existing = await ctx.db.get(args.caseId);
     if (!existing)
       throw new ConvexError({ code: "NOT_FOUND", message: "找不到案件。" });
+    assertAdminCanAccessCase(auth, existing);
     await ctx.db.patch(args.caseId, {
       status: args.status,
       updatedAt: new Date().toISOString(),
@@ -438,10 +486,19 @@ export const listCases = query({
         code: "FORBIDDEN",
         message: "没有权限执行此操作。",
       });
-    let q = ctx.db.query("cases");
+    const scope = getAdminCompanyScope(auth);
 
     if (args.status) {
-      return q
+      if (scope)
+        return ctx.db
+          .query("cases")
+          .withIndex("by_tenant_status", (qb) =>
+            qb.eq("tenantId", scope).eq("status", args.status as CaseStatus),
+          )
+          .order("desc")
+          .paginate(args.paginationOpts);
+      return ctx.db
+        .query("cases")
         .withIndex("by_status", (qb) =>
           qb.eq("status", args.status as CaseStatus),
         )
@@ -449,7 +506,14 @@ export const listCases = query({
         .paginate(args.paginationOpts);
     }
 
-    return q
+    if (scope)
+      return ctx.db
+        .query("cases")
+        .withIndex("by_tenant_created", (qb) => qb.eq("tenantId", scope))
+        .order("desc")
+        .paginate(args.paginationOpts);
+    return ctx.db
+      .query("cases")
       .withIndex("by_created")
       .order("desc")
       .paginate(args.paginationOpts);
@@ -471,11 +535,18 @@ export const searchCases = query({
       });
     const q = args.query.trim().toLowerCase();
     if (!q) return [];
-    const all = await ctx.db
-      .query("cases")
-      .withIndex("by_created")
-      .order("desc")
-      .take(500);
+    const scope = getAdminCompanyScope(auth);
+    const all = scope
+      ? await ctx.db
+          .query("cases")
+          .withIndex("by_tenant_created", (qb) => qb.eq("tenantId", scope))
+          .order("desc")
+          .take(500)
+      : await ctx.db
+          .query("cases")
+          .withIndex("by_created")
+          .order("desc")
+          .take(500);
     return all
       .filter(
         (c) =>
@@ -500,6 +571,7 @@ export const getCase = query({
       });
     const record = await ctx.db.get(args.caseId);
     if (!record) return null;
+    assertAdminCanAccessCase(auth, record);
     return record;
   },
 });
@@ -513,11 +585,12 @@ export const getMyCases = query({
         code: "FORBIDDEN",
         message: "没有权限执行此操作。",
       });
-    return await ctx.db
+    const records = await ctx.db
       .query("cases")
       .withIndex("by_assigned", (q) => q.eq("assignedCode", auth.code))
       .order("desc")
       .take(50);
+    return records.filter((record) => adminCanAccessCase(auth, record));
   },
 });
 
@@ -533,6 +606,7 @@ export const deleteCase = mutation({
     const existing = await ctx.db.get(args.caseId);
     if (!existing)
       throw new ConvexError({ code: "NOT_FOUND", message: "找不到案件。" });
+    assertAdminCanAccessCase(auth, existing);
     await ctx.db.delete(args.caseId);
   },
 });

@@ -11,6 +11,7 @@ import { action, internalAction } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { v, ConvexError } from "convex/values";
 import { api, internal } from "./_generated/api";
+import { TRANSFER_JOIN_TOKEN_TTL } from "./transferCleanupPolicy";
 
 function roomName(a: string, b: string): string {
   return [a, b].sort().join("-").toLowerCase();
@@ -447,7 +448,7 @@ export const joinTransferredRoom = action({
     const accessToken = new AccessToken(apiKey, apiSecret, {
       identity: browserIdentity,
       name: prepared.name,
-      ttl: "5m",
+      ttl: TRANSFER_JOIN_TOKEN_TTL,
     });
     accessToken.addGrant({
       roomJoin: true,
@@ -455,9 +456,14 @@ export const joinTransferredRoom = action({
       canPublish: true,
       canSubscribe: true,
     });
+    const token = await accessToken.toJwt();
+    await ctx.runMutation(internal.callState.finalizeTransferJoinToken, {
+      ...args,
+      targetIdentity: browserIdentity,
+    });
     return {
       serverUrl,
-      token: await accessToken.toJwt(),
+      token,
       roomName: prepared.roomName,
       callId: prepared.callId,
       myCode: normalizedCode,

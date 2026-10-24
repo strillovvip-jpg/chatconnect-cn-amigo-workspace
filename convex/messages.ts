@@ -11,12 +11,15 @@ import type { MutationCtx } from "./_generated/server";
 import { ConvexError } from "convex/values";
 import {
   assertActiveAuthorizationTarget,
-  assertSameTenant,
   requireSession,
   tenantIdForAllowed,
 } from "./roles";
 import { internal } from "./_generated/api";
-import { allowedForCode, requireGroupTenant } from "./tenantBoundaries";
+import {
+  allowedForCode,
+  assertCodesCanCommunicate,
+  requireGroupTenant,
+} from "./tenantBoundaries";
 import { constantTimeHashEqual } from "./claimCredentials";
 
 const FILE_UPLOAD_TTL_MS = 10 * 60_000;
@@ -346,7 +349,7 @@ export const generateUploadUrl = mutation({
 async function requireContact(
   ctx: Parameters<typeof requireSession>[0],
   ownerCode: string,
-  ownerAllowed: { companyId?: string } | null | undefined,
+  _ownerAllowed: { companyId?: string } | null | undefined,
   targetCode: string,
 ) {
   const normalizedTarget = targetCode.trim().toUpperCase();
@@ -360,7 +363,7 @@ async function requireContact(
     throw new ConvexError({ code: "FORBIDDEN", message: "只能与联系人聊天。" });
   const targetAllowed = await allowedForCode(ctx, normalizedTarget);
   assertActiveAuthorizationTarget(targetAllowed);
-  assertSameTenant(ownerAllowed, targetAllowed);
+  await assertCodesCanCommunicate(ctx, ownerCode, normalizedTarget);
   return normalizedTarget;
 }
 

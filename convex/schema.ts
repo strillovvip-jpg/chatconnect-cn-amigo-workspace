@@ -455,6 +455,7 @@ export default defineSchema({
     remoteUserId: v.string(),
     targetUserId: v.string(),
     targetIdentity: v.optional(v.string()),
+    targetTokenExpiresAt: v.optional(v.number()),
     sourceIdentities: v.optional(v.array(v.string())),
     targetDeviceId: v.optional(v.string()),
     sourceRecordingDrainedAt: v.optional(v.number()),
@@ -469,6 +470,7 @@ export default defineSchema({
     cleanupAttempts: v.optional(v.number()),
     cleanupError: v.optional(v.string()),
     cleanupUpdatedAt: v.optional(v.number()),
+    cleanupLastSucceededAt: v.optional(v.number()),
     status: v.union(
       v.literal("pending"),
       v.literal("accepted"),

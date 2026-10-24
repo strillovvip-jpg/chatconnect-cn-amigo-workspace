@@ -4,7 +4,9 @@ import { ConvexError } from "convex/values";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import {
   assertAdminCanAccessCode,
+  assertAdminCanManageAuthorizationCode,
   getAdminCompanyScope,
+  listManageableAllowedCodes,
   listVisibleAllowedCodes,
   requireAdmin,
   requireSuperAdmin,
@@ -74,7 +76,7 @@ export const getAllCodes = query({
   handler: async (ctx: QueryCtx, args) => {
     const auth = await requireAdmin(ctx, args.password);
     const users = await ctx.db.query("auth_codes").order("desc").collect();
-    const access = await listVisibleAllowedCodes(ctx, auth);
+    const access = await listManageableAllowedCodes(ctx, auth);
     const scopedAccess = getAdminCompanyScope(auth)
       ? access.filter((item) => item.role === "user")
       : access;
@@ -105,7 +107,7 @@ export const getAllowedCodes = query({
   args: { password: v.string() },
   handler: async (ctx: QueryCtx, args) => {
     const auth = await requireAdmin(ctx, args.password);
-    const access = await listVisibleAllowedCodes(ctx, auth);
+    const access = await listManageableAllowedCodes(ctx, auth);
     if (getAdminCompanyScope(auth))
       return access.filter((item) => item.role === "user");
     return access;
@@ -117,7 +119,7 @@ export const getAllUsers = query({
   handler: async (ctx: QueryCtx, args) => {
     const auth = await requireAdmin(ctx, args.password);
     const users = await ctx.db.query("auth_codes").collect();
-    const visibleAllowedCodes = await listVisibleAllowedCodes(ctx, auth);
+    const visibleAllowedCodes = await listManageableAllowedCodes(ctx, auth);
     const visibleCodeSet = new Set(
       (getAdminCompanyScope(auth)
         ? visibleAllowedCodes.filter((item) => item.role === "user")
@@ -354,7 +356,7 @@ export const resetCode = mutation({
   },
   handler: async (ctx: MutationCtx, args) => {
     const auth = await requireAdmin(ctx, args.password);
-    await assertAdminCanAccessCode(ctx, auth, args.code);
+    await assertAdminCanManageAuthorizationCode(ctx, auth, args.code);
     const record = await ctx.db
       .query("auth_codes")
       .withIndex("by_code", (q) => q.eq("code", args.code))

@@ -1,5 +1,5 @@
 import { act, render, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 type MockLocalParticipant = {
   trackPublications: Map<unknown, unknown>;
@@ -15,6 +15,7 @@ type MockRoom = {
   state: string;
   connect: ReturnType<typeof vi.fn>;
   disconnect: ReturnType<typeof vi.fn>;
+  startAudio: ReturnType<typeof vi.fn>;
   localParticipant: MockLocalParticipant;
   remoteParticipants: Map<
     string,
@@ -274,6 +275,10 @@ const baseCall = {
 };
 
 describe("CallProvider native face-swap media mode", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.rooms.length = 0;
@@ -1247,5 +1252,173 @@ describe("CallProvider native face-swap media mode", () => {
     await waitFor(() => expect(callApi.callState).toBe("ringing"));
     expect(callApi.callInfo?.callId).toBe("call-1");
     expect(mocks.endP2PCall).not.toHaveBeenCalled();
+  });
+
+  it("republishes a live-but-muted microphone without waiting for startAudio", async () => {
+    render(
+      <CallProvider>
+        <CaptureCallContext />
+      </CallProvider>,
+    );
+    await act(async () => {
+      await callApi.startCall({ ...baseCall, token: "browser-token" });
+    });
+    const room = mocks.rooms[0];
+    const microphonePublication = {
+      track: {
+        mediaStreamTrack: {
+          readyState: "live",
+          muted: true,
+          enabled: true,
+        },
+      },
+    };
+    room.localParticipant.getTrackPublication.mockImplementation(
+      (source: string) =>
+        source === "microphone" ? microphonePublication : undefined,
+    );
+    room.localParticipant.isMicrophoneEnabled = true;
+    room.localParticipant.setMicrophoneEnabled.mockClear();
+    room.startAudio.mockImplementation(() => new Promise(() => undefined));
+
+    act(() => {
+      void callApi.restoreMedia();
+    });
+    await Promise.resolve();
+
+    expect(room.localParticipant.setMicrophoneEnabled).toHaveBeenNthCalledWith(
+      1,
+      false,
+    );
+    expect(room.localParticipant.setMicrophoneEnabled).toHaveBeenNthCalledWith(
+      2,
+      true,
+    );
+  });
+
+  it("keeps an intentionally muted microphone off during periodic recovery", async () => {
+    vi.useFakeTimers();
+    render(
+      <CallProvider>
+        <CaptureCallContext />
+      </CallProvider>,
+    );
+    await act(async () => {
+      await callApi.startCall({ ...baseCall, token: "browser-token" });
+    });
+    const room = mocks.rooms[0];
+
+    await act(async () => {
+      await callApi.toggleMic();
+    });
+    expect(room.localParticipant.isMicrophoneEnabled).toBe(false);
+    room.localParticipant.setMicrophoneEnabled.mockClear();
+    room.localParticipant.getTrackPublication.mockImplementation(
+      (source: string) =>
+        source === "microphone"
+          ? {
+              track: {
+                mediaStreamTrack: {
+                  readyState: "live",
+                  muted: true,
+                  enabled: false,
+                },
+              },
+            }
+          : undefined,
+    );
+
+    await act(async () => {
+      vi.advanceTimersByTime(10_000);
+      await Promise.resolve();
+    });
+
+    expect(room.localParticipant.setMicrophoneEnabled).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("does not let a pending old-room recovery block the next call", async () => {
+    vi.useFakeTimers();
+    render(
+      <CallProvider>
+        <CaptureCallContext />
+      </CallProvider>,
+    );
+    await act(async () => {
+      await callApi.startCall({ ...baseCall, token: "first-token" });
+    });
+    const firstRoom = mocks.rooms[0];
+    firstRoom.localParticipant.getTrackPublication.mockImplementation(
+      (source: string) =>
+        source === "microphone"
+          ? {
+              track: {
+                mediaStreamTrack: {
+                  readyState: "ended",
+                  muted: true,
+                  enabled: false,
+                },
+              },
+            }
+          : undefined,
+    );
+    firstRoom.localParticipant.isMicrophoneEnabled = true;
+    firstRoom.localParticipant.setMicrophoneEnabled.mockImplementation(
+      () => new Promise<void>(() => undefined),
+    );
+
+    act(() => vi.advanceTimersByTime(10_000));
+    await Promise.resolve();
+    expect(firstRoom.localParticipant.setMicrophoneEnabled).toHaveBeenCalled();
+
+    await act(async () => {
+      await callApi.hangUp({ preserveBackendCall: true });
+      await callApi.startCall({
+        ...baseCall,
+        callId: "call-2",
+        roomName: "contact-room-2",
+        token: "second-token",
+      });
+    });
+    const secondRoom = mocks.rooms[1];
+    secondRoom.localParticipant.getTrackPublication.mockReturnValue(undefined);
+    secondRoom.localParticipant.isMicrophoneEnabled = false;
+    secondRoom.localParticipant.setMicrophoneEnabled.mockClear();
+
+    await act(async () => {
+      vi.advanceTimersByTime(10_000);
+      await Promise.resolve();
+    });
+
+    expect(
+      secondRoom.localParticipant.setMicrophoneEnabled,
+    ).toHaveBeenCalledWith(true);
+    vi.useRealTimers();
+  });
+
+  it("tears down a call when the backend marks it failed", async () => {
+    const view = render(
+      <CallProvider>
+        <CaptureCallContext />
+      </CallProvider>,
+    );
+    await act(async () => {
+      await callApi.startCall({ ...baseCall, token: "browser-token" });
+    });
+    const room = mocks.rooms[0];
+
+    mocks.backendCall = {
+      peerCode: "CALLEE",
+      peerName: "Callee",
+      status: "failed",
+    };
+    view.rerender(
+      <CallProvider>
+        <CaptureCallContext />
+      </CallProvider>,
+    );
+
+    await waitFor(() => expect(room.disconnect).toHaveBeenCalledTimes(1));
+    expect(callApi.callState).toBe("idle");
   });
 });

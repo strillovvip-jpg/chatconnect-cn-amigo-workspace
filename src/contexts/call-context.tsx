@@ -43,6 +43,7 @@ import {
   nativeAmigoRoom,
 } from "@/lib/amigo/native-room";
 import { participantIdentityMatchesCode } from "@/lib/calls/participant-identity";
+import { startRoomAudio } from "@/lib/calls/audio-playback";
 
 type CallMode = "p2p" | "group";
 type LocalMediaMode = "camera" | "face-swap";
@@ -284,6 +285,10 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
   const syncParticipantsRef = useRef<() => void>(() => undefined);
   const nativePublisherConnectedRef = useRef(false);
   const nativeRestorePromiseRef = useRef<Promise<void> | null>(null);
+  const mediaRestorePromiseRef = useRef<{
+    room: Room;
+    promise: Promise<void>;
+  } | null>(null);
   const restoreMediaRef = useRef<() => Promise<void>>(async () => undefined);
   const sessionCode = localStorage.getItem("ksc_session_code") ?? "";
   const sessionDeviceId = localStorage.getItem("ksc_device_id") ?? "";
@@ -419,6 +424,8 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         activeInfo?.localMediaMode === "face-swap";
       let nativeDisconnectError: unknown;
       roomRef.current = null;
+      if (mediaRestorePromiseRef.current?.room === activeRoom)
+        mediaRestorePromiseRef.current = null;
       syncParticipantsRef.current = () => undefined;
       const sourceManager = videoSourceManagerRef.current;
       videoSourceManagerRef.current = null;
@@ -765,7 +772,12 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
           for (const publication of participant.trackPublications.values())
             publication.setSubscribed(true);
         }
-        await nextRoom.startAudio().catch(() => undefined);
+        // WKWebView can leave startAudio pending even while the room itself is
+        // healthy. Never let that browser playback promise block microphone
+        // publication or the rest of call setup.
+        void startRoomAudio(nextRoom).catch((error) =>
+          console.warn("[P2P_CALL] remote audio start failed", error),
+        );
         setCallState(info.mode === "p2p" ? "connecting" : "connected");
         // Set the initial connecting state before checking existing remote
         // participants. Otherwise an already-connected peer is detected here,
@@ -897,7 +909,11 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
     const activeRoom = roomRef.current;
     const info = callInfoRef.current;
     if (!activeRoom || !info) return;
-    await activeRoom.startAudio().catch(() => undefined);
+    // Keep capture/track repair independent from WebKit's playback promise.
+    // A pending startAudio used to prevent every recovery step below.
+    void startRoomAudio(activeRoom).catch((error) =>
+      console.warn("[P2P_CALL] remote audio restore failed", error),
+    );
     if (activeRoom.state !== ConnectionState.Connected) return;
     try {
       const micPublication = activeRoom.localParticipant.getTrackPublication(
@@ -908,14 +924,19 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       );
       const micEnded =
         micPublication?.track?.mediaStreamTrack.readyState === "ended";
+      const micUnavailable =
+        !micPublication?.track ||
+        micEnded ||
+        micPublication.track.mediaStreamTrack.muted ||
+        micPublication.track.mediaStreamTrack.enabled === false;
       const cameraEnded =
         cameraPublication?.track?.mediaStreamTrack.readyState === "ended";
       if (info.localMediaMode === "face-swap") {
-        if (micEnded)
+        if (micUnavailable && activeRoom.localParticipant.isMicrophoneEnabled)
           await activeRoom.localParticipant.setMicrophoneEnabled(false);
         if (
           wantedMicRef.current &&
-          (!activeRoom.localParticipant.isMicrophoneEnabled || micEnded)
+          (!activeRoom.localParticipant.isMicrophoneEnabled || micUnavailable)
         )
           await activeRoom.localParticipant.setMicrophoneEnabled(true);
         const token = nativePublisherToken(info);
@@ -967,13 +988,13 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         await nativeRestorePromiseRef.current;
         return;
       }
-      if (micEnded)
+      if (micUnavailable && activeRoom.localParticipant.isMicrophoneEnabled)
         await activeRoom.localParticipant.setMicrophoneEnabled(false);
       if (cameraEnded)
         await setParticipantCameraEnabled(activeRoom.localParticipant, false);
       if (
         wantedMicRef.current &&
-        (!activeRoom.localParticipant.isMicrophoneEnabled || micEnded)
+        (!activeRoom.localParticipant.isMicrophoneEnabled || micUnavailable)
       ) {
         await activeRoom.localParticipant.setMicrophoneEnabled(true);
       }
@@ -1025,18 +1046,26 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (
-      callInfo?.localMediaMode !== "face-swap" ||
+      !callInfo ||
       !["connecting", "connected", "minimized", "reconnecting"].includes(
         callState,
       )
     )
       return;
-    const timer = window.setInterval(
-      () => void restoreMediaRef.current(),
-      10_000,
-    );
+    const recover = () => {
+      const activeRoom = roomRef.current;
+      if (!activeRoom) return;
+      if (mediaRestorePromiseRef.current?.room === activeRoom) return;
+      const recovery = restoreMediaRef.current();
+      mediaRestorePromiseRef.current = { room: activeRoom, promise: recovery };
+      void recovery.finally(() => {
+        if (mediaRestorePromiseRef.current?.promise === recovery)
+          mediaRestorePromiseRef.current = null;
+      });
+    };
+    const timer = window.setInterval(recover, 10_000);
     return () => window.clearInterval(timer);
-  }, [callInfo?.callId, callInfo?.localMediaMode, callState]);
+  }, [callInfo, callState]);
 
   useEffect(() => {
     const resume = () => {
@@ -1107,9 +1136,14 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     if (
-      ["ended", "cancelled", "rejected", "expired", "missed"].includes(
-        backendCall.status,
-      )
+      [
+        "ended",
+        "failed",
+        "cancelled",
+        "rejected",
+        "expired",
+        "missed",
+      ].includes(backendCall.status)
     ) {
       toast.message(
         backendCall.status === "ended" ? copy.remoteEnded : copy.callEnded,

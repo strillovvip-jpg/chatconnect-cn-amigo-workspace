@@ -4,6 +4,7 @@ import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import {
   assertAdminCanAccessCode,
+  assertAdminCanManageAuthorizationCode,
   assertAuthorizationSetCanExpand,
   AICHIJP_TENANT_ID,
   DEFAULT_TENANT_ID,
@@ -1080,7 +1081,7 @@ export const rotateClaimSecret = mutation({
       .unique();
     if (!target)
       throw new ConvexError({ code: "NOT_FOUND", message: "找不到授权码。" });
-    await assertAdminCanAccessCode(ctx, auth, targetCode);
+    await assertAdminCanManageAuthorizationCode(ctx, auth, targetCode);
     if (target.role === "super_admin")
       throw new ConvexError({
         code: "FORBIDDEN",
@@ -1112,7 +1113,7 @@ export const setEnabled = mutation({
       .unique();
     if (!target)
       throw new ConvexError({ code: "NOT_FOUND", message: "找不到授权码。" });
-    await assertAdminCanAccessCode(ctx, auth, targetCode);
+    await assertAdminCanManageAuthorizationCode(ctx, auth, targetCode);
     if (target.role === "super_admin")
       throw new ConvexError({
         code: "FORBIDDEN",
@@ -1185,7 +1186,7 @@ export const deleteCode = mutation({
       .unique();
     if (!target)
       throw new ConvexError({ code: "NOT_FOUND", message: "找不到授权码。" });
-    await assertAdminCanAccessCode(ctx, auth, targetCode);
+    await assertAdminCanManageAuthorizationCode(ctx, auth, targetCode);
     if (target.role !== "user")
       throw new ConvexError({
         code: "FORBIDDEN",

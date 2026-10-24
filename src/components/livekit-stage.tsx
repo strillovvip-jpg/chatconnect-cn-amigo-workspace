@@ -15,13 +15,16 @@ import {
 } from "livekit-client";
 import { useI18n } from "@/lib/i18n";
 import { participantIdentityMatchesCode } from "@/lib/calls/participant-identity";
+import { startRoomAudio } from "@/lib/calls/audio-playback";
 
 function MediaTrack({
   publication,
   fit = "cover",
+  onPlaybackIssue,
 }: {
   publication: TrackPublication;
   fit?: "cover" | "contain";
+  onPlaybackIssue?: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -40,18 +43,38 @@ function MediaTrack({
       element.style,
       track.kind === Track.Kind.Video
         ? { width: "100%", height: "100%", objectFit: fit }
-        : { display: "none" },
+        : {
+            position: "absolute",
+            width: "1px",
+            height: "1px",
+            opacity: "0",
+            pointerEvents: "none",
+          },
     );
     container.appendChild(element);
     const play = () => void element.play().catch(() => undefined);
+    const recoverPlayback = () => {
+      onPlaybackIssue?.();
+      play();
+    };
     play();
     element.addEventListener("loadedmetadata", play);
+    if (track.kind === Track.Kind.Audio) {
+      element.addEventListener("pause", recoverPlayback);
+      element.addEventListener("stalled", recoverPlayback);
+      element.addEventListener("ended", recoverPlayback);
+      element.addEventListener("error", recoverPlayback);
+    }
     return () => {
       element.removeEventListener("loadedmetadata", play);
+      element.removeEventListener("pause", recoverPlayback);
+      element.removeEventListener("stalled", recoverPlayback);
+      element.removeEventListener("ended", recoverPlayback);
+      element.removeEventListener("error", recoverPlayback);
       track.detach(element);
       element.remove();
     };
-  }, [publication, publication.track, fit]);
+  }, [publication, publication.track, fit, onPlaybackIssue]);
   return <div ref={containerRef} className="absolute inset-0" />;
 }
 
@@ -264,12 +287,18 @@ export function LiveKitStage({
   const [, refresh] = useReducer((value) => value + 1, 0);
   const [pinnedIdentity, setPinnedIdentity] = useState<string | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
-  const resumeAudio = useCallback(async () => {
-    await room.startAudio().catch(() => undefined);
-    refresh();
-  }, [room]);
+  const resumeAudio = useCallback(
+    async (trustedGesture = false) => {
+      await startRoomAudio(room, { trustedGesture }).catch(() => undefined);
+      refresh();
+    },
+    [room],
+  );
+  const recoverRemotePlayback = useCallback(() => {
+    void resumeAudio();
+  }, [resumeAudio]);
   useEffect(() => {
-    const resumeAudioOnGesture = () => void resumeAudio();
+    const resumeAudioOnGesture = () => void resumeAudio(true);
     document.addEventListener("pointerdown", resumeAudioOnGesture, {
       once: true,
     });
@@ -299,6 +328,55 @@ export function LiveKitStage({
       events.forEach((event) => room.off(event, refresh));
     };
   }, [room, resumeAudio]);
+
+  useEffect(() => {
+    const repairRemoteAudioSubscriptions = () => {
+      const exactRemoteIdentities = remoteParticipantIdentities?.length
+        ? new Set(remoteParticipantIdentities)
+        : remoteParticipantIdentity
+          ? new Set([remoteParticipantIdentity])
+          : undefined;
+      let requestedRepair = false;
+      for (const participant of room.remoteParticipants.values()) {
+        if (
+          participant.identity === localPublisherIdentity ||
+          (mode === "p2p" &&
+            !(exactRemoteIdentities
+              ? exactRemoteIdentities.has(participant.identity)
+              : participantIdentityMatchesCode(
+                  participant.identity,
+                  remoteParticipantCode,
+                )))
+        )
+          continue;
+        for (const publication of participant.audioTrackPublications.values()) {
+          const mediaTrack = publication.track?.mediaStreamTrack;
+          if (
+            publication.isMuted ||
+            (publication.track && mediaTrack?.readyState !== "ended")
+          )
+            continue;
+          // A desired/auto-subscribed publication can remain stuck without a
+          // track after a reconnect. Toggle the supported subscription state
+          // so LiveKit sends a fresh unsubscribe/subscribe request.
+          publication.setSubscribed(false);
+          publication.setSubscribed(true);
+          requestedRepair = true;
+        }
+      }
+      if (requestedRepair) void resumeAudio();
+    };
+    const timer = window.setInterval(repairRemoteAudioSubscriptions, 5_000);
+    return () => window.clearInterval(timer);
+  }, [
+    localPublisherIdentity,
+    mode,
+    remoteParticipantCode,
+    remoteParticipantIdentities,
+    remoteParticipantIdentity,
+    resumeAudio,
+    room,
+  ]);
 
   const allRemotes = Array.from(room.remoteParticipants.values());
   const localPublisher = localPublisherIdentity
@@ -435,14 +513,18 @@ export function LiveKitStage({
         </div>
       )}
       {remoteAudio.map((publication) => (
-        <MediaTrack key={publication.trackSid} publication={publication} />
+        <MediaTrack
+          key={publication.trackSid}
+          publication={publication}
+          onPlaybackIssue={recoverRemotePlayback}
+        />
       ))}
       {room.canPlaybackAudio === false && (
         <button
           type="button"
           className="absolute left-1/2 top-4 z-50 -translate-x-1/2 rounded-full bg-blue-600 px-5 py-3 text-sm font-bold text-white shadow-2xl ring-1 ring-white/30"
           onPointerDown={(event) => event.stopPropagation()}
-          onClick={() => void resumeAudio()}
+          onClick={() => void resumeAudio(true)}
         >
           {messages.livekitStage.tapToHearCall}
         </button>

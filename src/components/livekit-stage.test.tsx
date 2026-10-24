@@ -10,6 +10,7 @@ import { RoomEvent } from "livekit-client";
 import { LiveKitStage } from "./livekit-stage";
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -237,6 +238,125 @@ describe("LiveKitStage native publisher filtering", () => {
         screen.queryByRole("button", { name: "Tap to hear call" }),
       ).toBeNull(),
     );
+  });
+
+  it("restarts a remote audio element when WebKit pauses it mid-call", async () => {
+    const remote = participant("callee", "Callee");
+    const element = document.createElement("audio");
+    element.play = vi.fn().mockResolvedValue(undefined);
+    const audioTrack = {
+      kind: "audio",
+      attach: vi.fn(() => element),
+      detach: vi.fn(),
+    };
+    remote.audioTrackPublications.set("remote-audio", {
+      trackSid: "remote-audio",
+      track: audioTrack,
+    } as never);
+    const room = {
+      canPlaybackAudio: true,
+      remoteParticipants: new Map([[remote.identity, remote]]),
+      localParticipant: participant("caller", "Caller"),
+      startAudio: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
+      off: vi.fn(),
+    };
+
+    render(<LiveKitStage room={room as never} mode="p2p" />);
+    expect(element.play).toHaveBeenCalledTimes(1);
+
+    fireEvent.pause(element);
+
+    await waitFor(() => expect(element.play).toHaveBeenCalledTimes(2));
+    expect(room.startAudio).toHaveBeenCalledTimes(1);
+    expect(element.style.display).not.toBe("none");
+  });
+
+  it("deduplicates a WebKit startAudio attempt that remains pending", async () => {
+    const remote = participant("callee", "Callee");
+    const element = document.createElement("audio");
+    element.play = vi.fn().mockResolvedValue(undefined);
+    const audioTrack = {
+      kind: "audio",
+      attach: vi.fn(() => element),
+      detach: vi.fn(),
+    };
+    remote.audioTrackPublications.set("remote-audio", {
+      trackSid: "remote-audio",
+      track: audioTrack,
+    } as never);
+    const room = {
+      canPlaybackAudio: true,
+      remoteParticipants: new Map([[remote.identity, remote]]),
+      localParticipant: participant("caller", "Caller"),
+      startAudio: vi.fn(() => new Promise<void>(() => undefined)),
+      on: vi.fn(),
+      off: vi.fn(),
+    };
+
+    render(<LiveKitStage room={room as never} mode="p2p" />);
+    fireEvent.pause(element);
+    fireEvent.stalled(element);
+    fireEvent.error(element);
+    await Promise.resolve();
+
+    expect(room.startAudio).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows one bounded trusted-gesture retry while background startAudio is pending", async () => {
+    const remote = participant("callee", "Callee");
+    const element = document.createElement("audio");
+    element.play = vi.fn().mockResolvedValue(undefined);
+    remote.audioTrackPublications.set("remote-audio", {
+      trackSid: "remote-audio",
+      track: {
+        kind: "audio",
+        attach: vi.fn(() => element),
+        detach: vi.fn(),
+      },
+    } as never);
+    const room = {
+      canPlaybackAudio: false,
+      remoteParticipants: new Map([[remote.identity, remote]]),
+      localParticipant: participant("caller", "Caller"),
+      startAudio: vi.fn(() => new Promise<void>(() => undefined)),
+      on: vi.fn(),
+      off: vi.fn(),
+    };
+
+    render(<LiveKitStage room={room as never} mode="p2p" />);
+    fireEvent.pause(element);
+    fireEvent.click(screen.getByRole("button", { name: "Tap to hear call" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tap to hear call" }));
+    await Promise.resolve();
+
+    expect(room.startAudio).toHaveBeenCalledTimes(2);
+  });
+
+  it("requests a fresh subscription when a remote audio publication loses its track", () => {
+    vi.useFakeTimers();
+    const remote = participant("callee", "Callee");
+    const setSubscribed = vi.fn();
+    remote.audioTrackPublications.set("remote-audio", {
+      trackSid: "remote-audio",
+      kind: "audio",
+      isMuted: false,
+      track: undefined,
+      setSubscribed,
+    } as never);
+    const room = {
+      canPlaybackAudio: true,
+      remoteParticipants: new Map([[remote.identity, remote]]),
+      localParticipant: participant("caller", "Caller"),
+      startAudio: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
+      off: vi.fn(),
+    };
+
+    render(<LiveKitStage room={room as never} mode="p2p" />);
+    act(() => vi.advanceTimersByTime(5_000));
+
+    expect(setSubscribed.mock.calls).toEqual([[false], [true]]);
   });
 
   it("refreshes once after subscribing so tracks that arrived before the effect are rendered", () => {

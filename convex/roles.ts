@@ -1,6 +1,7 @@
 import { ConvexError } from "convex/values";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
+import { administratorHasDelegatedCodeAccess } from "./explicitCodeGrants";
 
 export type SystemRole = "super_admin" | "admin" | "user";
 export type AuthSurface = "app" | "aichijp" | "nyfbi";
@@ -190,6 +191,32 @@ export async function listVisibleAllowedCodes(
   return records.filter((record) => tenantIdForAllowed(record) === companyId);
 }
 
+export async function listManageableAllowedCodes(
+  ctx: DbCtx,
+  auth: {
+    code?: string;
+    role: SystemRole;
+    allowed?: { companyId?: string } | null;
+  },
+) {
+  const records = (await ctx.db
+    .query("allowed_codes")
+    .collect()) as Array<AllowedCodeRecord>;
+  const companyId = getAdminCompanyScope(auth);
+  if (!companyId) return records;
+  return records.filter(
+    (record) =>
+      tenantIdForAllowed(record) === companyId ||
+      administratorHasDelegatedCodeAccess(
+        auth.code,
+        tenantIdForAllowed(auth.allowed),
+        record.code,
+        tenantIdForAllowed(record),
+        record.role,
+      ),
+  );
+}
+
 export async function assertAdminCanAccessCode(
   ctx: DbCtx,
   auth: {
@@ -206,6 +233,39 @@ export async function assertAdminCanAccessCode(
     .withIndex("by_code", (q) => q.eq("code", code.trim().toUpperCase()))
     .unique()) as AllowedCodeRecord | null;
   if (!target || tenantIdForAllowed(target) !== companyId)
+    throw new ConvexError({
+      code: "FORBIDDEN",
+      message: "没有权限执行此操作。",
+    });
+}
+
+export async function assertAdminCanManageAuthorizationCode(
+  ctx: DbCtx,
+  auth: {
+    code?: string;
+    role: SystemRole;
+    allowed?: { companyId?: string } | null;
+  },
+  code: string,
+) {
+  const companyId = getAdminCompanyScope(auth);
+  if (!companyId) return;
+  const normalizedCode = code.trim().toUpperCase();
+  const target = (await ctx.db
+    .query("allowed_codes")
+    .withIndex("by_code", (q) => q.eq("code", normalizedCode))
+    .unique()) as AllowedCodeRecord | null;
+  if (
+    !target ||
+    (tenantIdForAllowed(target) !== companyId &&
+      !administratorHasDelegatedCodeAccess(
+        auth.code,
+        tenantIdForAllowed(auth.allowed),
+        normalizedCode,
+        tenantIdForAllowed(target),
+        target.role,
+      ))
+  )
     throw new ConvexError({
       code: "FORBIDDEN",
       message: "没有权限执行此操作。",

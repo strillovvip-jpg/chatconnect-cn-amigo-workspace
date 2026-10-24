@@ -3,13 +3,15 @@ import { v } from "convex/values";
 import { ConvexError } from "convex/values";
 import {
   assertActiveAuthorizationTarget,
-  assertSameTenant,
   isActiveAuthorizationTarget,
   requireSession,
-  tenantIdForAllowed,
 } from "./roles";
 import { internal } from "./_generated/api";
-import { allowedForCode } from "./tenantBoundaries";
+import {
+  allowedForCode,
+  assertCodesCanCommunicate,
+  canCodesCommunicate,
+} from "./tenantBoundaries";
 
 // Authorization codes are public identifiers, but contact discovery must not
 // be an account-enumeration surface. Only one exact five-letter code is ever
@@ -29,15 +31,21 @@ export const searchUser = query({
       .query("auth_codes")
       .withIndex("by_code", (qb) => qb.eq("code", q))
       .first();
-    if (!byCode || byCode.code === auth.code) return [];
-    const targetAllowed = await allowedForCode(ctx, byCode.code);
+    if (q === auth.code) return [];
+    const targetAllowed = await allowedForCode(ctx, q);
 
     if (
       isActiveAuthorizationTarget(targetAllowed) &&
-      tenantIdForAllowed(targetAllowed) === tenantIdForAllowed(auth.allowed)
+      (await canCodesCommunicate(ctx, auth.code, q))
     ) {
       return [
-        { code: byCode.code, name: byCode.name, department: byCode.department },
+        byCode
+          ? {
+              code: byCode.code,
+              name: byCode.name,
+              department: byCode.department,
+            }
+          : { code: q, name: q },
       ];
     }
     return [];
@@ -69,15 +77,14 @@ export const addContact = mutation({
       .query("auth_codes")
       .withIndex("by_code", (q) => q.eq("code", targetCode))
       .first();
-    if (!target) {
-      throw new ConvexError({ code: "NOT_FOUND", message: "找不到用户。" });
-    }
-    const targetAllowed = await ctx.db
-      .query("allowed_codes")
-      .withIndex("by_code", (q) => q.eq("code", targetCode))
-      .unique();
+    const targetAllowed = await allowedForCode(ctx, targetCode);
     assertActiveAuthorizationTarget(targetAllowed);
-    assertSameTenant(auth.allowed, targetAllowed);
+    await assertCodesCanCommunicate(ctx, auth.code, targetCode);
+    const targetIdentity = target ?? {
+      code: targetCode,
+      name: targetCode,
+      department: undefined,
+    };
 
     // Check already added
     const existing = await ctx.db
@@ -143,7 +150,7 @@ export const addContact = mutation({
         source: "friend",
       },
     });
-    return { name: target.name, pending: true };
+    return { name: targetIdentity.name, pending: true };
   },
 });
 
@@ -171,11 +178,7 @@ export const respondFriendRequest = mutation({
       .query("auth_codes")
       .withIndex("by_code", (q) => q.eq("code", request.requesterUserId))
       .unique();
-    const requesterAllowed = await ctx.db
-      .query("allowed_codes")
-      .withIndex("by_code", (q) => q.eq("code", request.requesterUserId))
-      .unique();
-    assertSameTenant(auth.allowed, requesterAllowed);
+    await assertCodesCanCommunicate(ctx, auth.code, request.requesterUserId);
     const now = Date.now();
     await ctx.db.patch(request._id, {
       status: args.accept ? "accepted" : "rejected",
@@ -305,7 +308,8 @@ export const getContacts = query({
     for (const contact of contacts) {
       const targetAllowed = await allowedForCode(ctx, contact.targetCode);
       if (
-        tenantIdForAllowed(targetAllowed) !== tenantIdForAllowed(auth.allowed)
+        !isActiveAuthorizationTarget(targetAllowed) ||
+        !(await canCodesCommunicate(ctx, auth.code, contact.targetCode))
       )
         continue;
       const presence = await ctx.db

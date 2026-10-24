@@ -35,6 +35,44 @@ function assertAdminCanAccessTenant(
     });
 }
 
+async function assertNoActiveCrossTenantTransfer(
+  ctx: Parameters<typeof requireAdmin>[0],
+  callId: string,
+) {
+  const transfers = await ctx.db
+    .query("call_transfers")
+    .withIndex("by_call", (q) => q.eq("callId", callId))
+    .collect();
+  for (const transfer of transfers) {
+    const active = ["pending", "accepted", "joining"].includes(transfer.status);
+    const abandonedReceiver =
+      ["cancelled", "failed", "expired"].includes(transfer.status) &&
+      Boolean(transfer.targetIdentity) &&
+      (transfer.cleanupStatus !== "completed" ||
+        (transfer.targetTokenExpiresAt !== undefined &&
+          (transfer.cleanupLastSucceededAt ?? 0) <
+            transfer.targetTokenExpiresAt));
+    if (!active && !abandonedReceiver) continue;
+    const tenants = new Set<string>();
+    for (const code of [transfer.remoteUserId, transfer.targetUserId]) {
+      const allowed = await allowedForCode(ctx, code);
+      if (!allowed || allowed.enabled === false)
+        throw new ConvexError({
+          code: "FORBIDDEN",
+          message: "通话参与者的授权已经失效。",
+        });
+      tenants.add(tenantIdForAllowed(allowed));
+    }
+    if (tenants.size > 1)
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: active
+          ? "跨授权群组转接进行中，不能开启通话录音。"
+          : "必须等待跨授权群组转接接收端清理完成，才能开启通话录音。",
+      });
+  }
+}
+
 async function resolveParticipantTenant(
   ctx: Parameters<typeof requireAdmin>[0],
   participantCodes: string[],
@@ -409,6 +447,7 @@ export const request = mutation({
         code: "NOT_FOUND",
         message: "找不到正在进行的通话。",
       });
+    await assertNoActiveCrossTenantTransfer(ctx, args.callId);
     const tenantId = await resolveParticipantTenant(ctx, participantCodes);
     assertAdminCanAccessTenant(auth, tenantId);
     const existing = await ctx.db

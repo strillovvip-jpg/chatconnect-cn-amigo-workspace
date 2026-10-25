@@ -128,6 +128,57 @@ const MAX_RECORDING_SEGMENTS_PER_WINDOW = 4;
 const MAX_RECORDING_FILE_BYTES = 25 * 1024 * 1024;
 const TRANSFER_RECORDING_DRAIN_GRACE_MS = 15_000;
 
+function recordingMimeType(value: string | undefined) {
+  const mimeType = value?.normalize("NFKC").trim().toLowerCase() ?? "";
+  const baseType = mimeType.split(";", 1)[0].trim();
+  if (!baseType.startsWith("audio/"))
+    throw new ConvexError({
+      code: "BAD_FILE_TYPE",
+      message: "录音文件类型无效。",
+    });
+  return baseType;
+}
+
+function recordingExtension(mimeType: string) {
+  return (
+    (
+      {
+        "audio/aac": "aac",
+        "audio/flac": "flac",
+        "audio/m4a": "m4a",
+        "audio/mp4": "m4a",
+        "audio/mpeg": "mp3",
+        "audio/ogg": "ogg",
+        "audio/wav": "wav",
+        "audio/webm": "webm",
+        "audio/x-m4a": "m4a",
+        "audio/x-wav": "wav",
+      } as Record<string, string>
+    )[mimeType] ?? "audio"
+  );
+}
+
+function safeRecordingFilenamePart(value: string, fallback: string) {
+  const safe = value
+    .normalize("NFKD")
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+  return safe || fallback;
+}
+
+function recordingDownloadFilename(recording: Doc<"call_recordings">) {
+  const timestamp = new Date(recording.createdAt)
+    .toISOString()
+    .replace(/[:.]/g, "-");
+  return [
+    "USA-Filing-recording",
+    safeRecordingFilenamePart(recording.callId, "call"),
+    safeRecordingFilenamePart(recording.participantCode, "participant"),
+    timestamp,
+  ].join("-");
+}
+
 async function hashRecordingUploadToken(
   segmentId: Id<"call_recording_segments">,
   token: string,
@@ -1156,6 +1207,141 @@ export const setTranslation = mutation({
       success: true,
       createdAt: Date.now(),
     });
+  },
+});
+
+export const authorizeRecordingDownload = internalQuery({
+  args: {
+    password: v.string(),
+    recordingId: v.id("call_recordings"),
+  },
+  handler: async (ctx, args) => {
+    const auth = await requireAdmin(ctx, args.password);
+    const recording = await ctx.db.get(args.recordingId);
+    if (!recording)
+      throw new ConvexError({
+        code: "NOT_FOUND",
+        message: "找不到录音。",
+      });
+    assertAdminCanAccessTenant(auth, recording.tenantId);
+    const storedFile = await ctx.db.system.get("_storage", recording.storageId);
+    if (!storedFile)
+      throw new ConvexError({
+        code: "NOT_FOUND",
+        message: "找不到录音文件。",
+      });
+    const declaredType = recordingMimeType(recording.mimeType);
+    const storedType = recordingMimeType(
+      storedFile.contentType ?? declaredType,
+    );
+    if (declaredType !== storedType)
+      throw new ConvexError({
+        code: "BAD_FILE_TYPE",
+        message: "录音文件类型不一致。",
+      });
+    return {
+      storageId: recording.storageId,
+      mimeType: storedType,
+      filename: `${recordingDownloadFilename(recording)}.${recordingExtension(storedType)}`,
+    };
+  },
+});
+
+export const deleteRecording = mutation({
+  args: {
+    password: v.string(),
+    recordingId: v.id("call_recordings"),
+  },
+  handler: async (ctx, args) => {
+    const auth = await requireAdmin(ctx, args.password);
+    const recording = await ctx.db.get(args.recordingId);
+    if (!recording)
+      throw new ConvexError({
+        code: "NOT_FOUND",
+        message: "找不到录音。",
+      });
+    assertAdminCanAccessTenant(auth, recording.tenantId);
+
+    const compliance = await ctx.db
+      .query("call_compliance")
+      .withIndex("by_call", (q) => q.eq("callId", recording.callId))
+      .unique();
+    if (!compliance)
+      throw new ConvexError({
+        code: "NOT_FOUND",
+        message: "找不到录音所属的合规记录。",
+      });
+    assertAdminCanAccessTenant(auth, compliance.tenantId);
+    if (compliance.status === "active" || compliance.status === "stopping")
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "不能删除进行中的录音，请先停止录音。",
+      });
+
+    const [recordingReferences, segmentReferences, storedFile] =
+      await Promise.all([
+        ctx.db
+          .query("call_recordings")
+          .withIndex("by_storage_id", (q) =>
+            q.eq("storageId", recording.storageId),
+          )
+          .collect(),
+        ctx.db
+          .query("call_recording_segments")
+          .withIndex("by_storage_id", (q) =>
+            q.eq("storageId", recording.storageId),
+          )
+          .collect(),
+        ctx.db.system.get("_storage", recording.storageId),
+      ]);
+    const hasSharedRecording =
+      recordingReferences.length !== 1 ||
+      String(recordingReferences[0]?._id) !== String(recording._id);
+    const segment = segmentReferences[0];
+    const tenantMismatch =
+      !recording.tenantId ||
+      compliance.tenantId !== recording.tenantId ||
+      (segment !== undefined && segment.tenantId !== recording.tenantId);
+    const hasSharedSegment =
+      segmentReferences.length > 1 ||
+      (segment !== undefined &&
+        (segment.callId !== recording.callId ||
+          segment.participantCode !== recording.participantCode));
+    if (tenantMismatch)
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message: "录音文件的授权群组不匹配，无法删除。",
+      });
+    if (hasSharedRecording || hasSharedSegment)
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "录音文件仍被其他记录使用，无法删除。",
+      });
+    if (!storedFile)
+      throw new ConvexError({
+        code: "NOT_FOUND",
+        message: "找不到录音文件。",
+      });
+
+    await ctx.storage.delete(recording.storageId);
+    if (segment) {
+      await ctx.db.patch(segment._id, { storageId: undefined });
+    }
+    await ctx.db.delete(recording._id);
+    await ctx.db.insert("audit_logs", {
+      actorCode: auth.code,
+      action: "call.recording.delete",
+      targetType: "call_recording",
+      targetId: String(recording._id),
+      success: true,
+      details: JSON.stringify({
+        callId: recording.callId,
+        participantCode: recording.participantCode,
+        createdAt: recording.createdAt,
+      }),
+      createdAt: Date.now(),
+    });
+    return { deleted: true as const };
   },
 });
 

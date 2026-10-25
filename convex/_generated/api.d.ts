@@ -20,6 +20,7 @@ import type * as caseTenant from "../caseTenant.js";
 import type * as cases from "../cases.js";
 import type * as claimCredentials from "../claimCredentials.js";
 import type * as contacts from "../contacts.js";
+import type * as explicitCodeGrants from "../explicitCodeGrants.js";
 import type * as externalVideoInvites from "../externalVideoInvites.js";
 import type * as faceLibrary from "../faceLibrary.js";
 import type * as features from "../features.js";
@@ -61,6 +62,7 @@ declare const fullApi: ApiFromModules<{
   cases: typeof cases;
   claimCredentials: typeof claimCredentials;
   contacts: typeof contacts;
+  explicitCodeGrants: typeof explicitCodeGrants;
   externalVideoInvites: typeof externalVideoInvites;
   faceLibrary: typeof faceLibrary;
   features: typeof features;

@@ -17,6 +17,14 @@ const LOCAL_NOTIFICATIONS_DEP =
   '.package(name: "CapacitorLocalNotifications", path: "../../../node_modules/@capacitor/local-notifications")';
 const LOCAL_NOTIFICATIONS_PRODUCT =
   '.product(name: "CapacitorLocalNotifications", package: "CapacitorLocalNotifications")';
+const FILESYSTEM_DEP =
+  '.package(name: "CapacitorFilesystem", path: "../../../node_modules/@capacitor/filesystem")';
+const FILESYSTEM_PRODUCT =
+  '.product(name: "CapacitorFilesystem", package: "CapacitorFilesystem")';
+const SHARE_DEP =
+  '.package(name: "CapacitorShare", path: "../../../node_modules/@capacitor/share")';
+const SHARE_PRODUCT =
+  '.product(name: "CapacitorShare", package: "CapacitorShare")';
 
 let changed = false;
 
@@ -62,6 +70,8 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/ionic-team/capacitor-swift-pm.git", exact: "${capacitorVersion}"),
         ${LOCAL_NOTIFICATIONS_DEP},
+        ${FILESYSTEM_DEP},
+        ${SHARE_DEP},
         ${LIVEKIT_DEP}
     ],
     targets: [
@@ -71,6 +81,8 @@ let package = Package(
                 .product(name: "Capacitor", package: "capacitor-swift-pm"),
                 .product(name: "Cordova", package: "capacitor-swift-pm"),
                 ${LOCAL_NOTIFICATIONS_PRODUCT},
+                ${FILESYSTEM_PRODUCT},
+                ${SHARE_PRODUCT},
                 "${AMIGO_BINARY_NAME}",
                 ${LIVEKIT_PRODUCT}
             ]

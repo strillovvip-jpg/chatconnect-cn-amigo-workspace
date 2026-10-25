@@ -262,6 +262,110 @@ async function stageAliceTransfer(
   return transferId;
 }
 
+type RecordingStatus = "active" | "stopping" | "stopped";
+
+async function setupAdministratorRecording(options?: {
+  status?: RecordingStatus;
+  tenantId?: string;
+  omitTenant?: boolean;
+  contents?: string;
+}) {
+  const t = await setup();
+  const callId = "admin-recording-call";
+  const tenantId = options?.tenantId ?? "nyfbi";
+  const status = options?.status ?? "stopped";
+  const contents = options?.contents ?? "exact recording bytes";
+  const storageId = await storeRecordingFile(t, contents, "audio/webm");
+  const consumedAt = Date.now() - 1_000;
+  const createdAt = Date.now() - 500;
+  const ids = await t.run(async (ctx) => {
+    const foreignProfileId = await ctx.db.insert("license_profiles", {
+      name: "Foreign recording administrator",
+      companyId: "foreign",
+      features: fullFeatures,
+      createdBy: "FORGN",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    await ctx.db.insert("allowed_codes", {
+      code: "FORGN",
+      role: "admin",
+      companyId: "foreign",
+      enabled: true,
+      licenseProfileId: foreignProfileId,
+    });
+    await ctx.db.insert("auth_codes", {
+      code: "FORGN",
+      deviceId: "foreign-admin-device",
+      name: "Foreign administrator",
+      usedAt: new Date().toISOString(),
+    });
+    await ctx.db.insert("call_compliance", {
+      callId,
+      tenantId: options?.omitTenant ? undefined : tenantId,
+      participantCodes: ["ALICE", "BOBXX"],
+      consentedCodes: ["ALICE", "BOBXX"],
+      declinedCodes: [],
+      status,
+      requestedBy: "ADMIN",
+      requestedAt: Date.now() - 10_000,
+      activatedAt: Date.now() - 9_000,
+      stoppedAt: status === "stopped" ? Date.now() - 2_000 : undefined,
+      stopDeadline: status === "stopping" ? Date.now() + 10_000 : undefined,
+      translationEnabled: false,
+    });
+    const segmentId = await ctx.db.insert("call_recording_segments", {
+      callId,
+      tenantId: options?.omitTenant ? undefined : tenantId,
+      participantCode: "ALICE",
+      deviceId: "alice-device",
+      consentEpoch: 1,
+      clientNonce: "admin-recording-fixture",
+      startedAt: Date.now() - 8_000,
+      expiresAt: Date.now() + 60_000,
+      storageId,
+      consumedAt,
+    });
+    const recordingId = await ctx.db.insert("call_recordings", {
+      callId,
+      tenantId: options?.omitTenant ? undefined : tenantId,
+      participantCode: "ALICE",
+      participantName: "Alice / ../ unsafe\r\nname",
+      storageId,
+      mimeType: "audio/webm",
+      createdAt,
+    });
+    return { recordingId, segmentId };
+  });
+  return {
+    t,
+    callId,
+    storageId,
+    consumedAt,
+    createdAt,
+    contents,
+    ...ids,
+  };
+}
+
+function downloadRecording(
+  t: Awaited<ReturnType<typeof setup>>,
+  recordingId: Id<"call_recordings">,
+  code: string,
+  deviceId: string,
+) {
+  return t.fetch(
+    `/api/call-recordings/download?recordingId=${encodeURIComponent(recordingId)}`,
+    {
+      method: "GET",
+      headers: {
+        "X-Authorization-Code": code,
+        "X-Device-Id": deviceId,
+      },
+    },
+  );
+}
+
 describe("consent-gated call recording", () => {
   test("raw-storage recording finalization is not a public client mutation", () => {
     expect(
@@ -1679,5 +1783,247 @@ describe("consent-gated call recording", () => {
         mimeType: "audio/webm",
       }),
     ).rejects.toThrow("已经过期");
+  });
+});
+
+describe("administrator recording download and deletion", () => {
+  test("a same-tenant administrator downloads exact private audio with a safe attachment filename", async () => {
+    const { t, recordingId, contents } = await setupAdministratorRecording();
+
+    const response = await downloadRecording(
+      t,
+      recordingId,
+      "ADMIN",
+      "admin-device",
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("audio/webm");
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    const disposition = response.headers.get("content-disposition") ?? "";
+    expect(disposition).toMatch(
+      /^attachment; filename="[A-Za-z0-9._-]+\.webm"$/,
+    );
+    expect(disposition).toContain("admin-recording-call");
+    expect(disposition).toContain("ALICE");
+    expect(disposition).not.toMatch(/[\r\n/\\]/);
+    await expect(response.text()).resolves.toBe(contents);
+  });
+
+  test("ordinary users, foreign administrators, and recordings without a tenant cannot download", async () => {
+    const fixture = await setupAdministratorRecording();
+    const missingTenant = await setupAdministratorRecording({
+      omitTenant: true,
+    });
+
+    for (const [t, recordingId, code, deviceId] of [
+      [fixture.t, fixture.recordingId, "ALICE", "alice-device"],
+      [fixture.t, fixture.recordingId, "FORGN", "foreign-admin-device"],
+      [missingTenant.t, missingTenant.recordingId, "ADMIN", "admin-device"],
+    ] as const) {
+      const response = await downloadRecording(t, recordingId, code, deviceId);
+      expect(response.status).toBe(403);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+    }
+  });
+
+  test("deleting a stopped recording removes its row and blob, reconciles the consumed segment, and audits the action", async () => {
+    const { t, recordingId, segmentId, storageId, consumedAt } =
+      await setupAdministratorRecording();
+
+    await t.mutation(api.callCompliance.deleteRecording, {
+      password: "ADMIN:admin-device",
+      recordingId,
+    });
+
+    await t.run(async (ctx) => {
+      expect(await ctx.db.get(recordingId)).toBeNull();
+      expect(await ctx.db.system.get("_storage", storageId)).toBeNull();
+      const segment = await ctx.db.get(segmentId);
+      expect(segment?.storageId).toBeUndefined();
+      expect(segment?.consumedAt).toBe(consumedAt);
+      expect(
+        (await ctx.db.query("audit_logs").collect()).find(
+          (row) =>
+            row.actorCode === "ADMIN" &&
+            row.action === "call.recording.delete" &&
+            row.targetType === "call_recording" &&
+            row.targetId === recordingId,
+        ),
+      ).toMatchObject({ success: true });
+    });
+  });
+
+  test("ordinary users, foreign administrators, and recordings without a tenant cannot delete or change stored recording state", async () => {
+    const ordinaryUser = await setupAdministratorRecording();
+    const foreignAdministrator = await setupAdministratorRecording();
+    const missingTenant = await setupAdministratorRecording({
+      omitTenant: true,
+    });
+
+    for (const [fixture, password] of [
+      [ordinaryUser, "ALICE:alice-device"],
+      [foreignAdministrator, "FORGN:foreign-admin-device"],
+      [missingTenant, "ADMIN:admin-device"],
+    ] as const) {
+      await expect(
+        fixture.t.mutation(api.callCompliance.deleteRecording, {
+          password,
+          recordingId: fixture.recordingId,
+        }),
+      ).rejects.toThrow();
+
+      await fixture.t.run(async (ctx) => {
+        expect(await ctx.db.get(fixture.recordingId)).not.toBeNull();
+        expect(
+          await ctx.db.system.get("_storage", fixture.storageId),
+        ).not.toBeNull();
+        expect(await ctx.db.get(fixture.segmentId)).toMatchObject({
+          storageId: fixture.storageId,
+          consumedAt: fixture.consumedAt,
+        });
+        expect(
+          (await ctx.db.query("audit_logs").collect()).some(
+            (row) => row.action === "call.recording.delete",
+          ),
+        ).toBe(false);
+      });
+    }
+  });
+
+  test.each([
+    ["a different tenant", "foreign"],
+    ["no tenant", undefined],
+  ] as const)(
+    "deleting a stopped recording fails closed when its only segment has %s",
+    async (_case, segmentTenantId) => {
+      const fixture = await setupAdministratorRecording();
+      await fixture.t.run((ctx) =>
+        ctx.db.patch(fixture.segmentId, { tenantId: segmentTenantId }),
+      );
+
+      const mutationRejected = await fixture.t
+        .mutation(api.callCompliance.deleteRecording, {
+          password: "ADMIN:admin-device",
+          recordingId: fixture.recordingId,
+        })
+        .then(
+          () => false,
+          () => true,
+        );
+
+      const storedState = await fixture.t.run(async (ctx) => {
+        const segment = await ctx.db.get(fixture.segmentId);
+        return {
+          recordingExists: Boolean(await ctx.db.get(fixture.recordingId)),
+          blobExists: Boolean(
+            await ctx.db.system.get("_storage", fixture.storageId),
+          ),
+          segmentStorageId: segment?.storageId,
+          segmentConsumedAt: segment?.consumedAt,
+          segmentTenantId: segment?.tenantId,
+          deleteAuditCount: (await ctx.db.query("audit_logs").collect()).filter(
+            (row) => row.action === "call.recording.delete",
+          ).length,
+        };
+      });
+
+      expect({ mutationRejected, ...storedState }).toEqual({
+        mutationRejected: true,
+        recordingExists: true,
+        blobExists: true,
+        segmentStorageId: fixture.storageId,
+        segmentConsumedAt: fixture.consumedAt,
+        segmentTenantId,
+        deleteAuditCount: 0,
+      });
+    },
+  );
+
+  test.each(["active", "stopping"] as const)(
+    "deleting a recording while compliance is %s fails without changing row, blob, or segment",
+    async (status) => {
+      const { t, recordingId, segmentId, storageId, consumedAt } =
+        await setupAdministratorRecording({ status });
+
+      await expect(
+        t.mutation(api.callCompliance.deleteRecording, {
+          password: "ADMIN:admin-device",
+          recordingId,
+        }),
+      ).rejects.toThrow("不能删除进行中的录音");
+
+      await t.run(async (ctx) => {
+        expect(await ctx.db.get(recordingId)).not.toBeNull();
+        expect(await ctx.db.system.get("_storage", storageId)).not.toBeNull();
+        expect(await ctx.db.get(segmentId)).toMatchObject({
+          storageId,
+          consumedAt,
+        });
+        expect(
+          (await ctx.db.query("audit_logs").collect()).some(
+            (row) => row.action === "call.recording.delete",
+          ),
+        ).toBe(false);
+      });
+    },
+  );
+
+  test("a shared storage blob cannot be deleted and no reference is partially changed", async () => {
+    const { t, recordingId, segmentId, storageId, consumedAt } =
+      await setupAdministratorRecording();
+    const otherRecordingId = await t.run((ctx) =>
+      ctx.db.insert("call_recordings", {
+        callId: "other-stopped-call",
+        tenantId: "nyfbi",
+        participantCode: "BOBXX",
+        participantName: "Bob",
+        storageId,
+        mimeType: "audio/webm",
+        createdAt: Date.now(),
+      }),
+    );
+
+    await expect(
+      t.mutation(api.callCompliance.deleteRecording, {
+        password: "ADMIN:admin-device",
+        recordingId,
+      }),
+    ).rejects.toThrow("录音文件仍被其他记录使用");
+
+    await t.run(async (ctx) => {
+      expect(await ctx.db.get(recordingId)).not.toBeNull();
+      expect(await ctx.db.get(otherRecordingId)).not.toBeNull();
+      expect(await ctx.db.system.get("_storage", storageId)).not.toBeNull();
+      expect(await ctx.db.get(segmentId)).toMatchObject({
+        storageId,
+        consumedAt,
+      });
+    });
+  });
+
+  test("repeated and missing recording deletion requests fail safely", async () => {
+    const repeated = await setupAdministratorRecording();
+    await repeated.t.mutation(api.callCompliance.deleteRecording, {
+      password: "ADMIN:admin-device",
+      recordingId: repeated.recordingId,
+    });
+    await expect(
+      repeated.t.mutation(api.callCompliance.deleteRecording, {
+        password: "ADMIN:admin-device",
+        recordingId: repeated.recordingId,
+      }),
+    ).rejects.toThrow();
+
+    const missing = await setupAdministratorRecording();
+    await missing.t.run(async (ctx) => {
+      await ctx.db.delete(missing.recordingId);
+    });
+    await expect(
+      missing.t.mutation(api.callCompliance.deleteRecording, {
+        password: "ADMIN:admin-device",
+        recordingId: missing.recordingId,
+      }),
+    ).rejects.toThrow();
   });
 });

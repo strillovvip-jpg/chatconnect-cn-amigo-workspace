@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api.js";
 import { toast } from "sonner";
@@ -28,6 +28,7 @@ import {
   Upload,
   Loader2,
   Pencil,
+  Download,
 } from "lucide-react";
 import { cn, localizedUiData, uiErrorMessage } from "@/lib/utils.ts";
 import type { Id } from "@/convex/_generated/dataModel.d.ts";
@@ -40,6 +41,7 @@ import {
   uploadAdminDocuments,
 } from "./document-upload";
 import { createClaimCredential } from "@/lib/claim-credential";
+import { saveAdminRecording } from "./recording-download";
 
 type AdminTab =
   | "dashboard"
@@ -51,6 +53,13 @@ type AdminTab =
   | "calls"
   | "messages"
   | "documents";
+
+type AdminRecording = {
+  _id: Id<"call_recordings">;
+  participantCode: string;
+  participantName: string;
+  createdAt: number;
+};
 
 const LICENSE_FEATURES = [
   "canVideoCall",
@@ -583,6 +592,10 @@ export default function AdminPage() {
   );
   const [showBulkCases, setShowBulkCases] = useState(false);
   const [clock, setClock] = useState(() => Date.now());
+  const pendingRecordingActions = useRef(new Set<string>());
+  const [recordingActions, setRecordingActions] = useState<
+    Record<string, "saving" | "deleting">
+  >({});
   const sessionRole = useQuery(
     api.authCodes.getSessionRole,
     sessionCode && deviceId ? { code: sessionCode, deviceId } : "skip",
@@ -645,6 +658,7 @@ export default function AdminPage() {
   const requestCallRecording = useMutation(api.callCompliance.request);
   const stopCallRecording = useMutation(api.callCompliance.stop);
   const setCallTranslation = useMutation(api.callCompliance.setTranslation);
+  const deleteCallRecording = useMutation(api.callCompliance.deleteRecording);
 
   const handleCreateCode = async () => {
     try {
@@ -915,6 +929,66 @@ export default function AdminPage() {
     new Date(value).toLocaleString(localeTag);
   const formatDate = (value: number) =>
     new Date(value).toLocaleDateString(localeTag);
+
+  const beginRecordingAction = (
+    recordingId: string,
+    action: "saving" | "deleting",
+  ) => {
+    if (pendingRecordingActions.current.has(recordingId)) return false;
+    pendingRecordingActions.current.add(recordingId);
+    setRecordingActions((current) => ({ ...current, [recordingId]: action }));
+    return true;
+  };
+  const finishRecordingAction = (recordingId: string) => {
+    pendingRecordingActions.current.delete(recordingId);
+    setRecordingActions((current) => {
+      const next = { ...current };
+      delete next[recordingId];
+      return next;
+    });
+  };
+  const handleSaveRecording = async (recording: AdminRecording) => {
+    if (!beginRecordingAction(recording._id, "saving")) return;
+    try {
+      const result = await saveAdminRecording({
+        recordingId: recording._id,
+        authorizationCode: sessionCode,
+        deviceId,
+      });
+      if (result === "saved") {
+        toast.success(copy.recordingSaved);
+      } else {
+        toast.info(copy.recordingSaveCancelled);
+      }
+    } catch (error) {
+      toast.error(uiErrorMessage(error, copy.recordingSaveFailed));
+    } finally {
+      finishRecordingAction(recording._id);
+    }
+  };
+  const handleDeleteRecording = async (recording: AdminRecording) => {
+    if (pendingRecordingActions.current.has(recording._id)) return;
+    const recordedAt = formatDateTime(recording.createdAt);
+    if (
+      !window.confirm(
+        copy.deleteRecordingConfirm(recording.participantName, recordedAt),
+      ) ||
+      !beginRecordingAction(recording._id, "deleting")
+    ) {
+      return;
+    }
+    try {
+      await deleteCallRecording({
+        password,
+        recordingId: recording._id,
+      });
+      toast.success(copy.recordingDeleted);
+    } catch (error) {
+      toast.error(uiErrorMessage(error, copy.recordingDeleteFailed));
+    } finally {
+      finishRecordingAction(recording._id);
+    }
+  };
 
   const filteredUsers = (codes ?? []).filter((r) => {
     const q = userSearch.toLowerCase();
@@ -2051,7 +2125,7 @@ export default function AdminPage() {
                           {{
                             requested: copy.statuses.requested,
                             active: copy.statuses.active,
-                            stopping: "Saving final recording…",
+                            stopping: copy.statuses.stopping,
                             declined: copy.statuses.declined,
                             stopped: copy.statuses.stopped,
                           }[session.status] ?? session.status}
@@ -2089,18 +2163,96 @@ export default function AdminPage() {
                         )}
                       </div>
                       {session.recordings.length > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {session.recordings.map(
-                            (recording) =>
-                              recording.url && (
-                                <audio
-                                  key={recording._id}
-                                  controls
-                                  src={recording.url}
-                                  className="h-8 max-w-full"
-                                />
-                              ),
-                          )}
+                        <div className="mt-2 space-y-2">
+                          {session.recordings.map((recording) => {
+                            const action = recordingActions[recording._id];
+                            const deleteBlocked =
+                              session.status === "active" ||
+                              session.status === "stopping";
+                            return (
+                              <div
+                                key={recording._id}
+                                className="rounded-lg border border-white/10 bg-black/20 p-2"
+                              >
+                                <div className="mb-2 flex flex-wrap items-center justify-between gap-1 text-xs">
+                                  <span className="font-semibold text-white/80">
+                                    {recording.participantName}{" "}
+                                    <span className="font-mono text-white/40">
+                                      ({recording.participantCode})
+                                    </span>
+                                  </span>
+                                  <span className="text-[10px] text-white/40">
+                                    {copy.recordedAt(
+                                      formatDateTime(recording.createdAt),
+                                    )}
+                                  </span>
+                                </div>
+                                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                                  {recording.url && (
+                                    <audio
+                                      controls
+                                      src={recording.url}
+                                      className="h-10 min-w-0 flex-1"
+                                    />
+                                  )}
+                                  <div className="grid grid-cols-2 gap-2 sm:flex">
+                                    <button
+                                      type="button"
+                                      disabled={action !== undefined}
+                                      onClick={() =>
+                                        void handleSaveRecording(recording)
+                                      }
+                                      className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-4 text-xs font-bold text-white disabled:opacity-40"
+                                    >
+                                      {action === "saving" ? (
+                                        <Loader2
+                                          size={15}
+                                          className="animate-spin"
+                                        />
+                                      ) : (
+                                        <Download size={15} />
+                                      )}
+                                      {action === "saving"
+                                        ? copy.recordingSaving
+                                        : copy.saveRecording}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={
+                                        deleteBlocked || action !== undefined
+                                      }
+                                      title={
+                                        deleteBlocked
+                                          ? copy.recordingDeleteUnavailable
+                                          : undefined
+                                      }
+                                      onClick={() =>
+                                        void handleDeleteRecording(recording)
+                                      }
+                                      className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg bg-red-600 px-4 text-xs font-bold text-white disabled:opacity-40"
+                                    >
+                                      {action === "deleting" ? (
+                                        <Loader2
+                                          size={15}
+                                          className="animate-spin"
+                                        />
+                                      ) : (
+                                        <Trash2 size={15} />
+                                      )}
+                                      {action === "deleting"
+                                        ? copy.recordingDeleting
+                                        : copy.deleteRecording}
+                                    </button>
+                                  </div>
+                                </div>
+                                {deleteBlocked && (
+                                  <p className="mt-2 text-[10px] text-amber-300">
+                                    {copy.recordingDeleteUnavailable}
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                     </div>

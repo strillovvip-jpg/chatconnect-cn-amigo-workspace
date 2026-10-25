@@ -19,7 +19,9 @@
 		}
 	},
 	"packageClassList": [
+		"FilesystemPlugin",
 		"LocalNotificationsPlugin",
+		"SharePlugin",
 		"AmigoFaceSwapPlugin"
 	]
 }

@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -159,6 +165,58 @@ test("iOS sync preserves native local notifications and hides bundle diagnostics
     capacitorConfig,
     /presentationOptions:\s*\["badge",\s*"sound",\s*"alert"\]/,
   );
+});
+
+test("iOS sync preserves the native recording export plugins", () => {
+  const packageJSON = JSON.parse(read("package.json"));
+  const patchScript = read("scripts/patch-ios-spm.mjs");
+  const packageSwift = read("ios/App/CapApp-SPM/Package.swift");
+  const nativeConfig = JSON.parse(read("ios/App/App/capacitor.config.json"));
+
+  assert.match(packageJSON.dependencies["@capacitor/filesystem"], /^[~^]?8\./);
+  assert.match(packageJSON.dependencies["@capacitor/share"], /^[~^]?8\./);
+
+  for (const source of [patchScript, packageSwift]) {
+    assert.match(source, /@capacitor\/filesystem/);
+    assert.match(source, /CapacitorFilesystem/);
+    assert.match(
+      source,
+      /\.product\(name: "CapacitorFilesystem", package: "CapacitorFilesystem"\)/,
+    );
+    assert.match(source, /@capacitor\/share/);
+    assert.match(source, /CapacitorShare/);
+    assert.match(
+      source,
+      /\.product\(name: "CapacitorShare", package: "CapacitorShare"\)/,
+    );
+  }
+
+  assert.ok(nativeConfig.packageClassList.includes("FilesystemPlugin"));
+  assert.ok(nativeConfig.packageClassList.includes("SharePlugin"));
+  assert.ok(nativeConfig.packageClassList.includes("LocalNotificationsPlugin"));
+  assert.ok(nativeConfig.packageClassList.includes("AmigoFaceSwapPlugin"));
+});
+
+test("the app bundles the Filesystem privacy manifest declaration", () => {
+  const privacyManifestPath = new URL(
+    "../ios/App/App/PrivacyInfo.xcprivacy",
+    import.meta.url,
+  );
+  const xcodeProject = read("ios/App/App.xcodeproj/project.pbxproj");
+
+  assert.ok(
+    existsSync(privacyManifestPath),
+    "PrivacyInfo.xcprivacy must exist in the App target",
+  );
+
+  const privacyManifest = read("ios/App/App/PrivacyInfo.xcprivacy");
+  assert.match(
+    privacyManifest,
+    /<string>NSPrivacyAccessedAPICategoryFileTimestamp<\/string>/,
+  );
+  assert.match(privacyManifest, /<string>C617\.1<\/string>/);
+  assert.match(xcodeProject, /PrivacyInfo\.xcprivacy in Resources/);
+  assert.match(xcodeProject, /path = PrivacyInfo\.xcprivacy;/);
 });
 
 test("the installed iOS app bundles its built-in call and message sounds", () => {
@@ -354,13 +412,12 @@ test("native external face-swap track holds the last swapped frame to avoid blac
     processor,
     /waitingForFirstProcessedFrame=true rawCameraPublished=false/,
   );
-  for (const reason of [
-    "processorNotReady",
-    "trackDimensionBootstrap",
-  ]) {
+  for (const reason of ["processorNotReady", "trackDimensionBootstrap"]) {
     assert.match(
       processor,
-      new RegExp(`stableFallbackFrame\\(\\s*for: frame,\\s*reason: "${reason}"\\s*\\)`),
+      new RegExp(
+        `stableFallbackFrame\\(\\s*for: frame,\\s*reason: "${reason}"\\s*\\)`,
+      ),
     );
   }
   for (const reason of [
@@ -371,7 +428,9 @@ test("native external face-swap track holds the last swapped frame to avoid blac
   ]) {
     assert.match(
       processor,
-      new RegExp(`stableFallbackFrame\\(\\s*for: frame,\\s*reason: "${reason}"\\s*\\)`),
+      new RegExp(
+        `stableFallbackFrame\\(\\s*for: frame,\\s*reason: "${reason}"\\s*\\)`,
+      ),
     );
   }
   assert.match(

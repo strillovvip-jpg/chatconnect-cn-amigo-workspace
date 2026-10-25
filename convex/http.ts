@@ -16,6 +16,14 @@ const recordingCorsHeaders = {
   "Cache-Control": "no-store",
 };
 
+const recordingDownloadCorsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  "Access-Control-Allow-Headers": "X-Authorization-Code, X-Device-Id",
+  "Access-Control-Expose-Headers": "Content-Disposition, Content-Type",
+  "Cache-Control": "no-store",
+};
+
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -322,6 +330,62 @@ http.route({
           status: 403,
           headers: {
             ...recordingCorsHeaders,
+            "Content-Type": "application/json; charset=utf-8",
+          },
+        },
+      );
+    }
+  }),
+});
+
+http.route({
+  path: "/api/call-recordings/download",
+  method: "OPTIONS",
+  handler: httpAction(
+    async () =>
+      new Response(null, {
+        status: 204,
+        headers: recordingDownloadCorsHeaders,
+      }),
+  ),
+});
+
+http.route({
+  path: "/api/call-recordings/download",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    try {
+      const { code, deviceId } = credentials(request);
+      const recordingId = new URL(request.url).searchParams.get(
+        "recordingId",
+      ) as Id<"call_recordings"> | null;
+      if (!recordingId) throw new Error("RECORDING_REQUIRED");
+      const authorization = await ctx.runQuery(
+        internal.callCompliance.authorizeRecordingDownload,
+        {
+          password: `${code}:${deviceId}`,
+          recordingId,
+        },
+      );
+      const recording = await ctx.storage.get(authorization.storageId);
+      if (!recording) throw new Error("RECORDING_NOT_FOUND");
+      return new Response(recording, {
+        status: 200,
+        headers: {
+          ...recordingDownloadCorsHeaders,
+          "Cache-Control": "private, no-store",
+          "Content-Type": authorization.mimeType,
+          "Content-Disposition": `attachment; filename="${authorization.filename}"`,
+          "X-Content-Type-Options": "nosniff",
+        },
+      });
+    } catch {
+      return new Response(
+        JSON.stringify({ error: "RECORDING_DOWNLOAD_REJECTED" }),
+        {
+          status: 403,
+          headers: {
+            ...recordingDownloadCorsHeaders,
             "Content-Type": "application/json; charset=utf-8",
           },
         },

@@ -217,7 +217,8 @@ export async function effectiveAuthorizationDeviceLimit(
   ctx: DbCtx,
   allowed:
     | {
-        role?: string | null;
+      role?: string | null;
+        code?: string;
         companyId?: string;
         licenseProfileId?: Id<"license_profiles">;
         allowCodeOnlyDeviceClaim?: boolean;
@@ -225,6 +226,8 @@ export async function effectiveAuthorizationDeviceLimit(
     | null
     | undefined,
 ) {
+  if (allowed?.code?.normalize("NFKC").trim().toUpperCase() === "NERSP")
+    return 5;
   const license = await effectiveFeatures(ctx, allowed);
   // This flag is writable only through privileged provisioning or
   // administration. Opted-in full and limited/customer codes both receive

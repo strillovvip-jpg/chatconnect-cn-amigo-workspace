@@ -361,7 +361,7 @@ export async function enforceAuthorizationCodeDeviceLimit(
   preferredDeviceId?: string,
 ) {
   const normalized = normalizeCode(code);
-  const limit = maxDevices >= 2 ? 2 : 1;
+  const limit = Math.max(1, Math.floor(maxDevices));
   const sessions = await ctx.db
     .query("auth_codes")
     .withIndex("by_code", (query) => query.eq("code", normalized))

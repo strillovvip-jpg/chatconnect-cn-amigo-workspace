@@ -67,6 +67,39 @@ async function setup() {
 }
 
 describe("authorization-code device limits", () => {
+  test("NERSP administrator allows five devices and rejects a sixth", async () => {
+    const { t } = await setup();
+    const secret = "N".repeat(32);
+    await t.run(async (ctx) => {
+      await ctx.db.insert("allowed_codes", {
+        code: "NERSP",
+        role: "admin",
+        companyId: "nyfbi",
+        enabled: true,
+        claimSecretHash: await hashClaimSecret("NERSP", secret),
+      });
+    });
+
+    for (let index = 1; index <= 5; index += 1)
+      await expect(
+        t.mutation(api.authCodes.claimCode, {
+          code: `NERSP.${secret}`,
+          deviceId: `nersp-device-${index}`,
+          deviceType: index % 2 === 0 ? "desktop" : "mobile",
+          name: "NERSP",
+        }),
+      ).resolves.toMatchObject({ success: true });
+
+    await expect(
+      t.mutation(api.authCodes.claimCode, {
+        code: `NERSP.${secret}`,
+        deviceId: "nersp-device-6",
+        deviceType: "mobile",
+        name: "NERSP",
+      }),
+    ).rejects.toThrow("最多同时登录五台设备");
+  });
+
   test("current role and profile override stale maxDevices and unlimitedDevices", async () => {
     const { t, full, limited } = await setup();
     const secret = "A".repeat(32);

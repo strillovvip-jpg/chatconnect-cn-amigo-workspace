@@ -699,9 +699,10 @@ export const claimCode = mutation({
         });
       }
       if (!alreadyBound && boundDevices.length >= deviceLimit) {
+        const deviceLabel = deviceLimit === 5 ? "五" : "两";
         throw new ConvexError({
           code: "CONFLICT",
-          message: "此授权码最多同时登录两台设备。",
+          message: `此授权码最多同时登录${deviceLabel}台设备。`,
         });
       }
       let deviceIds: string[];

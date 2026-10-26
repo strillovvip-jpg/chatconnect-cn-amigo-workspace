@@ -44,6 +44,7 @@ import {
 } from "@/lib/amigo/native-room";
 import { participantIdentityMatchesCode } from "@/lib/calls/participant-identity";
 import { startRoomAudio } from "@/lib/calls/audio-playback";
+import { resilientCallRoomOptions } from "@/lib/calls/media-quality";
 
 type CallMode = "p2p" | "group";
 type LocalMediaMode = "camera" | "face-swap";
@@ -580,18 +581,7 @@ export function CallProvider({ children }: { children: React.ReactNode }) {
         setDuration(0);
         return;
       }
-      const nextRoom = new Room({
-        // P2P calls always render one remote camera at full size. Disabling
-        // adaptive stream here avoids Safari temporarily pausing the only
-        // remote video while the global call layer changes from ringing to the
-        // full-screen stage. Group calls still benefit from adaptive layers.
-        adaptiveStream: info.mode === "group",
-        dynacast: true,
-        videoCaptureDefaults: {
-          resolution: { width: 1280, height: 720, frameRate: 24 },
-          facingMode: "user",
-        },
-      });
+      const nextRoom = new Room(resilientCallRoomOptions(info.mode));
       roomRef.current = nextRoom;
       setRoom(nextRoom);
       setCallInfo(info);

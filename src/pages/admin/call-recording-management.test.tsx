@@ -9,8 +9,8 @@ import AdminPage from "./page";
 const mocks = vi.hoisted(() => ({
   complianceDashboard: [] as Array<Record<string, unknown>>,
   sessionRole: { role: "admin", code: "ACADM", companyId: "acadm" },
-  deleteRecording: vi.fn(async () => undefined),
-  saveAdminRecording: vi.fn(
+  deleteCallRecordings: vi.fn(async () => undefined),
+  saveFullCallRecording: vi.fn(
     async (): Promise<"saved" | "cancelled"> => "saved",
   ),
   genericMutation: vi.fn(async () => undefined),
@@ -19,7 +19,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("./recording-download", () => ({
-  saveAdminRecording: mocks.saveAdminRecording,
+  saveFullCallRecording: mocks.saveFullCallRecording,
 }));
 
 vi.mock("@/convex/_generated/api.js", () => ({
@@ -67,7 +67,7 @@ vi.mock("@/convex/_generated/api.js", () => ({
       request: "requestRecording",
       stop: "stopRecording",
       setTranslation: "setTranslation",
-      deleteRecording: "deleteRecording",
+      deleteCallRecordings: "deleteCallRecordings",
       authorizeRecordingDownload: "authorizeRecordingDownload",
     },
   },
@@ -99,8 +99,8 @@ vi.mock("convex/react", () => ({
     return undefined;
   },
   useMutation: (endpoint: string) =>
-    endpoint === "deleteRecording"
-      ? mocks.deleteRecording
+    endpoint === "deleteCallRecordings"
+      ? mocks.deleteCallRecordings
       : mocks.genericMutation,
   useAction: () => mocks.genericAction,
 }));
@@ -176,7 +176,8 @@ describe("admin call recording management", () => {
       code: "ACADM",
       companyId: "acadm",
     };
-    mocks.saveAdminRecording.mockReset().mockResolvedValue("saved");
+    mocks.saveFullCallRecording.mockReset().mockResolvedValue("saved");
+    mocks.deleteCallRecordings.mockReset().mockResolvedValue(undefined);
 
     const values = new Map<string, string>([
       ["ksc_session_code", "ACADM"],
@@ -200,7 +201,7 @@ describe("admin call recording management", () => {
     vi.stubGlobal("localStorage", localStorageStub);
   });
 
-  it("shows Save and Delete controls for every finalized recording segment", () => {
+  it("shows one Save and Delete control for the full finalized call", () => {
     mocks.complianceDashboard = [
       complianceSession("compliance-stopped", "stopped", [
         recording(
@@ -220,11 +221,12 @@ describe("admin call recording management", () => {
 
     renderAdminCalls();
 
-    expect(screen.getAllByRole("button", { name: "Save" })).toHaveLength(2);
-    expect(screen.getAllByRole("button", { name: "Delete" })).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: "Save" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Delete" })).toHaveLength(1);
+    expect(screen.getByText(/2 protected segments/)).toBeVisible();
   });
 
-  it("saves the selected recording using its ID and the current device credential", async () => {
+  it("saves all call segments as one recording", async () => {
     mocks.complianceDashboard = [
       complianceSession("compliance-stopped", "stopped", [
         recording(
@@ -240,8 +242,15 @@ describe("admin call recording management", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() =>
-      expect(mocks.saveAdminRecording).toHaveBeenCalledWith({
-        recordingId: "recording-alice",
+      expect(mocks.saveFullCallRecording).toHaveBeenCalledWith({
+        callId: "call-001",
+        parts: [
+          {
+            recordingId: "recording-alice",
+            participantCode: "ALICE",
+            createdAt: 1_798_761_600_000,
+          },
+        ],
         authorizationCode: "ACADM",
         deviceId: "admin-device",
       }),
@@ -259,7 +268,7 @@ describe("admin call recording management", () => {
         ),
       ]),
     ];
-    mocks.saveAdminRecording.mockImplementationOnce(
+    mocks.saveFullCallRecording.mockImplementationOnce(
       () => new Promise<"saved">(() => undefined),
     );
     renderAdminCalls();
@@ -268,7 +277,7 @@ describe("admin call recording management", () => {
     fireEvent.click(saveButton);
     fireEvent.click(saveButton);
 
-    expect(mocks.saveAdminRecording).toHaveBeenCalledTimes(1);
+    expect(mocks.saveFullCallRecording).toHaveBeenCalledTimes(1);
     expect(saveButton).toBeDisabled();
   });
 
@@ -283,7 +292,7 @@ describe("admin call recording management", () => {
         ),
       ]),
     ];
-    mocks.saveAdminRecording.mockRejectedValueOnce(new Error("save failed"));
+    mocks.saveFullCallRecording.mockRejectedValueOnce(new Error("save failed"));
     renderAdminCalls();
 
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -304,7 +313,7 @@ describe("admin call recording management", () => {
         ),
       ]),
     ];
-    mocks.saveAdminRecording.mockResolvedValueOnce("cancelled");
+    mocks.saveFullCallRecording.mockResolvedValueOnce("cancelled");
     renderAdminCalls();
 
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -354,10 +363,10 @@ describe("admin call recording management", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
 
-    expect(mocks.deleteRecording).not.toHaveBeenCalled();
+    expect(mocks.deleteCallRecordings).not.toHaveBeenCalled();
   });
 
-  it("deletes the confirmed recording by recording ID and current admin credential", async () => {
+  it("deletes every recording segment for the confirmed call", async () => {
     mocks.complianceDashboard = [
       complianceSession("compliance-stopped", "stopped", [
         recording(
@@ -374,9 +383,9 @@ describe("admin call recording management", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
 
     await waitFor(() =>
-      expect(mocks.deleteRecording).toHaveBeenCalledWith({
+      expect(mocks.deleteCallRecordings).toHaveBeenCalledWith({
         password: "ACADM:admin-device",
-        recordingId: "recording-alice",
+        callId: "call-001",
       }),
     );
   });
@@ -416,7 +425,7 @@ describe("admin call recording management", () => {
         ),
       ]),
     ];
-    mocks.deleteRecording.mockImplementationOnce(
+    mocks.deleteCallRecordings.mockImplementationOnce(
       () => new Promise<undefined>(() => undefined),
     );
     vi.spyOn(window, "confirm").mockReturnValue(true);
@@ -426,7 +435,7 @@ describe("admin call recording management", () => {
     fireEvent.click(deleteButton);
     fireEvent.click(deleteButton);
 
-    expect(mocks.deleteRecording).toHaveBeenCalledTimes(1);
+    expect(mocks.deleteCallRecordings).toHaveBeenCalledTimes(1);
     expect(deleteButton).toBeDisabled();
   });
 
@@ -441,17 +450,17 @@ describe("admin call recording management", () => {
         ),
       ]),
     ];
-    mocks.deleteRecording.mockRejectedValueOnce(new Error("delete failed"));
+    mocks.deleteCallRecordings.mockRejectedValueOnce(
+      new Error("delete failed"),
+    );
     vi.spyOn(window, "confirm").mockReturnValue(true);
-    const { container } = renderAdminCalls();
+    renderAdminCalls();
 
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
 
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Delete" })).toBeEnabled(),
     );
-    expect(
-      container.querySelector('audio[src="https://files.example/alice.webm"]'),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Full call recording")).toBeVisible();
   });
 });

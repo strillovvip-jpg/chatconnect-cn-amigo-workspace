@@ -41,7 +41,7 @@ import {
   uploadAdminDocuments,
 } from "./document-upload";
 import { createClaimCredential } from "@/lib/claim-credential";
-import { saveAdminRecording } from "./recording-download";
+import { saveFullCallRecording } from "./recording-download";
 
 type AdminTab =
   | "dashboard"
@@ -658,7 +658,9 @@ export default function AdminPage() {
   const requestCallRecording = useMutation(api.callCompliance.request);
   const stopCallRecording = useMutation(api.callCompliance.stop);
   const setCallTranslation = useMutation(api.callCompliance.setTranslation);
-  const deleteCallRecording = useMutation(api.callCompliance.deleteRecording);
+  const deleteCallRecordings = useMutation(
+    api.callCompliance.deleteCallRecordings,
+  );
 
   const handleCreateCode = async () => {
     try {
@@ -947,11 +949,19 @@ export default function AdminPage() {
       return next;
     });
   };
-  const handleSaveRecording = async (recording: AdminRecording) => {
-    if (!beginRecordingAction(recording._id, "saving")) return;
+  const handleSaveCallRecording = async (
+    callId: string,
+    recordings: AdminRecording[],
+  ) => {
+    if (!beginRecordingAction(callId, "saving")) return;
     try {
-      const result = await saveAdminRecording({
-        recordingId: recording._id,
+      const result = await saveFullCallRecording({
+        callId,
+        parts: recordings.map((recording) => ({
+          recordingId: recording._id,
+          participantCode: recording.participantCode,
+          createdAt: recording.createdAt,
+        })),
         authorizationCode: sessionCode,
         deviceId,
       });
@@ -963,30 +973,31 @@ export default function AdminPage() {
     } catch (error) {
       toast.error(uiErrorMessage(error, copy.recordingSaveFailed));
     } finally {
-      finishRecordingAction(recording._id);
+      finishRecordingAction(callId);
     }
   };
-  const handleDeleteRecording = async (recording: AdminRecording) => {
-    if (pendingRecordingActions.current.has(recording._id)) return;
-    const recordedAt = formatDateTime(recording.createdAt);
+  const handleDeleteCallRecording = async (
+    callId: string,
+    recordings: AdminRecording[],
+  ) => {
+    if (pendingRecordingActions.current.has(callId)) return;
+    const recordedAt = formatDateTime(recordings[0]?.createdAt ?? Date.now());
     if (
-      !window.confirm(
-        copy.deleteRecordingConfirm(recording.participantName, recordedAt),
-      ) ||
-      !beginRecordingAction(recording._id, "deleting")
+      !window.confirm(copy.deleteRecordingConfirm(callId, recordedAt)) ||
+      !beginRecordingAction(callId, "deleting")
     ) {
       return;
     }
     try {
-      await deleteCallRecording({
+      await deleteCallRecordings({
         password,
-        recordingId: recording._id,
+        callId,
       });
       toast.success(copy.recordingDeleted);
     } catch (error) {
       toast.error(uiErrorMessage(error, copy.recordingDeleteFailed));
     } finally {
-      finishRecordingAction(recording._id);
+      finishRecordingAction(callId);
     }
   };
 
@@ -2163,96 +2174,86 @@ export default function AdminPage() {
                         )}
                       </div>
                       {session.recordings.length > 0 && (
-                        <div className="mt-2 space-y-2">
-                          {session.recordings.map((recording) => {
-                            const action = recordingActions[recording._id];
+                        <div className="mt-2 rounded-lg border border-white/10 bg-black/20 p-3">
+                          {(() => {
+                            const action = recordingActions[session.callId];
                             const deleteBlocked =
                               session.status === "active" ||
                               session.status === "stopping";
                             return (
-                              <div
-                                key={recording._id}
-                                className="rounded-lg border border-white/10 bg-black/20 p-2"
-                              >
-                                <div className="mb-2 flex flex-wrap items-center justify-between gap-1 text-xs">
+                              <>
+                                <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs">
                                   <span className="font-semibold text-white/80">
-                                    {recording.participantName}{" "}
-                                    <span className="font-mono text-white/40">
-                                      ({recording.participantCode})
-                                    </span>
+                                    Full call recording
                                   </span>
                                   <span className="text-[10px] text-white/40">
-                                    {copy.recordedAt(
-                                      formatDateTime(recording.createdAt),
-                                    )}
+                                    {session.recordings.length} protected
+                                    segments · saved as one WAV file
                                   </span>
                                 </div>
-                                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                                  {recording.url && (
-                                    <audio
-                                      controls
-                                      src={recording.url}
-                                      className="h-10 min-w-0 flex-1"
-                                    />
-                                  )}
-                                  <div className="grid grid-cols-2 gap-2 sm:flex">
-                                    <button
-                                      type="button"
-                                      disabled={action !== undefined}
-                                      onClick={() =>
-                                        void handleSaveRecording(recording)
-                                      }
-                                      className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-4 text-xs font-bold text-white disabled:opacity-40"
-                                    >
-                                      {action === "saving" ? (
-                                        <Loader2
-                                          size={15}
-                                          className="animate-spin"
-                                        />
-                                      ) : (
-                                        <Download size={15} />
-                                      )}
-                                      {action === "saving"
-                                        ? copy.recordingSaving
-                                        : copy.saveRecording}
-                                    </button>
-                                    <button
-                                      type="button"
-                                      disabled={
-                                        deleteBlocked || action !== undefined
-                                      }
-                                      title={
-                                        deleteBlocked
-                                          ? copy.recordingDeleteUnavailable
-                                          : undefined
-                                      }
-                                      onClick={() =>
-                                        void handleDeleteRecording(recording)
-                                      }
-                                      className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg bg-red-600 px-4 text-xs font-bold text-white disabled:opacity-40"
-                                    >
-                                      {action === "deleting" ? (
-                                        <Loader2
-                                          size={15}
-                                          className="animate-spin"
-                                        />
-                                      ) : (
-                                        <Trash2 size={15} />
-                                      )}
-                                      {action === "deleting"
-                                        ? copy.recordingDeleting
-                                        : copy.deleteRecording}
-                                    </button>
-                                  </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <button
+                                    type="button"
+                                    disabled={action !== undefined}
+                                    onClick={() =>
+                                      void handleSaveCallRecording(
+                                        session.callId,
+                                        session.recordings,
+                                      )
+                                    }
+                                    className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-4 text-xs font-bold text-white disabled:opacity-40"
+                                  >
+                                    {action === "saving" ? (
+                                      <Loader2
+                                        size={15}
+                                        className="animate-spin"
+                                      />
+                                    ) : (
+                                      <Download size={15} />
+                                    )}
+                                    {action === "saving"
+                                      ? copy.recordingSaving
+                                      : copy.saveRecording}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={
+                                      deleteBlocked || action !== undefined
+                                    }
+                                    title={
+                                      deleteBlocked
+                                        ? copy.recordingDeleteUnavailable
+                                        : undefined
+                                    }
+                                    onClick={() =>
+                                      void handleDeleteCallRecording(
+                                        session.callId,
+                                        session.recordings,
+                                      )
+                                    }
+                                    className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg bg-red-600 px-4 text-xs font-bold text-white disabled:opacity-40"
+                                  >
+                                    {action === "deleting" ? (
+                                      <Loader2
+                                        size={15}
+                                        className="animate-spin"
+                                      />
+                                    ) : (
+                                      <Trash2 size={15} />
+                                    )}
+                                    {action === "deleting"
+                                      ? copy.recordingDeleting
+                                      : copy.deleteRecording}
+                                  </button>
                                 </div>
                                 {deleteBlocked && (
                                   <p className="mt-2 text-[10px] text-amber-300">
                                     {copy.recordingDeleteUnavailable}
                                   </p>
                                 )}
-                              </div>
+                              </>
                             );
-                          })}
+                          })()}
                         </div>
                       )}
                     </div>

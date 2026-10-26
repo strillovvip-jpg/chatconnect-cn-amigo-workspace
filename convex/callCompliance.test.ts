@@ -1854,6 +1854,58 @@ describe("administrator recording download and deletion", () => {
     });
   });
 
+  test("one full-call deletion removes every segment, blob, and recording row", async () => {
+    const fixture = await setupAdministratorRecording();
+    const second = await fixture.t.run(async (ctx) => {
+      const storageId = await ctx.storage.store(
+        new Blob(["second segment"], { type: "audio/webm" }),
+      );
+      const segmentId = await ctx.db.insert("call_recording_segments", {
+        callId: fixture.callId,
+        tenantId: "nyfbi",
+        participantCode: "ALICE",
+        deviceId: "alice-device",
+        consentEpoch: 1,
+        clientNonce: "second-segment",
+        startedAt: Date.now(),
+        expiresAt: Date.now() + 60_000,
+        storageId,
+        consumedAt: Date.now(),
+      });
+      const recordingId = await ctx.db.insert("call_recordings", {
+        callId: fixture.callId,
+        tenantId: "nyfbi",
+        participantCode: "ALICE",
+        participantName: "Alice",
+        storageId,
+        mimeType: "audio/webm",
+        createdAt: Date.now(),
+      });
+      return { storageId, segmentId, recordingId };
+    });
+
+    await fixture.t.mutation(api.callCompliance.deleteCallRecordings, {
+      password: "ADMIN:admin-device",
+      callId: fixture.callId,
+    });
+
+    await fixture.t.run(async (ctx) => {
+      expect(await ctx.db.get(fixture.recordingId)).toBeNull();
+      expect(await ctx.db.get(second.recordingId)).toBeNull();
+      expect(await ctx.db.system.get("_storage", fixture.storageId)).toBeNull();
+      expect(await ctx.db.system.get("_storage", second.storageId)).toBeNull();
+      expect((await ctx.db.get(fixture.segmentId))?.storageId).toBeUndefined();
+      expect((await ctx.db.get(second.segmentId))?.storageId).toBeUndefined();
+      expect(
+        (await ctx.db.query("audit_logs").collect()).find(
+          (row) =>
+            row.action === "call.recording.delete_all" &&
+            row.targetId === fixture.callId,
+        ),
+      ).toMatchObject({ success: true });
+    });
+  });
+
   test("ordinary users, foreign administrators, and recordings without a tenant cannot delete or change stored recording state", async () => {
     const ordinaryUser = await setupAdministratorRecording();
     const foreignAdministrator = await setupAdministratorRecording();

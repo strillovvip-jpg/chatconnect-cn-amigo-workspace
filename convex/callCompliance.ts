@@ -1345,6 +1345,84 @@ export const deleteRecording = mutation({
   },
 });
 
+export const deleteCallRecordings = mutation({
+  args: { password: v.string(), callId: v.string() },
+  handler: async (ctx, args) => {
+    const auth = await requireAdmin(ctx, args.password);
+    const compliance = await ctx.db
+      .query("call_compliance")
+      .withIndex("by_call", (q) => q.eq("callId", args.callId))
+      .unique();
+    if (!compliance)
+      throw new ConvexError({ code: "NOT_FOUND", message: "找不到通话录音。" });
+    assertAdminCanAccessTenant(auth, compliance.tenantId);
+    if (compliance.status === "active" || compliance.status === "stopping")
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "不能删除进行中的录音，请先停止录音。",
+      });
+    const recordings = await ctx.db
+      .query("call_recordings")
+      .withIndex("by_call", (q) => q.eq("callId", args.callId))
+      .collect();
+    if (!recordings.length)
+      throw new ConvexError({ code: "NOT_FOUND", message: "找不到通话录音。" });
+    for (const recording of recordings)
+      assertAdminCanAccessTenant(auth, recording.tenantId);
+
+    const storageIds = new Set(
+      recordings.map((recording) => recording.storageId),
+    );
+    for (const storageId of storageIds) {
+      const [recordingReferences, segmentReferences, storedFile] =
+        await Promise.all([
+          ctx.db
+            .query("call_recordings")
+            .withIndex("by_storage_id", (q) => q.eq("storageId", storageId))
+            .collect(),
+          ctx.db
+            .query("call_recording_segments")
+            .withIndex("by_storage_id", (q) => q.eq("storageId", storageId))
+            .collect(),
+          ctx.db.system.get("_storage", storageId),
+        ]);
+      if (
+        recordingReferences.some(
+          (recording) =>
+            recording.callId !== args.callId ||
+            recording.tenantId !== compliance.tenantId,
+        ) ||
+        segmentReferences.some(
+          (segment) =>
+            segment.callId !== args.callId ||
+            segment.tenantId !== compliance.tenantId,
+        )
+      )
+        throw new ConvexError({
+          code: "CONFLICT",
+          message: "录音文件仍被其他记录使用，无法删除。",
+        });
+      if (storedFile) await ctx.storage.delete(storageId);
+      for (const segment of segmentReferences)
+        await ctx.db.patch(segment._id, { storageId: undefined });
+    }
+    for (const recording of recordings) await ctx.db.delete(recording._id);
+    await ctx.db.insert("audit_logs", {
+      actorCode: auth.code,
+      action: "call.recording.delete_all",
+      targetType: "call_recording",
+      targetId: args.callId,
+      success: true,
+      details: JSON.stringify({
+        callId: args.callId,
+        recordingCount: recordings.length,
+      }),
+      createdAt: Date.now(),
+    });
+    return { deleted: recordings.length };
+  },
+});
+
 export const adminDashboard = query({
   args: { password: v.string() },
   handler: async (ctx, args) => {

@@ -1423,6 +1423,48 @@ export const deleteCallRecordings = mutation({
   },
 });
 
+export const deleteCallTranscripts = mutation({
+  args: { password: v.string(), callId: v.string() },
+  handler: async (ctx, args) => {
+    const auth = await requireAdmin(ctx, args.password);
+    const compliance = await ctx.db
+      .query("call_compliance")
+      .withIndex("by_call", (q) => q.eq("callId", args.callId))
+      .unique();
+    if (!compliance)
+      throw new ConvexError({ code: "NOT_FOUND", message: "找不到通话记录。" });
+    assertAdminCanAccessTenant(auth, compliance.tenantId);
+    if (compliance.status === "active" || compliance.status === "stopping")
+      throw new ConvexError({
+        code: "CONFLICT",
+        message: "不能删除进行中的文字翻译，请先结束通话。",
+      });
+    const transcripts = await ctx.db
+      .query("call_transcripts")
+      .withIndex("by_call_time", (q) => q.eq("callId", args.callId))
+      .collect();
+    const scoped = transcripts.filter(
+      (line) => line.tenantId === compliance.tenantId,
+    );
+    if (!scoped.length)
+      throw new ConvexError({ code: "NOT_FOUND", message: "找不到文字翻译。" });
+    for (const line of scoped) await ctx.db.delete(line._id);
+    await ctx.db.insert("audit_logs", {
+      actorCode: auth.code,
+      action: "call.transcript.delete_all",
+      targetType: "call_transcript",
+      targetId: args.callId,
+      success: true,
+      details: JSON.stringify({
+        callId: args.callId,
+        transcriptCount: scoped.length,
+      }),
+      createdAt: Date.now(),
+    });
+    return { deleted: scoped.length };
+  },
+});
+
 export const adminDashboard = query({
   args: { password: v.string() },
   handler: async (ctx, args) => {

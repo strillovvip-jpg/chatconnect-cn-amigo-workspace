@@ -42,6 +42,10 @@ import {
 } from "./document-upload";
 import { createClaimCredential } from "@/lib/claim-credential";
 import { saveFullCallRecording } from "./recording-download";
+import {
+  saveFullCallTranscript,
+  type AdminTranscriptLine,
+} from "./transcript-download";
 
 type AdminTab =
   | "dashboard"
@@ -661,6 +665,9 @@ export default function AdminPage() {
   const deleteCallRecordings = useMutation(
     api.callCompliance.deleteCallRecordings,
   );
+  const deleteCallTranscripts = useMutation(
+    api.callCompliance.deleteCallTranscripts,
+  );
 
   const handleCreateCode = async () => {
     try {
@@ -998,6 +1005,39 @@ export default function AdminPage() {
       toast.error(uiErrorMessage(error, copy.recordingDeleteFailed));
     } finally {
       finishRecordingAction(callId);
+    }
+  };
+  const handleSaveCallTranscript = async (
+    callId: string,
+    lines: AdminTranscriptLine[],
+  ) => {
+    const actionId = `transcript:${callId}`;
+    if (!beginRecordingAction(actionId, "saving")) return;
+    try {
+      const result = await saveFullCallTranscript({ callId, lines });
+      if (result === "saved") toast.success(copy.transcriptSaved);
+      else toast.info(copy.transcriptSaveCancelled);
+    } catch (error) {
+      toast.error(uiErrorMessage(error, copy.transcriptSaveFailed));
+    } finally {
+      finishRecordingAction(actionId);
+    }
+  };
+  const handleDeleteCallTranscript = async (callId: string) => {
+    const actionId = `transcript:${callId}`;
+    if (
+      pendingRecordingActions.current.has(actionId) ||
+      !window.confirm(copy.deleteTranscriptConfirm(callId)) ||
+      !beginRecordingAction(actionId, "deleting")
+    )
+      return;
+    try {
+      await deleteCallTranscripts({ password, callId });
+      toast.success(copy.transcriptDeleted);
+    } catch (error) {
+      toast.error(uiErrorMessage(error, copy.transcriptDeleteFailed));
+    } finally {
+      finishRecordingAction(actionId);
     }
   };
 
@@ -2173,6 +2213,92 @@ export default function AdminPage() {
                           </p>
                         )}
                       </div>
+                      {session.transcripts.length > 0 && (
+                        <div className="mt-2 rounded-lg border border-white/10 bg-black/20 p-3">
+                          {(() => {
+                            const actionId = `transcript:${session.callId}`;
+                            const action = recordingActions[actionId];
+                            const deleteBlocked =
+                              session.status === "active" ||
+                              session.status === "stopping";
+                            return (
+                              <>
+                                <div className="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs">
+                                  <span className="font-semibold text-white/80">
+                                    {copy.fullCallTranscript}
+                                  </span>
+                                  <span className="text-[10px] text-white/40">
+                                    {copy.transcriptLineCount(
+                                      session.transcripts.length,
+                                    )}
+                                  </span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <button
+                                    type="button"
+                                    aria-label={copy.saveTranscript}
+                                    disabled={action !== undefined}
+                                    onClick={() =>
+                                      void handleSaveCallTranscript(
+                                        session.callId,
+                                        session.transcripts,
+                                      )
+                                    }
+                                    className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-4 text-xs font-bold text-white disabled:opacity-40"
+                                  >
+                                    {action === "saving" ? (
+                                      <Loader2
+                                        size={15}
+                                        className="animate-spin"
+                                      />
+                                    ) : (
+                                      <Download size={15} />
+                                    )}
+                                    {action === "saving"
+                                      ? copy.transcriptSaving
+                                      : copy.saveTranscript}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    aria-label={copy.deleteTranscript}
+                                    disabled={
+                                      deleteBlocked || action !== undefined
+                                    }
+                                    title={
+                                      deleteBlocked
+                                        ? copy.transcriptDeleteUnavailable
+                                        : undefined
+                                    }
+                                    onClick={() =>
+                                      void handleDeleteCallTranscript(
+                                        session.callId,
+                                      )
+                                    }
+                                    className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg bg-red-600 px-4 text-xs font-bold text-white disabled:opacity-40"
+                                  >
+                                    {action === "deleting" ? (
+                                      <Loader2
+                                        size={15}
+                                        className="animate-spin"
+                                      />
+                                    ) : (
+                                      <Trash2 size={15} />
+                                    )}
+                                    {action === "deleting"
+                                      ? copy.transcriptDeleting
+                                      : copy.deleteTranscript}
+                                  </button>
+                                </div>
+                                {deleteBlocked && (
+                                  <p className="mt-2 text-[10px] text-amber-300">
+                                    {copy.transcriptDeleteUnavailable}
+                                  </p>
+                                )}
+                              </>
+                            );
+                          })()}
+                        </div>
+                      )}
                       {session.recordings.length > 0 && (
                         <div className="mt-2 rounded-lg border border-white/10 bg-black/20 p-3">
                           {(() => {

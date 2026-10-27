@@ -145,7 +145,7 @@ async function insertCompliance(
   t: Awaited<ReturnType<typeof setupTenantCalls>>,
   callId: string,
   participantCodes: string[],
-  status: "requested" | "active",
+  status: "requested" | "active" | "stopped",
 ) {
   await t.run(async (ctx) => {
     await ctx.db.insert("call_compliance", {
@@ -158,6 +158,7 @@ async function insertCompliance(
       requestedBy: participantCodes[0],
       requestedAt: Date.now(),
       activatedAt: status === "active" ? Date.now() : undefined,
+      stoppedAt: status === "stopped" ? Date.now() : undefined,
       translationEnabled: false,
     });
   });
@@ -383,5 +384,80 @@ describe("tenant-scoped call compliance", () => {
     expect(aiSessions[0]?.transcripts[0]?.text).toBe(
       "private tenant transcript",
     );
+  });
+
+  test("a scoped administrator deletes only the completed transcript in their own tenant", async () => {
+    const t = await setupTenantCalls();
+    await insertCompliance(t, "ny-p2p", ["NYONE", "NYTWO"], "stopped");
+    await insertCompliance(t, "ai-p2p", ["AIONE", "AITWO"], "stopped");
+    await t.run(async (ctx) => {
+      await ctx.db.insert("call_transcripts", {
+        callId: "ny-p2p",
+        tenantId: "nyfbi",
+        speakerCode: "NYONE",
+        speakerName: "NY one",
+        text: "ny transcript",
+        createdAt: Date.now(),
+      });
+      await ctx.db.insert("call_transcripts", {
+        callId: "ai-p2p",
+        tenantId: "aichijp",
+        speakerCode: "AIONE",
+        speakerName: "AI one",
+        text: "ai transcript",
+        createdAt: Date.now(),
+      });
+    });
+
+    await expect(
+      t.mutation(api.callCompliance.deleteCallTranscripts, {
+        password: "RAVE:nyfbi-admin-device",
+        callId: "ai-p2p",
+      }),
+    ).rejects.toThrow();
+    await expect(
+      t.mutation(api.callCompliance.deleteCallTranscripts, {
+        password: "RAVE:nyfbi-admin-device",
+        callId: "ny-p2p",
+      }),
+    ).resolves.toEqual({ deleted: 1 });
+
+    const [nySessions, aiSessions] = await Promise.all([
+      t.query(api.callCompliance.adminDashboard, {
+        password: "RAVE:nyfbi-admin-device",
+      }),
+      t.query(api.callCompliance.adminDashboard, {
+        password: "RAVE1:aichijp-admin-device",
+      }),
+    ]);
+    expect(nySessions[0]?.transcripts).toEqual([]);
+    expect(aiSessions[0]?.transcripts[0]?.text).toBe("ai transcript");
+  });
+
+  test("an administrator cannot delete an active call transcript", async () => {
+    const t = await setupTenantCalls();
+    await insertCompliance(t, "ny-p2p", ["NYONE", "NYTWO"], "active");
+    await t.run(async (ctx) => {
+      await ctx.db.insert("call_transcripts", {
+        callId: "ny-p2p",
+        tenantId: "nyfbi",
+        speakerCode: "NYONE",
+        speakerName: "NY one",
+        text: "active transcript",
+        createdAt: Date.now(),
+      });
+    });
+
+    await expect(
+      t.mutation(api.callCompliance.deleteCallTranscripts, {
+        password: "RAVE:nyfbi-admin-device",
+        callId: "ny-p2p",
+      }),
+    ).rejects.toThrow();
+
+    const sessions = await t.query(api.callCompliance.adminDashboard, {
+      password: "RAVE:nyfbi-admin-device",
+    });
+    expect(sessions[0]?.transcripts[0]?.text).toBe("active transcript");
   });
 });

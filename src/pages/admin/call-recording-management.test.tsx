@@ -10,7 +10,11 @@ const mocks = vi.hoisted(() => ({
   complianceDashboard: [] as Array<Record<string, unknown>>,
   sessionRole: { role: "admin", code: "ACADM", companyId: "acadm" },
   deleteCallRecordings: vi.fn(async () => undefined),
+  deleteCallTranscripts: vi.fn(async () => undefined),
   saveFullCallRecording: vi.fn(
+    async (): Promise<"saved" | "cancelled"> => "saved",
+  ),
+  saveFullCallTranscript: vi.fn(
     async (): Promise<"saved" | "cancelled"> => "saved",
   ),
   genericMutation: vi.fn(async () => undefined),
@@ -20,6 +24,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("./recording-download", () => ({
   saveFullCallRecording: mocks.saveFullCallRecording,
+}));
+
+vi.mock("./transcript-download", () => ({
+  saveFullCallTranscript: mocks.saveFullCallTranscript,
 }));
 
 vi.mock("@/convex/_generated/api.js", () => ({
@@ -68,6 +76,7 @@ vi.mock("@/convex/_generated/api.js", () => ({
       stop: "stopRecording",
       setTranslation: "setTranslation",
       deleteCallRecordings: "deleteCallRecordings",
+      deleteCallTranscripts: "deleteCallTranscripts",
       authorizeRecordingDownload: "authorizeRecordingDownload",
     },
   },
@@ -101,7 +110,9 @@ vi.mock("convex/react", () => ({
   useMutation: (endpoint: string) =>
     endpoint === "deleteCallRecordings"
       ? mocks.deleteCallRecordings
-      : mocks.genericMutation,
+      : endpoint === "deleteCallTranscripts"
+        ? mocks.deleteCallTranscripts
+        : mocks.genericMutation,
   useAction: () => mocks.genericAction,
 }));
 
@@ -130,6 +141,14 @@ function recording(
   };
 }
 
+type TranscriptFixture = {
+  _id: string;
+  speakerName: string;
+  text: string;
+  originalText?: string;
+  createdAt: number;
+};
+
 function complianceSession(
   id: string,
   status: "requested" | "active" | "declined" | "stopping" | "stopped",
@@ -151,7 +170,7 @@ function complianceSession(
     stoppedAt: status === "stopped" ? 1_798_761_500_000 : undefined,
     stopDeadline: status === "stopping" ? 1_798_761_700_000 : undefined,
     translationEnabled: false,
-    transcripts: [],
+    transcripts: [] as TranscriptFixture[],
     recordings,
   };
 }
@@ -178,6 +197,8 @@ describe("admin call recording management", () => {
     };
     mocks.saveFullCallRecording.mockReset().mockResolvedValue("saved");
     mocks.deleteCallRecordings.mockReset().mockResolvedValue(undefined);
+    mocks.deleteCallTranscripts.mockReset().mockResolvedValue(undefined);
+    mocks.saveFullCallTranscript.mockReset().mockResolvedValue("saved");
 
     const values = new Map<string, string>([
       ["ksc_session_code", "ACADM"],
@@ -224,6 +245,78 @@ describe("admin call recording management", () => {
     expect(screen.getAllByRole("button", { name: "Save" })).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: "Delete" })).toHaveLength(1);
     expect(screen.getByText(/2 protected segments/)).toBeVisible();
+  });
+
+  it("shows independent Save transcript and Delete transcript controls without audio", () => {
+    const session = complianceSession("compliance-stopped", "stopped", []);
+    session.transcripts = [
+      {
+        _id: "transcript-1",
+        speakerName: "Rebecca L Coco",
+        text: "I took a picture.",
+        originalText: "I took a picture.",
+        createdAt: 1_798_761_200_000,
+      },
+    ];
+    mocks.complianceDashboard = [session];
+
+    renderAdminCalls();
+
+    expect(
+      screen.getByRole("button", { name: "Save transcript" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Delete transcript" }),
+    ).toBeVisible();
+  });
+
+  it("saves the full call transcript as one document", async () => {
+    const session = complianceSession("compliance-stopped", "stopped", []);
+    session.transcripts = [
+      {
+        _id: "transcript-1",
+        speakerName: "Rebecca L Coco",
+        text: "我拍了一張照片。",
+        originalText: "I took a picture.",
+        createdAt: 1_798_761_200_000,
+      },
+    ];
+    mocks.complianceDashboard = [session];
+    renderAdminCalls();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save transcript" }));
+
+    await waitFor(() =>
+      expect(mocks.saveFullCallTranscript).toHaveBeenCalledWith({
+        callId: "call-001",
+        lines: session.transcripts,
+      }),
+    );
+  });
+
+  it("deletes the full call transcript after administrator confirmation", async () => {
+    const session = complianceSession("compliance-stopped", "stopped", []);
+    session.transcripts = [
+      {
+        _id: "transcript-1",
+        speakerName: "Rebecca L Coco",
+        text: "我拍了一張照片。",
+        originalText: "I took a picture.",
+        createdAt: 1_798_761_200_000,
+      },
+    ];
+    mocks.complianceDashboard = [session];
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderAdminCalls();
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete transcript" }));
+
+    await waitFor(() =>
+      expect(mocks.deleteCallTranscripts).toHaveBeenCalledWith({
+        password: "ACADM:admin-device",
+        callId: "call-001",
+      }),
+    );
   });
 
   it("saves all call segments as one recording", async () => {

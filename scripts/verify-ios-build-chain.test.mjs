@@ -33,6 +33,26 @@ test("Xcode Cloud rebuilds and syncs web assets from repository source", () => {
   assert.match(xcodeCloudEntry, /git .*rev-parse --show-toplevel/);
 });
 
+test("Xcode Cloud keeps the post-clone step alive during silent dependency work", () => {
+  const cloudScript = read("ci_scripts/ci_post_clone.sh");
+
+  assert.match(cloudScript, /post-clone still running/);
+  assert.match(cloudScript, /sleep 60/);
+  assert.match(cloudScript, /trap .*HEARTBEAT_PID.*EXIT/);
+});
+
+test("the workspace Swift package lock includes every remote Capacitor dependency", () => {
+  const packageResolved = read(
+    "ios/App/App.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+  );
+
+  assert.match(packageResolved, /"identity"\s*:\s*"ion-ios-filesystem"/);
+  assert.match(
+    packageResolved,
+    /"location"\s*:\s*"https:\/\/github\.com\/ionic-team\/ion-ios-filesystem\.git"/,
+  );
+});
+
 test("Xcode Cloud writes its build number into the actual iOS bundle version", () => {
   const cloudScript = read("ci_scripts/ci_post_clone.sh");
   const buildNumberScript = read("scripts/set-ios-build-number.mjs");

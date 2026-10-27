@@ -5,6 +5,17 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
+# Xcode Cloud terminates custom scripts after 15 minutes without stdout/stderr.
+# Dependency installation and Swift package resolution can legitimately be
+# silent for that long, so emit a small heartbeat until this script exits.
+(
+  while sleep 60; do
+    echo "[ci_post_clone] post-clone still running"
+  done
+) &
+HEARTBEAT_PID=$!
+trap 'kill "$HEARTBEAT_PID" 2>/dev/null || true' EXIT
+
 echo "[ci_post_clone] repository: $REPO_ROOT"
 xcodebuild -version
 

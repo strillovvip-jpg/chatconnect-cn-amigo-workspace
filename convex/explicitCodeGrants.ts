@@ -140,22 +140,6 @@ const COMPANY_2_USER_CODES = new Set([
   ...COMPANY_2_LIMITED_CODES,
 ]);
 
-export function administratorHasDelegatedCodeAccess(
-  administratorCode: string | undefined,
-  administratorTenantId: string,
-  targetCode: string,
-  targetTenantId: string,
-  targetRole: string,
-) {
-  return (
-    normalize(administratorCode ?? "") === "BJQAF" &&
-    administratorTenantId.trim().toLowerCase() === COMPANY_2_TENANT_ID &&
-    COMPANY_1_LIMITED_CODES.has(normalize(targetCode)) &&
-    targetTenantId.trim().toLowerCase() === COMPANY_1_TENANT_ID &&
-    targetRole === "user"
-  );
-}
-
 export function explicitCodeHasExpectedTenantAndRole(
   code: string,
   tenantId: string,

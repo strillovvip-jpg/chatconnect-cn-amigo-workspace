@@ -406,31 +406,27 @@ async function insertActiveRecording(
   });
 }
 
-describe("BJQAF exact authorization-code delegation", () => {
-  test("BJQAF can view and manage exactly the old 50 customer codes without inheriting the rest of Company 1", async () => {
+describe("administrator company isolation", () => {
+  test("BJQAF can view and manage only Company 2 authorization codes", async () => {
     const { t } = await setup();
     const visible = await t.query(api.admin.getAllowedCodes, {
       password: "BJQAF:bjqaf-admin-device",
     });
     const visibleCodes = new Set(visible.map((record) => record.code));
 
-    for (const code of [
-      ...newFullCodes,
-      ...newLimitedCodes,
-      ...oldLimitedCodes,
-    ])
+    for (const code of [...newFullCodes, ...newLimitedCodes])
       expect(visibleCodes.has(code), code).toBe(true);
-    for (const code of ["NERSP", ...oldFullCodes, "NEXTR"])
+    for (const code of ["NERSP", ...oldFullCodes, ...oldLimitedCodes, "NEXTR"])
       expect(visibleCodes.has(code), code).toBe(false);
-    expect(visibleCodes.size).toBe(110);
+    expect(visibleCodes.size).toBe(60);
 
     await expect(
       t.mutation(api.roleManagement.setEnabled, {
         password: "BJQAF:bjqaf-admin-device",
-        targetCode: "QQQLJ",
+        targetCode: "XPHHV",
         enabled: false,
       }),
-    ).resolves.toBeNull();
+    ).rejects.toThrow();
     await expect(
       t.mutation(api.roleManagement.setEnabled, {
         password: "BJQAF:bjqaf-admin-device",

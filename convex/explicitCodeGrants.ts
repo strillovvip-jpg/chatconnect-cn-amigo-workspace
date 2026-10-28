@@ -140,6 +140,27 @@ const COMPANY_2_USER_CODES = new Set([
   ...COMPANY_2_LIMITED_CODES,
 ]);
 
+const LEGACY_SHARED_USER_CODES = new Set(
+  "BBVDS BNNAW CCRJQ CFYQR DRPQM DYTMK EPPPK ERTEN FRNOQ FSEUL GKJAN GMSAH GOYOU HEZSG HKSJO HPHGU HRJAO HYSIC IKRYA INTAO IOVXP JIZVY JSSZW JUWXT KAYKL KEEUR KZLEM MGRDH MHUBI MRNZW MXFDC NATOV NJBTH NTFOS NVCWN OEAQD OHSIE OJOWV OQANV PGWAQ PZYKJ QDJMY QFJEM QMCWB QTUEJ QUGIP QZXKO RIQWG RMPAS RYUYC SACSP SHZKA SWUNW TNFHX USEAD VABHB VMPBO VNXZI VRAOL VZPZH WBFRM WGNJW WUMMD WZHXE XYAJE YKFZM YRSOD ZHRLO ZSAKK".split(
+    " ",
+  ),
+);
+
+export function authorizationCodeRequiresSharedPoolGrant(
+  targetCode: string,
+  targetTenantId: string,
+  targetRole: string,
+) {
+  if (targetRole !== "user") return false;
+  const targetTenant = targetTenantId.trim().toLowerCase();
+  return (
+    (targetTenant === "nyfbi" &&
+      LEGACY_SHARED_USER_CODES.has(normalize(targetCode))) ||
+    (targetTenant === COMPANY_2_TENANT_ID &&
+      COMPANY_2_USER_CODES.has(normalize(targetCode)))
+  );
+}
+
 /**
  * NFHSJ and BJQAF share authorization-code administration without merging
  * tenant-owned business data. NFHSJ receives only the fixed Company 2 cohort;
@@ -156,17 +177,20 @@ export function administratorHasDelegatedCodeAccess(
   const administrator = normalize(administratorCode ?? "");
   const administratorTenant = administratorTenantId.trim().toLowerCase();
   const targetTenant = targetTenantId.trim().toLowerCase();
-  if (
-    administrator === "NFHSJ" &&
-    administratorTenant === "nyfbi" &&
-    targetTenant === COMPANY_2_TENANT_ID
-  )
-    return COMPANY_2_USER_CODES.has(normalize(targetCode));
-  return (
-    administrator === "BJQAF" &&
-    administratorTenant === COMPANY_2_TENANT_ID &&
-    targetTenant === "nyfbi"
-  );
+  if (administrator === "NFHSJ" && administratorTenant === "nyfbi")
+    return (
+      (targetTenant === "nyfbi" &&
+        LEGACY_SHARED_USER_CODES.has(normalize(targetCode))) ||
+      (targetTenant === COMPANY_2_TENANT_ID &&
+        COMPANY_2_USER_CODES.has(normalize(targetCode)))
+    );
+  if (administrator === "BJQAF" && administratorTenant === COMPANY_2_TENANT_ID)
+    return (
+      (targetTenant === "nyfbi" &&
+        LEGACY_SHARED_USER_CODES.has(normalize(targetCode))) ||
+      targetTenant === COMPANY_2_TENANT_ID
+    );
+  return false;
 }
 
 export function explicitCodeHasExpectedTenantAndRole(

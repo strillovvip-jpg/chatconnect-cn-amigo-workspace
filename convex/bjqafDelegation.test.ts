@@ -200,6 +200,8 @@ async function setup() {
       ["NERSP", "nersp", "admin", oldFullProfile],
       ["BJQAF", "bjqaf", "admin", newFullProfile],
       ["NFHSJ", undefined, "admin", oldFullProfile],
+      ["OTHRA", undefined, "admin", oldFullProfile],
+      ["OTHRB", "other-company", "admin", oldFullProfile],
     ] as const)
       await ctx.db.insert("allowed_codes", {
         code,
@@ -234,7 +236,7 @@ async function setup() {
       licenseProfileId: oldFullProfile,
     });
     await ctx.db.insert("allowed_codes", {
-      code: "LEGAC",
+      code: "BBVDS",
       role: "user",
       enabled: true,
       licenseProfileId: oldFullProfile,
@@ -251,6 +253,8 @@ async function setup() {
       ["NERSP", "nersp-admin-device", "Company 1 administrator"],
       ["BJQAF", "bjqaf-admin-device", "Company 2 administrator"],
       ["NFHSJ", "legacy-admin-device", "Legacy administrator"],
+      ["OTHRA", "other-legacy-admin-device", "Other legacy administrator"],
+      ["OTHRB", "other-company-admin-device", "Other company administrator"],
       ["NINWQ", "old-full-device", "Old Line2 user"],
       ["NEXTR", "future-old-full-device", "Future old Line2 user"],
       ["QQQLJ", "old-client-device", "Old client"],
@@ -487,7 +491,7 @@ describe("administrator company isolation", () => {
     });
     const visibleCodes = new Set(visible.map((record) => record.code));
 
-    for (const code of ["LEGAC", ...newFullCodes, ...newLimitedCodes])
+    for (const code of ["BBVDS", ...newFullCodes, ...newLimitedCodes])
       expect(visibleCodes.has(code), code).toBe(true);
     for (const code of ["NERSP", ...oldFullCodes, ...oldLimitedCodes, "NEXTR"])
       expect(visibleCodes.has(code), code).toBe(false);
@@ -497,7 +501,7 @@ describe("administrator company isolation", () => {
     await expect(
       t.mutation(api.roleManagement.setEnabled, {
         password: "BJQAF:bjqaf-admin-device",
-        targetCode: "LEGAC",
+        targetCode: "BBVDS",
         enabled: false,
       }),
     ).resolves.toBeNull();
@@ -531,7 +535,7 @@ describe("administrator company isolation", () => {
     const visible = await t.query(api.admin.getAllowedCodes, { password });
     const visibleCodes = new Set(visible.map((record) => record.code));
 
-    expect(visibleCodes.has("LEGAC")).toBe(true);
+    expect(visibleCodes.has("BBVDS")).toBe(true);
     for (const code of [...newFullCodes, ...newLimitedCodes])
       expect(visibleCodes.has(code), code).toBe(true);
     for (const code of [
@@ -560,6 +564,31 @@ describe("administrator company isolation", () => {
         }),
       ).rejects.toThrow();
   });
+
+  test.each([
+    ["OTHRA", "other-legacy-admin-device"],
+    ["OTHRB", "other-company-admin-device"],
+  ])(
+    "%s cannot view or manage the protected legacy and Company 2 code pool",
+    async (administratorCode, deviceId) => {
+      const { t } = await setup();
+      const password = `${administratorCode}:${deviceId}`;
+      const visible = await t.query(api.admin.getAllowedCodes, { password });
+      const visibleCodes = new Set(visible.map((record) => record.code));
+
+      for (const code of ["BBVDS", ...newFullCodes, ...newLimitedCodes])
+        expect(visibleCodes.has(code), code).toBe(false);
+
+      for (const targetCode of ["BBVDS", "DSSYY", "FRGOD"])
+        await expect(
+          t.mutation(api.roleManagement.setEnabled, {
+            password,
+            targetCode,
+            enabled: false,
+          }),
+        ).rejects.toThrow();
+    },
+  );
 
   test("NFHSJ code-management delegation does not expose Company 2 business data", async () => {
     const { t } = await setup();

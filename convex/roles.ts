@@ -1,7 +1,10 @@
 import { ConvexError } from "convex/values";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
-import { administratorHasDelegatedCodeAccess } from "./explicitCodeGrants";
+import {
+  administratorHasDelegatedCodeAccess,
+  authorizationCodeRequiresSharedPoolGrant,
+} from "./explicitCodeGrants";
 
 export type SystemRole = "super_admin" | "admin" | "user";
 export type AuthSurface = "app" | "aichijp" | "nyfbi";
@@ -204,17 +207,24 @@ export async function listManageableAllowedCodes(
     .collect()) as Array<AllowedCodeRecord>;
   const companyId = getAdminCompanyScope(auth);
   if (!companyId) return records;
-  return records.filter(
-    (record) =>
-      tenantIdForAllowed(record) === companyId ||
-      administratorHasDelegatedCodeAccess(
-        auth.code,
-        tenantIdForAllowed(auth.allowed),
+  return records.filter((record) => {
+    const delegated = administratorHasDelegatedCodeAccess(
+      auth.code,
+      tenantIdForAllowed(auth.allowed),
+      record.code,
+      tenantIdForAllowed(record),
+      record.role,
+    );
+    if (
+      authorizationCodeRequiresSharedPoolGrant(
         record.code,
         tenantIdForAllowed(record),
         record.role,
-      ),
-  );
+      )
+    )
+      return delegated;
+    return tenantIdForAllowed(record) === companyId || delegated;
+  });
 }
 
 export async function assertAdminCanAccessCode(
@@ -256,14 +266,26 @@ export async function assertAdminCanManageAuthorizationCode(
     .unique()) as AllowedCodeRecord | null;
   if (
     !target ||
-    (tenantIdForAllowed(target) !== companyId &&
-      !administratorHasDelegatedCodeAccess(
-        auth.code,
-        tenantIdForAllowed(auth.allowed),
-        target.code,
-        tenantIdForAllowed(target),
-        target.role,
-      ))
+    (authorizationCodeRequiresSharedPoolGrant(
+      target.code,
+      tenantIdForAllowed(target),
+      target.role,
+    )
+      ? !administratorHasDelegatedCodeAccess(
+          auth.code,
+          tenantIdForAllowed(auth.allowed),
+          target.code,
+          tenantIdForAllowed(target),
+          target.role,
+        )
+      : tenantIdForAllowed(target) !== companyId &&
+        !administratorHasDelegatedCodeAccess(
+          auth.code,
+          tenantIdForAllowed(auth.allowed),
+          target.code,
+          tenantIdForAllowed(target),
+          target.role,
+        ))
   )
     throw new ConvexError({
       code: "FORBIDDEN",

@@ -199,6 +199,7 @@ async function setup() {
     for (const [code, companyId, role, licenseProfileId] of [
       ["NERSP", "nersp", "admin", oldFullProfile],
       ["BJQAF", "bjqaf", "admin", newFullProfile],
+      ["NFHSJ", undefined, "admin", oldFullProfile],
     ] as const)
       await ctx.db.insert("allowed_codes", {
         code,
@@ -232,10 +233,24 @@ async function setup() {
       enabled: true,
       licenseProfileId: oldFullProfile,
     });
+    await ctx.db.insert("allowed_codes", {
+      code: "LEGAC",
+      role: "user",
+      enabled: true,
+      licenseProfileId: oldFullProfile,
+    });
+    await ctx.db.insert("allowed_codes", {
+      code: "FUTR2",
+      role: "user",
+      companyId: "bjqaf",
+      enabled: true,
+      licenseProfileId: newFullProfile,
+    });
 
     for (const [code, deviceId, name] of [
       ["NERSP", "nersp-admin-device", "Company 1 administrator"],
       ["BJQAF", "bjqaf-admin-device", "Company 2 administrator"],
+      ["NFHSJ", "legacy-admin-device", "Legacy administrator"],
       ["NINWQ", "old-full-device", "Old Line2 user"],
       ["NEXTR", "future-old-full-device", "Future old Line2 user"],
       ["QQQLJ", "old-client-device", "Old client"],
@@ -315,6 +330,64 @@ async function setup() {
       participantCode: "QQQLJ",
       participantName: "Old client",
       storageId: recordingStorageId,
+      mimeType: "audio/webm",
+      createdAt: now,
+    });
+    const company2Case = await ctx.db.insert("cases", {
+      tenantId: "bjqaf",
+      caseNumber: "COMPANY-2-PRIVATE-CASE",
+      title: "Company 2 private case",
+      status: "open",
+      priority: "medium",
+      category: "private",
+      description: "Must remain visible only to the Company 2 administrator",
+      assignedCode: "DSSYY",
+      assignedName: "New Line2 user",
+      createdAt: new Date(now).toISOString(),
+      updatedAt: new Date(now).toISOString(),
+    });
+    const company2DocumentStorageId = await ctx.storage.store(
+      new Blob(["Company 2 private document"]),
+    );
+    await ctx.db.insert("case_documents", {
+      tenantId: "bjqaf",
+      caseId: company2Case,
+      caseNumber: "COMPANY-2-PRIVATE-CASE",
+      fileName: "company-2-private.pdf",
+      storageId: company2DocumentStorageId,
+      uploadedByCode: "BJQAF",
+      uploadedByName: "Company 2 administrator",
+      uploadedAt: new Date(now).toISOString(),
+    });
+    await ctx.db.insert("call_compliance", {
+      callId: "company-2-recorded-call",
+      tenantId: "bjqaf",
+      participantCodes: ["DSSYY", "FRGOD"],
+      consentedCodes: ["DSSYY", "FRGOD"],
+      declinedCodes: [],
+      status: "stopped",
+      requestedBy: "BJQAF",
+      requestedAt: now,
+      stoppedAt: now,
+      translationEnabled: true,
+    });
+    await ctx.db.insert("call_transcripts", {
+      callId: "company-2-recorded-call",
+      tenantId: "bjqaf",
+      speakerCode: "DSSYY",
+      speakerName: "New Line2 user",
+      text: "Company 2 private transcript",
+      createdAt: now,
+    });
+    const company2RecordingStorageId = await ctx.storage.store(
+      new Blob(["Company 2 private recording"]),
+    );
+    await ctx.db.insert("call_recordings", {
+      callId: "company-2-recorded-call",
+      tenantId: "bjqaf",
+      participantCode: "DSSYY",
+      participantName: "New Line2 user",
+      storageId: company2RecordingStorageId,
       mimeType: "audio/webm",
       createdAt: now,
     });
@@ -407,18 +480,27 @@ async function insertActiveRecording(
 }
 
 describe("administrator company isolation", () => {
-  test("BJQAF can view and manage only Company 2 authorization codes", async () => {
+  test("BJQAF manages legacy nyfbi users plus the fixed Company 2 user cohort", async () => {
     const { t } = await setup();
     const visible = await t.query(api.admin.getAllowedCodes, {
       password: "BJQAF:bjqaf-admin-device",
     });
     const visibleCodes = new Set(visible.map((record) => record.code));
 
-    for (const code of [...newFullCodes, ...newLimitedCodes])
+    for (const code of ["LEGAC", ...newFullCodes, ...newLimitedCodes])
       expect(visibleCodes.has(code), code).toBe(true);
     for (const code of ["NERSP", ...oldFullCodes, ...oldLimitedCodes, "NEXTR"])
       expect(visibleCodes.has(code), code).toBe(false);
-    expect(visibleCodes.size).toBe(60);
+    expect(visibleCodes.has("FUTR2")).toBe(true);
+    expect(visibleCodes.size).toBe(62);
+
+    await expect(
+      t.mutation(api.roleManagement.setEnabled, {
+        password: "BJQAF:bjqaf-admin-device",
+        targetCode: "LEGAC",
+        enabled: false,
+      }),
+    ).resolves.toBeNull();
 
     await expect(
       t.mutation(api.roleManagement.setEnabled, {
@@ -441,6 +523,90 @@ describe("administrator company isolation", () => {
         enabled: false,
       }),
     ).rejects.toThrow();
+  });
+
+  test("NFHSJ manages its legacy codes plus exactly the fixed 60 Company 2 user codes", async () => {
+    const { t } = await setup();
+    const password = "NFHSJ:legacy-admin-device";
+    const visible = await t.query(api.admin.getAllowedCodes, { password });
+    const visibleCodes = new Set(visible.map((record) => record.code));
+
+    expect(visibleCodes.has("LEGAC")).toBe(true);
+    for (const code of [...newFullCodes, ...newLimitedCodes])
+      expect(visibleCodes.has(code), code).toBe(true);
+    for (const code of [
+      "BJQAF",
+      "NERSP",
+      "FUTR2",
+      ...oldFullCodes,
+      ...oldLimitedCodes,
+    ])
+      expect(visibleCodes.has(code), code).toBe(false);
+    expect(visibleCodes.size).toBe(61);
+
+    await expect(
+      t.mutation(api.roleManagement.setEnabled, {
+        password,
+        targetCode: "DSSYY",
+        enabled: false,
+      }),
+    ).resolves.toBeNull();
+    for (const targetCode of ["BJQAF", "FUTR2", "XPHHV"])
+      await expect(
+        t.mutation(api.roleManagement.setEnabled, {
+          password,
+          targetCode,
+          enabled: false,
+        }),
+      ).rejects.toThrow();
+  });
+
+  test("NFHSJ code-management delegation does not expose Company 2 business data", async () => {
+    const { t } = await setup();
+    await t.run((ctx) => {
+      const now = Date.now();
+      return ctx.db.insert("live_calls", {
+        callId: "company-2-private-call",
+        roomName: "company-2-private-room",
+        type: "audio",
+        status: "connected",
+        participantCodes: ["DSSYY", "FRGOD"],
+        createdByCode: "DSSYY",
+        callerUserId: "DSSYY",
+        calleeUserId: "FRGOD",
+        createdAt: now,
+        lastActivityAt: now,
+      });
+    });
+    const nfhsjPassword = "NFHSJ:legacy-admin-device";
+    const bjqafPassword = "BJQAF:bjqaf-admin-device";
+    const readBusinessData = async (password: string) => {
+      const [cases, documents, calls, compliance] = await Promise.all([
+        t.query(api.admin.getAllCases, { password }),
+        t.query(api.caseDocuments.listAll, { password }),
+        t.query(api.admin.getActiveCalls, { password }),
+        t.query(api.callCompliance.adminDashboard, { password }),
+      ]);
+      return {
+        cases: cases.map((record) => record.caseNumber),
+        documents: documents.map((record) => record.fileName),
+        calls: calls.map((record) => record.id),
+        compliance: compliance.map((record) => record.callId),
+      };
+    };
+
+    await expect(readBusinessData(nfhsjPassword)).resolves.toEqual({
+      cases: [],
+      documents: [],
+      calls: [],
+      compliance: [],
+    });
+    await expect(readBusinessData(bjqafPassword)).resolves.toEqual({
+      cases: ["COMPANY-2-PRIVATE-CASE"],
+      documents: ["company-2-private.pdf"],
+      calls: ["company-2-private-call"],
+      compliance: ["company-2-recorded-call"],
+    });
   });
 
   test("delegated code management does not expose Company 1 cases, documents, calls, or recordings", async () => {

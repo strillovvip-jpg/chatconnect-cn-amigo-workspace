@@ -140,6 +140,35 @@ const COMPANY_2_USER_CODES = new Set([
   ...COMPANY_2_LIMITED_CODES,
 ]);
 
+/**
+ * NFHSJ and BJQAF share authorization-code administration without merging
+ * tenant-owned business data. NFHSJ receives only the fixed Company 2 cohort;
+ * BJQAF receives legacy nyfbi users but never administrators.
+ */
+export function administratorHasDelegatedCodeAccess(
+  administratorCode: string | undefined,
+  administratorTenantId: string,
+  targetCode: string,
+  targetTenantId: string,
+  targetRole: string,
+) {
+  if (targetRole !== "user") return false;
+  const administrator = normalize(administratorCode ?? "");
+  const administratorTenant = administratorTenantId.trim().toLowerCase();
+  const targetTenant = targetTenantId.trim().toLowerCase();
+  if (
+    administrator === "NFHSJ" &&
+    administratorTenant === "nyfbi" &&
+    targetTenant === COMPANY_2_TENANT_ID
+  )
+    return COMPANY_2_USER_CODES.has(normalize(targetCode));
+  return (
+    administrator === "BJQAF" &&
+    administratorTenant === COMPANY_2_TENANT_ID &&
+    targetTenant === "nyfbi"
+  );
+}
+
 export function explicitCodeHasExpectedTenantAndRole(
   code: string,
   tenantId: string,
